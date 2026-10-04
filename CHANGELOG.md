@@ -2,6 +2,13 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.2] - 2026-10-04
+
+### Changed
+
+- Σ tokens per second is the average of each call's own rate, not total output over total
+  API time.
+
 ## [0.5.1] - 2026-10-04
 
 ### Fixed

@@ -22,7 +22,8 @@ type and status instead of the main session's.
   harness, agent, model and effort, IDE, prompt-cache timer, compaction tally, context fill, uptime, and the 5-hour and 7-day rate limits.
 - **Line 2:** the last main-loop API call (Δ) and the session totals (Σ), each with
   tokens sent, cache writes, cache reads, output, tokens per second, cache hit, lines,
-  API time and cost. Σ's tokens per second is the session average.
+  API time and cost. Σ's tokens per second is the average of each call's own rate, so
+  idle time and a few long calls don't skew it.
 - **Line 3:** the folder, then two sections:
   - **The checked-out branch:** what the next commit would hold, the working tree against
     `HEAD` (files added, changed and deleted, and lines).

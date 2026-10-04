@@ -832,8 +832,13 @@ export const register: Register = (on, options) => {
         ...prev,
         requests: prev.requests + 1,
         input: prev.input + u.input_tokens,
-        // Totals kept from a build without `output` stay without it: a count from mid-session would read low.
+        // Totals kept from an earlier build stay without the counts it lacked: a count from mid-session would read low.
         output: prev.output === undefined ? undefined : prev.output + u.output_tokens,
+        ...(prev.tpsSum === undefined || prev.tpsCalls === undefined
+          ? {}
+          : u.output_tokens > 0 && apiMs > 0
+            ? { tpsSum: prev.tpsSum + u.output_tokens / (apiMs / 1000), tpsCalls: prev.tpsCalls + 1 }
+            : { tpsSum: prev.tpsSum, tpsCalls: prev.tpsCalls }),
         cacheWrite: prev.cacheWrite + u.cache_creation_input_tokens,
         cacheRead: prev.cacheRead + u.cache_read_input_tokens,
         apiMs: prev.apiMs + apiMs,
