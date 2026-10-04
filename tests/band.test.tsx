@@ -84,7 +84,7 @@ type StartOptions = {
   env?: Record<string, string>
   run?: (argv: readonly string[], env: unknown) => Run
   sessionFile?: unknown
-  agentFiles?: Record<string, string>
+  files?: Record<string, string>
 }
 
 async function startSession($: { session: { start: (e: never) => Promise<unknown> } }, on: On, opts: StartOptions = {}) {
@@ -106,13 +106,13 @@ async function startSession($: { session: { start: (e: never) => Promise<unknown
   on('fs.list', ($, e) => {
     const path = String((e as { path?: string }).path).replace(/\\/g, '/')
     if (opts.sessionFile !== undefined && /sessions$/.test(path)) return { value: [entry('1.json')] } as never
-    if (path === 'C:/nobody/.claude/agents') return { value: Object.keys(opts.agentFiles ?? {}).map(entry) } as never
+    if (path === 'C:/nobody/.claude/agents') return { value: Object.keys(opts.files ?? {}).filter(n => n.endsWith('.md')).map(entry) } as never
     return { value: [] }
   })
   on('fs.read', ($, e) => {
     const path = String((e as { path?: string }).path).replace(/\\/g, '/')
-    const agentFile = Object.entries(opts.agentFiles ?? {}).find(([name]) => path.endsWith(`/${name}`))
-    if (agentFile) return { value: agentFile[1] }
+    const file = Object.entries(opts.files ?? {}).find(([name]) => path.endsWith(`/${name}`))
+    if (file) return { value: file[1] }
     if (opts.sessionFile !== undefined && /sessions/.test(path)) return { value: JSON.stringify(opts.sessionFile) }
     throw new Error(`ENOENT ${path}`)
   })
@@ -695,7 +695,7 @@ test('the lines above and below open rows follow the prompt border', async ($, o
 test('the agent setting names the agent after the harness and its file colour tints the band', async ($, on) => {
   engine(on)
   extraSettings = { agent: 'reviewer' }
-  await startSession($, on, { sessionFile: { sessionId: 'abc', name: 'peer' }, agentFiles: { 'reviewer.md': '---\nname: reviewer\ncolor: blue\n---\nReview.' } })
+  await startSession($, on, { sessionFile: { sessionId: 'abc', name: 'peer' }, files: { 'reviewer.md': '---\nname: reviewer\ncolor: blue\n---\nReview.' } })
   await step($, 'claude-opus-5-5', 'high')
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   expect(await bandText(band)).toContain('Claude reviewer Opus 5.5 high')
@@ -709,9 +709,60 @@ test('the agent setting names the agent after the harness and its file colour ti
 
 test('a subagent transcript takes the colour its agent file gives its type', async ($, on) => {
   engine(on)
-  await startSession($, on, { agentFiles: { 'explore.md': '---\nname: Explore\ncolor: green\n---\n' } })
+  await startSession($, on, { files: { 'explore.md': '---\nname: Explore\ncolor: green\n---\n' } })
   await step($, 'claude-sonnet-5-5', 'low', 'a1')
   const sub = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props('a1') })
   expect((await sub.find({ key: 'model-chip' }))?.props['props']).toMatchObject({ color: 'green_FOR_SUBAGENTS_ONLY' })
   await sub.unmount()
+})
+
+test('hovering the call telemetry shows the last calls as a chart', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  const chip = await band.find({ key: 'calls-chip' })
+  expect((chip?.props['props'] as { text: string }).text).toStartWith('Δ ↑10')
+  expect((chip?.props['props'] as { parts?: unknown[] }).parts?.length).toBeGreaterThan(1)
+  await band.post({ hover: true }, { in: 'calls-chip' })
+  await clock.advance(110)
+  const lines = ((await band.find({ key: 'calls-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
+  expect(lines).toHaveLength(6)
+  expect(lines.at(-1)?.at(-1)?.text).toBe('last 2 calls')
+  await band.post({ hover: false }, { in: 'calls-chip' })
+  await band.post({ hover: true }, { in: 'totals-chip' })
+  await clock.advance(110)
+  const totals = ((await band.find({ key: 'totals-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
+  expect(totals.at(-1)?.at(-1)?.text).toBe('2 calls this session')
+  await band.unmount()
+})
+
+test('each step adds to the shared usage file, and hovering the rate limits charts it with other sessions', async ($, on) => {
+  engine(on)
+  const writes: { path: string; text: string }[] = []
+  on('fs.write', ($, e) => {
+    const w = e as { path: string; text: string }
+    writes.push({ path: w.path.replace(/\\/g, '/'), text: w.text })
+    return { value: undefined } as never
+  })
+  const today = new Date(START + 60_000)
+  const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const other = JSON.stringify({ version: 1, days: { [day]: { other: { tokens: 1_000_000, costStart: 0, costEnd: 2 } } } })
+  await startSession($, on, { files: { 'the-index-usage.json': other } })
+  await step($, 'claude-opus-5-5', 'high')
+  await step($, 'claude-sonnet-5-5', 'low', 'a1')
+  await clock.advance(5100)
+  const write = writes.filter(w => w.path.endsWith('/the-index-usage.json')).at(-1)
+  expect(write?.path).toBe('C:/nobody/.claude/the-index-usage.json')
+  const saved = JSON.parse(write?.text ?? '{}') as { days: Record<string, Record<string, { tokens: number }>> }
+  expect(saved.days[day]?.['other']?.tokens).toBe(1_000_000)
+  expect(saved.days[day]?.['abc']?.tokens).toBe(2 * 10_200)
+
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ hover: true }, { in: 'usage-chip' })
+  await clock.advance(110)
+  const lines = ((await band.find({ key: 'usage-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
+  expect(lines.map(l => l.at(-1)?.text)).toContain('today 1.0M')
+  expect(lines.at(-1)?.at(-1)?.text).toBe(`since ${day}`)
+  await band.unmount()
 })

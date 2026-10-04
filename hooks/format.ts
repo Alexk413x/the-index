@@ -256,7 +256,7 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   return Math.max(1000, Math.min(...candidates))
 }
 
-export type Menu = 'harness' | 'effort' | 'model' | 'session' | 'project'
+export type Menu = 'harness' | 'effort' | 'model' | 'session' | 'project' | 'calls' | 'totals' | 'usage'
 export type Seg = { text: string; color: string; href?: string; menu?: Menu }
 export type Part = readonly Seg[]
 export type Line = readonly Part[]
@@ -375,16 +375,18 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
       [usage?.fiveHour, fiveHourGlyph(usage?.fiveHour, snap.now), `${SHADE}h${SHADE.repeat(2)}m`],
       [usage?.sevenDay, SYM_7D, `${SHADE}d${SHADE.repeat(2)}h`],
     ]
+    const limits: Seg[][] = []
     for (const [rl, sym, blank] of windows) {
       if (rl && !(rl.resetsAt && rl.resetsAt <= snap.now)) {
         const p = Math.trunc(rl.usedPercentage)
         const bits: Seg[] = [icon(sym), sp, seg(`${p}%`, ctxColor(p))]
         if (rl.resetsAt) bits.push(sp, seg(fmtUntil(rl.resetsAt, snap.now), c.resets))
-        gauges.push(bits)
+        limits.push(bits)
       } else {
-        gauges.push([icon(sym), sp, seg(`${SHADE.repeat(2)}%`, c.good), sp, seg(blank, c.resets)])
+        limits.push([icon(sym), sp, seg(`${SHADE.repeat(2)}%`, c.good), sp, seg(blank, c.resets)])
       }
     }
+    gauges.push(withMenu(joinWith(limits, sp), 'usage'))
   }
   if (gauges.length) line1.push(joinWith(gauges, sp))
 
@@ -426,7 +428,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         [icon('$'), seg(call.costUsd === null ? `${SHADE}.${SHADE.repeat(2)}` : fmtCost(call.costUsd), v)],
       )
     }
-    line2.push([icon(SYM_CALL), sp, ...joinWith(bits, sp)])
+    line2.push(withMenu([icon(SYM_CALL), sp, ...joinWith(bits, sp)], 'calls'))
   }
   if (cfg.show.totals) {
     const v = c.totals
@@ -455,7 +457,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         [icon('$'), seg(cost === null || cost === undefined ? `${SHADE}.${SHADE.repeat(2)}` : fmtCost(cost), v)],
       ]
     }
-    line2.push([icon(SYM_TOT), sp, ...joinWith(bits, sp)])
+    line2.push(withMenu([icon(SYM_TOT), sp, ...joinWith(bits, sp)], 'totals'))
   }
 
   const line3: Part[] = []
@@ -525,6 +527,10 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   }
 
   return [line1, line2, line3].filter(l => l.length > 0)
+}
+
+function withMenu(segs: readonly Seg[], menu: Menu): Seg[] {
+  return segs.map(s => ({ ...s, menu }))
 }
 
 function joinWith(groups: readonly Seg[][], sep: Seg): Seg[] {

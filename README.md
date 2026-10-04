@@ -94,6 +94,24 @@ Hover the session name for a table of the session name and full id with its star
 time, the agent and its colour, the Remote Control session id and attached clients when
 linked, and the folder with the Claude Code version.
 
+## Charts
+
+Hover a section of the band for a chart in a row above it:
+
+- **Δ (the last call):** the last 10 main-loop calls, with one line for each call's
+  tokens and one for its cost, and the peak of each.
+- **Σ (the session totals):** the running total of tokens and cost across every call this
+  session, so the steep steps show where the big calls were.
+- **The rate limits:** tokens per day for the last 30 days as bars, with today's tokens,
+  the 30-day and all-time totals, and their cost.
+
+Tokens count input, cache writes, cache reads and output. Click a section to pin its
+chart, as with the other rows.
+
+The daily chart reads `the-index-usage.json` in your Claude config folder. Every session
+running the band adds its own tokens and cost per day there, main loop and subagents
+alike, so the chart covers usage since you installed the band, and says since when.
+
 ## Colours
 
 The band's values (session, model, effort, IDE, uptime, resets, telemetry, folder and
@@ -194,6 +212,9 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
 - **Agent colour.** The band reads agent files in your user and project `agents`
   folders. A plugin's agents, agents passed with `--agents`, and a `/color` override
   aren't in the API, so they keep the primary colour.
+- **Daily usage.** Claude Code keeps no daily history a mod can read. The band counts
+  usage from the day it was installed, in sessions where it runs, and shows days before
+  that as `·`.
 - **Project link.** A band link takes only `https:`, so the folder name isn't a
   `file://` link; clicking it opens the folder through the operating system instead.
 

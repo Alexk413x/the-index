@@ -82,9 +82,15 @@ export type IndexHost = {
   project: string
 }
 
-export type IndexPanel = 'harness' | 'effort' | 'model' | 'session'
+export type IndexPanel = 'harness' | 'effort' | 'model' | 'session' | 'calls' | 'totals' | 'usage'
 
 export type IndexHarness = { name: string; label: string }
+
+export type IndexCallPoint = { at: number; tokens: number; costUsd: number | null }
+
+export type IndexDayTotal = { date: string; tokens: number; costUsd: number | null }
+
+export type IndexUsageSummary = { days: readonly IndexDayTotal[]; allTokens: number; allCostUsd: number; since: string | null }
 
 export type IndexHover = { panel: IndexPanel; closing: boolean }
 
@@ -107,6 +113,8 @@ declare module 'claude-code' {
       harnesses: readonly IndexHarness[] | null
       ultracode: boolean
       agentColors: Readonly<Record<string, string>>
+      callLog: readonly IndexCallPoint[]
+      usageSummary: IndexUsageSummary | null
     }
   }
 }

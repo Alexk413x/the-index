@@ -1,10 +1,17 @@
 import type { ClientModule } from 'claude-code'
 
-type ChipProps = { text: string; color: string; look?: 'button' | 'link'; isActive?: boolean; href?: string }
+type ChipProps = {
+  text: string
+  color: string
+  look?: 'button' | 'link'
+  isActive?: boolean
+  href?: string
+  parts?: { text: string; color: string }[]
+}
 type ChipState = { isHovered: boolean }
 
 const Chip: ClientModule<ChipProps, ChipState> = (props, surface) => {
-  const { Text } = surface.elements
+  const { Box, Text } = surface.elements
   if (surface.state === undefined) {
     surface.setState({ isHovered: false })
     surface.onPointer(e => {
@@ -22,6 +29,17 @@ const Chip: ClientModule<ChipProps, ChipState> = (props, surface) => {
     })
   }
   const isHovered = surface.state?.isHovered === true
+  if (props.parts) {
+    return (
+      <Box flexDirection="row">
+        {props.parts.map((part, i) => (
+          <Text key={`part${i}`} color={part.color} underline={isHovered || props.isActive === true}>
+            {part.text}
+          </Text>
+        ))}
+      </Box>
+    )
+  }
   return props.look === 'link' ? (
     <Text color={props.color} underline={isHovered}>
       {props.text}

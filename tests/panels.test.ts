@@ -32,6 +32,8 @@ function view(over: Partial<PanelView> = {}): PanelView {
     host: HOST,
     startedAt: null,
     attached: 0,
+    callLog: [],
+    usage: null,
     ...over,
   }
 }

@@ -2,9 +2,14 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-10-04
 
 ### Added
+
+- Charts on hover: the last 10 calls' tokens and cost (Δ), the session's running totals
+  (Σ), and daily tokens for the last 30 days with all-time totals (the rate limits).
+- `the-index-usage.json` in the Claude config folder: each session's tokens and cost per
+  day, shared by every session running the band.
 
 - `color_primary`, the colour of the band's values, orange by default.
 - The agent's name after the harness on line 1, and an Agent row in the session table.

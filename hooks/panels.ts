@@ -1,14 +1,19 @@
-import type { IndexAgentStep, IndexEffort, IndexHarness, IndexHost, IndexPanel } from '../types'
-import { MAIN, MODEL_CHOICES, fmtNum, modelLabel, type Config } from './format'
+import type { IndexAgentStep, IndexCallPoint, IndexEffort, IndexHarness, IndexHost, IndexPanel } from '../types'
+import { barChart, lineChart } from './charts'
+import { MAIN, MODEL_CHOICES, fmtCost, fmtNum, modelLabel, type Config } from './format'
 import { isRecord } from './git'
+import type { UsageSummary } from './ledger'
 
-export type RowItem = { text: string; color: string; pick?: string; pad?: number }
+export type RowItem = { text: string; color: string; pick?: string; pad?: number; tight?: boolean }
 
-export const PANELS: readonly IndexPanel[] = ['harness', 'effort', 'model', 'session']
+export const PANELS: readonly IndexPanel[] = ['harness', 'effort', 'model', 'session', 'calls', 'totals', 'usage']
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export const ROW_GAP = 2
 export const TITLE_WIDTH = 10
 export const MIDDLE_WIDTH = 60
+export const CHART_HEIGHT = 6
+export const RECENT_CALLS = 10
+export const USAGE_DAYS = 30
 
 type Settings = Readonly<Record<string, unknown>>
 
@@ -65,10 +70,12 @@ export type PanelView = {
   agentColor?: string
   startedAt: number | null
   attached: number
+  callLog: readonly IndexCallPoint[]
+  usage: UsageSummary | null
 }
 
 export function sectionWidth(items: readonly RowItem[]): number {
-  return items.reduce((sum, item) => sum + item.text.length + (item.pad ?? 0), 0) + ROW_GAP * Math.max(0, items.length - 1)
+  return items.reduce((sum, item, i) => sum + item.text.length + (item.pad ?? 0) + (i > 0 && !item.tight ? ROW_GAP : 0), 0)
 }
 
 export function padTo(items: readonly RowItem[], width: number): RowItem[] {
@@ -91,6 +98,64 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   const middle = (items: RowItem[]) => padTo(items, MIDDLE_WIDTH)
   const middleEndingWith = (items: RowItem[], end: RowItem) => [...padTo(items, MIDDLE_WIDTH - ROW_GAP - end.text.length), end]
   const recache = note(`may re-cache ${view.contextTokens ? `about ${fmtNum(view.contextTokens)} tokens` : 'the conversation'}`)
+
+  const chartRows = (label: string, chart: RowItem[][], notes: readonly (RowItem | null)[]): RowItem[][] =>
+    chart.map((row, r) => [r === 0 ? title(label) : { ...note(''), pad: TITLE_WIDTH }, ...row, ...(notes[r] ? [notes[r]] : [])])
+  const tokensColor = cfg.colors.model
+  const costColor = cfg.colors.cold
+  const colored = (text: string, color: string): RowItem => ({ text, color })
+
+  if (panel === 'calls' || panel === 'totals') {
+    const log = panel === 'calls' ? view.callLog.slice(-RECENT_CALLS) : view.callLog
+    let sumTokens = 0
+    let sumCost = 0
+    const tokens = log.map(c => (panel === 'calls' ? c.tokens : (sumTokens += c.tokens)))
+    const costs = log.map(c => (panel === 'calls' ? (c.costUsd ?? 0) : (sumCost += c.costUsd ?? 0)))
+    const chart = lineChart(
+      [
+        { values: tokens, color: tokensColor },
+        { values: costs, color: costColor },
+      ],
+      MIDDLE_WIDTH,
+      CHART_HEIGHT,
+      cfg.colors.icons,
+    )
+    const peak = (values: number[]) => Math.max(0, ...values)
+    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
+    if (log.length === 0) {
+      notes[CHART_HEIGHT - 1] = note('no calls yet')
+    } else if (panel === 'calls') {
+      notes[0] = colored(`▲ ${fmtNum(peak(tokens))} tokens`, tokensColor)
+      notes[1] = colored(`▲ $${fmtCost(peak(costs))}`, costColor)
+      notes[CHART_HEIGHT - 1] = note(`last ${log.length} ${log.length === 1 ? 'call' : 'calls'}`)
+    } else {
+      notes[0] = colored(`${fmtNum(sumTokens)} tokens`, tokensColor)
+      notes[1] = colored(`$${fmtCost(sumCost)}`, costColor)
+      notes[CHART_HEIGHT - 1] = note(`${log.length} ${log.length === 1 ? 'call' : 'calls'} this session`)
+    }
+    return chartRows(panel === 'calls' ? 'Calls' : 'Totals', chart, notes)
+  }
+
+  if (panel === 'usage') {
+    const usage = view.usage
+    const days = usage?.days ?? []
+    const values = usage ? days.map(d => (usage.since && d.date >= usage.since ? d.tokens : null)) : Array<null>(USAGE_DAYS).fill(null)
+    const chart = barChart(values, Math.max(1, Math.floor(MIDDLE_WIDTH / USAGE_DAYS)), CHART_HEIGHT, tokensColor, cfg.colors.icons)
+    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
+    if (!usage?.since) {
+      notes[CHART_HEIGHT - 1] = note('no usage recorded yet')
+    } else {
+      const known = days.filter(d => d.date >= (usage.since ?? ''))
+      const monthTokens = known.reduce((sum, d) => sum + d.tokens, 0)
+      const monthCost = known.reduce((sum, d) => sum + (d.costUsd ?? 0), 0)
+      notes[0] = colored(`▲ ${fmtNum(Math.max(0, ...known.map(d => d.tokens)))} a day`, tokensColor)
+      notes[1] = colored(`today ${fmtNum(days[days.length - 1]?.tokens ?? 0)}`, tokensColor)
+      notes[2] = note(`${days.length} days ${fmtNum(monthTokens)} · $${fmtCost(monthCost)}`)
+      notes[3] = note(`all time ${fmtNum(usage.allTokens)} · $${fmtCost(usage.allCostUsd)}`)
+      notes[CHART_HEIGHT - 1] = note(`since ${usage.since}`)
+    }
+    return chartRows('Usage', chart, notes)
+  }
 
   if (panel === 'harness') {
     if (!view.harnesses) return []

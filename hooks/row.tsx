@@ -19,9 +19,10 @@ function fadeColor(hex: string, amount: number): string {
 
 function pickAt(lines: RowItem[][], gap: number, x: number, y: number): string | null {
   let col = 0
-  for (const item of lines[y] ?? []) {
+  for (const [i, item] of (lines[y] ?? []).entries()) {
+    if (i > 0 && !item.tight) col += gap
     if (x >= col && x < col + item.text.length) return item.pick ?? null
-    col += item.text.length + (item.pad ?? 0) + gap
+    col += item.text.length + (item.pad ?? 0)
   }
   return null
 }
@@ -90,7 +91,7 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
               key={`item${y}-${i}`}
               color={fadeColor(item.pick !== undefined && item.pick === state.hovered ? props.hoverColor : item.color, amount)}
             >
-              {i > 0 ? ' '.repeat(props.gap) : ''}
+              {i > 0 && !item.tight ? ' '.repeat(props.gap) : ''}
               {item.text}
               {' '.repeat(item.pad ?? 0)}
             </Text>

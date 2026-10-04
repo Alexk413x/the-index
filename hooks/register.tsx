@@ -23,6 +23,7 @@ import {
   EFFORTS,
   PANELS,
   ROW_GAP,
+  USAGE_DAYS,
   currentChoices,
   mainStep,
   panelLines,
@@ -42,6 +43,7 @@ import {
   serializeSharedLimits,
 } from './git'
 import { agentColorKey, parseAgentFile } from './agents'
+import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type LedgerEntry } from './ledger'
 
 const agents = atom({ plugin: 'the-index', key: 'agents' } as const, {})
 const call = atom({ plugin: 'the-index', key: 'call' } as const, null)
@@ -59,6 +61,8 @@ const hover = atom({ plugin: 'the-index', key: 'hover' } as const, null)
 const harnesses = atom({ plugin: 'the-index', key: 'harnesses' } as const, null)
 const ultracode = atom({ plugin: 'the-index', key: 'ultracode' } as const, false)
 const agentColors = atom({ plugin: 'the-index', key: 'agentColors' } as const, {})
+const callLog = atom({ plugin: 'the-index', key: 'callLog' } as const, [])
+const usageSummary = atom({ plugin: 'the-index', key: 'usageSummary' } as const, null)
 
 const EWMA_ALPHA = 0.3
 const COMPACTION_DROP = 30
@@ -384,6 +388,50 @@ async function recordEdit($: EngineInterface, result: unknown): Promise<void> {
   }))
 }
 
+const CALL_LOG_MAX = 500
+const LEDGER_WRITE_MS = 5000
+const LEDGER_FILE = 'the-index-usage.json'
+const ledgerMine: Record<string, LedgerEntry> = {}
+let ledgerCost: number | null = null
+let ledgerTimer: Timer | undefined
+let ledgerLoaded = false
+
+async function syncLedger($: EngineInterface): Promise<void> {
+  const [dir, sessionId, now] = await Promise.all([configDir($), $.session.id(), $.clock.now()])
+  const path = `${dir}/${LEDGER_FILE}`
+  const onDisk = parseLedger(await readJson($, path))
+  if (!ledgerLoaded) {
+    ledgerLoaded = true
+    for (const [date, sessions] of Object.entries(onDisk)) {
+      const entry = sessions[sessionId]
+      if (entry && !ledgerMine[date]) ledgerMine[date] = entry
+    }
+  }
+  const merged = mergeLedger(onDisk, sessionId, ledgerMine)
+  if (Object.keys(ledgerMine).length > 0) await $.fs.write(path, serializeLedger(merged)).catch(() => undefined)
+  await update($, usageSummary, () => summarize(merged, dayKey(now), USAGE_DAYS))
+}
+
+function syncLedgerSoon($: EngineInterface): void {
+  ledgerTimer?.cancel()
+  ledgerTimer = $.clock.after(LEDGER_WRITE_MS, () => {
+    void syncLedger($)
+  })
+}
+
+async function recordStep($: EngineInterface, tokens: number): Promise<void> {
+  const [now, measured] = await Promise.all([$.clock.now(), $.session.usage()])
+  const cost = measured.cost?.usd ?? null
+  const day = dayKey(now)
+  const entry = (ledgerMine[day] ??= { tokens: 0, costStart: ledgerCost ?? cost, costEnd: cost })
+  entry.tokens += tokens
+  if (cost !== null) {
+    entry.costEnd = cost
+    ledgerCost = cost
+  }
+  syncLedgerSoon($)
+}
+
 let tickTimer: Timer | undefined
 let gitTimer: Timer | undefined
 let gitDir = ''
@@ -573,6 +621,10 @@ export const register: Register = (on, options) => {
       refreshHost($),
       refreshGit($),
       loadHarnesses($),
+      $.session.usage().then(u => {
+        ledgerCost = u.cost?.usd ?? null
+      }),
+      syncLedger($),
       $.session.usage().then(u => recordUsage($, u)),
     ])
     hostAt = await $.clock.now()
@@ -586,7 +638,10 @@ export const register: Register = (on, options) => {
     $.clock.every(GIT_STAT_EVERY_MS, () => {
       void refreshHostUntilLinked($)
     })
-    $.clock.every(GIT_FULL_EVERY_MS, () => refreshGitSoon($))
+    $.clock.every(GIT_FULL_EVERY_MS, () => {
+      refreshGitSoon($)
+      void syncLedger($)
+    })
     return result
   })
 
@@ -692,6 +747,13 @@ export const register: Register = (on, options) => {
       await update($, agents, prev => ({ ...prev, [key]: { model: e.model, effort } }))
       $.ui.toast(`${modelLabel(chosenModel)} did not answer, so the band went back to the session's model.`)
     }
+    const stepUsage = result.usage
+    if (stepUsage) {
+      await recordStep(
+        $,
+        stepUsage.input_tokens + stepUsage.cache_creation_input_tokens + stepUsage.cache_read_input_tokens + stepUsage.output_tokens,
+      )
+    }
     if (e.agentId !== undefined || !result.usage) return result
 
     const endedAt = await $.clock.now()
@@ -729,6 +791,14 @@ export const register: Register = (on, options) => {
       linesAdded: before.linesAdded - before.markAdded,
       linesRemoved: before.linesRemoved - before.markRemoved,
     }))
+    await update($, callLog, prev => [
+      ...prev.slice(-(CALL_LOG_MAX - 1)),
+      {
+        at: endedAt,
+        tokens: u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens + u.output_tokens,
+        costUsd: cost === null ? null : cost - (before.markCostUsd ?? cost),
+      },
+    ])
     return result
   })
 
@@ -759,7 +829,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf] =
+    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary] =
       await Promise.all([
         read($, agents),
         read($, call),
@@ -777,6 +847,8 @@ export const register: Register = (on, options) => {
         read($, harnesses),
         read($, ultracode),
         read($, agentColors),
+        read($, callLog),
+        read($, usageSummary),
       ])
     const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
     const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
@@ -826,6 +898,8 @@ export const register: Register = (on, options) => {
       agentColor,
       startedAt: measured?.startedAt ?? null,
       attached,
+      callLog: calls,
+      usage: summary,
     }
     const isPinned = (panel: IndexPanel) => pinnedList.includes(panel)
 
@@ -886,7 +960,8 @@ export const register: Register = (on, options) => {
           const runs: Seg[][] = []
           for (const s of segs) {
             const last = runs[runs.length - 1]
-            if (last && !s.menu && !last[0]?.menu && last[0]?.href === s.href) last.push(s)
+            const head = last?.[0]
+            if (last && head && (s.menu ? head.menu === s.menu : !head.menu && head.href === s.href)) last.push(s)
             else runs.push([s])
           }
           return (
@@ -901,7 +976,12 @@ export const register: Register = (on, options) => {
                     <Client
                       key={`${panel}-chip`}
                       module="./chip.tsx"
-                      props={{ text: first.text, color: first.color, isActive: isPinned(panel) }}
+                      props={{
+                        text: run.map(s => s.text).join(''),
+                        color: first.color,
+                        isActive: isPinned(panel),
+                        ...(run.length > 1 ? { parts: run.map(s => ({ text: s.text, color: s.color })) } : {}),
+                      }}
                     />
                   )
                 }
