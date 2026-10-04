@@ -2,6 +2,13 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-10-04
+
+### Changed
+
+- The cost chart labels read "costs more" and "costs less" instead of "dearer" and
+  "cheaper".
+
 ## [0.6.0] - 2026-10-04
 
 ### Added
