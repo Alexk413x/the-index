@@ -232,13 +232,17 @@ describe('chart rows', () => {
     output: (i + 1) * 100,
     apiMs: 1000,
     costUsd: ((i % 3) + 1) / 100,
+    cacheWrite: (i + 1) * 100,
+    linesAdded: (i % 4) * 10,
+    linesRemoved: (i % 2) * 5,
   }))
 
   test('calls, totals and usage draw a chart in the middle column with notes after it', () => {
-    for (const panel of ['calls', 'totals', 'usage'] as const) {
+    const heights = { calls: TURN_HALF * 2 + 1, callLines: CHART_HEIGHT, totals: 7, totalLines: CHART_HEIGHT, usage: CHART_HEIGHT }
+    for (const panel of ['calls', 'callLines', 'totals', 'totalLines', 'usage'] as const) {
       const lines = panelLines(panel, view({ callLog: calls }))
-      const chartLines = panel === 'calls' ? lines.slice(0, TURN_HALF * 2 + 1) : lines
-      expect(chartLines).toHaveLength(panel === 'calls' ? TURN_HALF * 2 + 1 : CHART_HEIGHT)
+      const chartLines = lines.slice(0, heights[panel])
+      expect(chartLines).toHaveLength(heights[panel])
       for (const line of chartLines) {
         expect(columns(line)[1]).toBe(TITLE_WIDTH + ROW_GAP)
         const chartWidth = line.filter((item, i) => i > 0 && (i === 1 || item.tight)).reduce((sum, item) => sum + item.text.length, 0)
@@ -263,11 +267,43 @@ describe('chart rows', () => {
     expect(cells.find(i => i.hoverId === 'turn-t0')?.detail).toMatch(/^turn 1 · 3\.0k tokens · \$0\.03 · \$10\.00\/M · 50% cache · ↓300 · 150 tok\/s$/)
   })
 
-  test('the totals row sums the session', () => {
+  test('the totals row gives each session total its own line and current value', () => {
     const lines = panelLines('totals', view({ callLog: calls }))
-    expect(lines[0]?.at(-1)?.text).toBe('78k tokens')
-    expect(lines[1]?.at(-1)?.text).toBe('$0.24')
-    expect(lines.at(-1)?.at(-1)?.text).toBe('12 calls this session')
+    expect(lines.map(l => [l[0]?.text.trim(), l.at(-1)?.text])).toEqual([
+      ['↑ sent', '27k'],
+      ['⤒ written', '7.8k'],
+      ['⤓ read', '35k'],
+      ['↓ output', '7.8k'],
+      ['↯ tok/s', '650'],
+      ['⌖ hit', '50%'],
+      ['$ cost', '$0.24'],
+      ['', 'over 12 calls'],
+    ])
+  })
+
+  test('the lines row bars lines per turn, green when cheaper per line than average and red when dearer', () => {
+    const lines = panelLines('callLines', view({ callLog: calls }))
+    const cfg = readConfig({})
+    expect(lines).toHaveLength(CHART_HEIGHT + 1)
+    expect(lines[0]?.at(-1)?.text).toBe('▲ 55 lines')
+    expect(lines[2]?.at(-1)?.text).toBe('avg $0.0011/line')
+    const cells = lines.slice(0, CHART_HEIGHT).flat()
+    expect(cells.find(i => i.hoverId === 'lines-t0' && i.text.trim())?.color).toBe(cfg.colors.bad)
+    expect(cells.find(i => i.hoverId === 'lines-t1' && i.text.trim())?.color).toBe(cfg.colors.good)
+    expect(cells.find(i => i.hoverId === 'lines-t1')?.detail).toBe('turn 2 · +50 -5 lines · 1s · 3297 lines/min · $0.0007/line')
+    expect(lines.at(-1)?.at(-1)).toMatchObject({ text: 'hover a bar for its turn · last 6 of 6', footer: true })
+  })
+
+  test('the session lines row tracks lines, speed and cost per line over the turns', () => {
+    const lines = panelLines('totalLines', view({ callLog: calls }))
+    expect(lines.map(l => l.at(-1)?.text)).toEqual([
+      '+180 -30 lines',
+      expect.stringMatching(/^\d+ lines\/min$/),
+      '$0.0011/line',
+      expect.any(String),
+      expect.any(String),
+      'over 6 turns',
+    ])
   })
 
   test('the usage row says when nothing is recorded, and since when otherwise', () => {
@@ -304,5 +340,7 @@ describe('chart rows', () => {
   test('with no calls yet the charts say so', () => {
     expect(panelLines('calls', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
     expect(panelLines('totals', view({})).at(-1)?.at(-1)?.text).toBe('no calls yet')
+    expect(panelLines('callLines', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
+    expect(panelLines('totalLines', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
   })
 })

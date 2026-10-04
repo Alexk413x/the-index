@@ -84,7 +84,19 @@ export type IndexHost = {
   project: string
 }
 
-export type IndexPanel = 'harness' | 'effort' | 'model' | 'session' | 'context' | 'calls' | 'totals' | 'usage' | 'branch' | 'base'
+export type IndexPanel =
+  | 'harness'
+  | 'effort'
+  | 'model'
+  | 'session'
+  | 'context'
+  | 'calls'
+  | 'callLines'
+  | 'totals'
+  | 'totalLines'
+  | 'usage'
+  | 'branch'
+  | 'base'
 
 export type IndexHarness = { name: string; label: string }
 
@@ -97,6 +109,9 @@ export type IndexCallPoint = {
   output: number
   apiMs: number
   costUsd: number | null
+  cacheWrite?: number
+  linesAdded?: number
+  linesRemoved?: number
 }
 
 export type IndexContextPoint = { at: number; percent: number; tokens: number | null; compaction?: 'manual' | 'auto' | 'plugin' }

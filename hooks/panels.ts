@@ -10,7 +10,7 @@ import type {
   IndexPanel,
   IndexWorktreeLog,
 } from '../types'
-import { barChart, divergingBars, lineChart, markerRow } from './charts'
+import { barChart, columnBars, divergingBars, lineChart, markerRow } from './charts'
 import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
 import { isRecord } from './git'
 import type { UsageSummary } from './ledger'
@@ -26,7 +26,20 @@ export type RowItem = {
   footer?: boolean
 }
 
-export const PANELS: readonly IndexPanel[] = ['harness', 'effort', 'model', 'session', 'context', 'calls', 'totals', 'usage', 'branch', 'base']
+export const PANELS: readonly IndexPanel[] = [
+  'harness',
+  'effort',
+  'model',
+  'session',
+  'context',
+  'calls',
+  'callLines',
+  'totals',
+  'totalLines',
+  'usage',
+  'branch',
+  'base',
+]
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export const ROW_GAP = 2
 export const TITLE_WIDTH = 10
@@ -44,6 +57,10 @@ export type Turn = {
   output: number
   apiMs: number
   costUsd: number | null
+  linesAdded: number | null
+  linesRemoved: number | null
+  start: number
+  end: number
 }
 
 export function groupTurns(log: readonly IndexCallPoint[]): Turn[] {
@@ -53,9 +70,26 @@ export function groupTurns(log: readonly IndexCallPoint[]): Turn[] {
     if (typeof call.turnId !== 'string') continue
     let turn = turns[turns.length - 1]
     if (!turn || turn.id !== call.turnId) {
-      turn = { id: call.turnId, number: turns.length + 1, tokens: 0, input: 0, cacheRead: 0, output: 0, apiMs: 0, costUsd: 0 }
+      turn = {
+        id: call.turnId,
+        number: turns.length + 1,
+        tokens: 0,
+        input: 0,
+        cacheRead: 0,
+        output: 0,
+        apiMs: 0,
+        costUsd: 0,
+        linesAdded: 0,
+        linesRemoved: 0,
+        start: call.at - call.apiMs,
+        end: call.at,
+      }
       turns.push(turn)
     }
+    turn.start = Math.min(turn.start, call.at - call.apiMs)
+    turn.end = Math.max(turn.end, call.at)
+    turn.linesAdded = turn.linesAdded === null || call.linesAdded === undefined ? null : turn.linesAdded + call.linesAdded
+    turn.linesRemoved = turn.linesRemoved === null || call.linesRemoved === undefined ? null : turn.linesRemoved + call.linesRemoved
     turn.tokens += call.tokens
     turn.input += call.input
     turn.cacheRead += call.cacheRead
@@ -64,6 +98,26 @@ export function groupTurns(log: readonly IndexCallPoint[]): Turn[] {
     turn.costUsd = turn.costUsd === null || call.costUsd === null ? null : turn.costUsd + call.costUsd
   }
   return turns
+}
+
+export function turnLines(turn: Turn): number {
+  return (turn.linesAdded ?? 0) + (turn.linesRemoved ?? 0)
+}
+
+function perLine(costUsd: number, lines: number): string {
+  return `$${fmtCost(costUsd / lines)}/line`
+}
+
+function perMinute(lines: number, ms: number): string {
+  return `${ms > 0 ? Math.round(lines / (ms / 60_000)) : 0} lines/min`
+}
+
+export function linesDetail(turn: Turn): string {
+  const lines = turnLines(turn)
+  const parts = [`turn ${turn.number}`, `+${turn.linesAdded ?? 0} -${turn.linesRemoved ?? 0} lines`, fmtDur((turn.end - turn.start) / 1000)]
+  if (lines > 0) parts.push(perMinute(lines, turn.end - turn.start))
+  if (lines > 0 && turn.costUsd !== null) parts.push(perLine(turn.costUsd, lines))
+  return parts.join(' · ')
 }
 
 function perMillion(costUsd: number, tokens: number): string {
@@ -307,30 +361,121 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     return [...chartRows('Cost/tok', chart, notes), [{ ...note(''), pad: TITLE_WIDTH }, footer]]
   }
 
+  if (panel === 'callLines') {
+    const turns = groupTurns(view.callLog).filter(t => t.linesAdded !== null && t.linesRemoved !== null)
+    const priced = turns.filter(t => turnLines(t) > 0 && t.costUsd !== null)
+    const pricedLines = priced.reduce((sum, t) => sum + turnLines(t), 0)
+    const pricedCost = priced.reduce((sum, t) => sum + (t.costUsd ?? 0), 0)
+    const average = pricedLines > 0 ? pricedCost / pricedLines : null
+    const bars = turns.map(t => {
+      const lines = turnLines(t)
+      const cost = lines > 0 && t.costUsd !== null ? t.costUsd / lines : null
+      const color = cost === null || average === null ? cfg.colors.icons : cost <= average ? cfg.colors.good : cfg.colors.bad
+      return { value: lines, color, id: `lines-${t.id}`, detail: linesDetail(t) }
+    })
+    const chart = columnBars(bars, TURN_SLOTS, Math.floor(MIDDLE_WIDTH / TURN_SLOTS) - 1, CHART_HEIGHT, cfg.colors.icons)
+    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
+    const changed = turns.reduce((sum, t) => sum + turnLines(t), 0)
+    if (changed > 0) {
+      const activeMs = turns.reduce((sum, t) => sum + (t.end - t.start), 0)
+      notes[0] = colored(`▲ ${fmtNum(Math.max(...turns.map(turnLines)))} lines`, tokensColor)
+      notes[1] = note(`avg ${perMinute(changed, activeMs)}`)
+      if (average !== null) notes[2] = note(`avg ${perLine(pricedCost, pricedLines)}`)
+      notes[3] = colored('■ cheaper per line', cfg.colors.good)
+      notes[4] = colored('■ dearer per line', cfg.colors.bad)
+    }
+    const footer: RowItem = {
+      text: turns.length
+        ? changed > 0
+          ? `hover a bar for its turn · last ${Math.min(turns.length, TURN_SLOTS)} of ${turns.length}`
+          : 'no lines changed yet'
+        : 'no turns yet',
+      color: cfg.colors.icons,
+      footer: true,
+    }
+    return [...chartRows('Lines', chart, notes), [{ ...note(''), pad: TITLE_WIDTH }, footer]]
+  }
+
   if (panel === 'totals') {
-    const log = view.callLog
-    let sumTokens = 0
-    let sumCost = 0
-    const tokens = log.map(c => (sumTokens += c.tokens))
-    const costs = log.map(c => (sumCost += c.costUsd ?? 0))
+    const log = view.callLog.filter(c => typeof c.turnId === 'string' && typeof c.cacheWrite === 'number')
+    if (log.length === 0) return [[title('Totals'), note('no calls yet')]]
+    const running = <T,>(pick: (sums: Record<string, number>, call: IndexCallPoint) => T): T[] => {
+      const sums: Record<string, number> = { sent: 0, write: 0, read: 0, input: 0, output: 0, cost: 0, tps: 0, tpsCalls: 0 }
+      return log.map(call => {
+        sums['sent'] = (sums['sent'] ?? 0) + call.input - (call.cacheWrite ?? 0) - call.cacheRead
+        sums['write'] = (sums['write'] ?? 0) + (call.cacheWrite ?? 0)
+        sums['read'] = (sums['read'] ?? 0) + call.cacheRead
+        sums['input'] = (sums['input'] ?? 0) + call.input
+        sums['output'] = (sums['output'] ?? 0) + call.output
+        sums['cost'] = (sums['cost'] ?? 0) + (call.costUsd ?? 0)
+        if (call.output > 0 && call.apiMs > 0) {
+          sums['tps'] = (sums['tps'] ?? 0) + call.output / (call.apiMs / 1000)
+          sums['tpsCalls'] = (sums['tpsCalls'] ?? 0) + 1
+        }
+        return pick(sums, call)
+      })
+    }
+    const at = (key: string) => running(s => s[key] ?? 0)
+    const tps = running(s => ((s['tpsCalls'] ?? 0) > 0 ? (s['tps'] ?? 0) / (s['tpsCalls'] ?? 1) : 0))
+    const hit = running(s => ((s['input'] ?? 0) > 0 ? ((s['read'] ?? 0) / (s['input'] ?? 1)) * 100 : 0))
+    const last = (values: number[]) => values[values.length - 1] ?? 0
+    const rows: [string, number[], string, string][] = [
+      ['↑ sent', at('sent'), fmtNum(last(at('sent'))), tokensColor],
+      ['⤒ written', at('write'), fmtNum(last(at('write'))), tokensColor],
+      ['⤓ read', at('read'), fmtNum(last(at('read'))), tokensColor],
+      ['↓ output', at('output'), fmtNum(last(at('output'))), tokensColor],
+      ['↯ tok/s', tps, last(tps).toFixed(0), cfg.colors.warn],
+      ['⌖ hit', hit, `${Math.floor(last(hit))}%`, cfg.colors.good],
+      ['$ cost', at('cost'), `$${fmtCost(last(at('cost')))}`, costColor],
+    ]
+    return [
+      ...rows.map(([label, values, current, color]) => [
+        title(label),
+        ...(lineChart([{ values, color }], MIDDLE_WIDTH, 1, cfg.colors.icons)[0] ?? []),
+        colored(current, color),
+      ]),
+      [{ ...note(''), pad: TITLE_WIDTH }, note(`over ${log.length} ${log.length === 1 ? 'call' : 'calls'}`)],
+    ]
+  }
+
+  if (panel === 'totalLines') {
+    const turns = groupTurns(view.callLog).filter(t => t.linesAdded !== null && t.linesRemoved !== null)
+    let lines = 0
+    let activeMs = 0
+    let cost = 0
+    const cumulative: number[] = []
+    const speed: number[] = []
+    const perLineCost: number[] = []
+    for (const t of turns) {
+      lines += turnLines(t)
+      activeMs += t.end - t.start
+      cost += t.costUsd ?? 0
+      cumulative.push(lines)
+      speed.push(activeMs > 0 ? lines / (activeMs / 60_000) : 0)
+      perLineCost.push(lines > 0 ? cost / lines : 0)
+    }
     const chart = lineChart(
       [
-        { values: tokens, color: tokensColor },
-        { values: costs, color: costColor },
+        { values: cumulative, color: cfg.colors.good },
+        { values: speed, color: cfg.colors.warn },
+        { values: perLineCost, color: costColor },
       ],
       MIDDLE_WIDTH,
       CHART_HEIGHT,
       cfg.colors.icons,
     )
     const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
-    if (log.length === 0) {
-      notes[CHART_HEIGHT - 1] = note('no calls yet')
+    if (lines === 0) {
+      notes[CHART_HEIGHT - 1] = note(turns.length ? 'no lines changed yet' : 'no turns yet')
     } else {
-      notes[0] = colored(`${fmtNum(sumTokens)} tokens`, tokensColor)
-      notes[1] = colored(`$${fmtCost(sumCost)}`, costColor)
-      notes[CHART_HEIGHT - 1] = note(`${log.length} ${log.length === 1 ? 'call' : 'calls'} this session`)
+      const added = turns.reduce((sum, t) => sum + (t.linesAdded ?? 0), 0)
+      const removed = turns.reduce((sum, t) => sum + (t.linesRemoved ?? 0), 0)
+      notes[0] = colored(`+${fmtNum(added)} -${fmtNum(removed)} lines`, cfg.colors.good)
+      notes[1] = colored(perMinute(lines, activeMs), cfg.colors.warn)
+      notes[2] = colored(perLine(cost, lines), costColor)
+      notes[CHART_HEIGHT - 1] = note(`over ${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}`)
     }
-    return chartRows('Totals', chart, notes)
+    return chartRows('Lines', chart, notes)
   }
 
   if (panel === 'usage') {

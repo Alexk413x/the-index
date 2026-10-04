@@ -2,6 +2,18 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.0] - 2026-10-04
+
+### Added
+
+- Δ and Σ each split into a token half and a code half with their own charts: lines per
+  turn coloured by cost per line against the average, and the session's lines, lines per
+  minute and cost per line.
+
+### Changed
+
+- The Σ token chart gives each total its own line, with its current value.
+
 ## [0.5.2] - 2026-10-04
 
 ### Changed

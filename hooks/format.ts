@@ -256,7 +256,20 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   return Math.max(1000, Math.min(...candidates))
 }
 
-export type Menu = 'harness' | 'effort' | 'model' | 'session' | 'project' | 'context' | 'calls' | 'totals' | 'usage' | 'branch' | 'base'
+export type Menu =
+  | 'harness'
+  | 'effort'
+  | 'model'
+  | 'session'
+  | 'project'
+  | 'context'
+  | 'calls'
+  | 'callLines'
+  | 'totals'
+  | 'totalLines'
+  | 'usage'
+  | 'branch'
+  | 'base'
 export type Seg = { text: string; color: string; menu?: Menu }
 export type Part = readonly Seg[]
 export type Line = readonly Part[]
@@ -287,6 +300,13 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   const icon = (text: string) => seg(text, c.icons)
   const sp = seg(' ', c.icons)
 
+  const halves = (head: Seg, bits: Seg[][], tokens: Menu, code: Menu): Seg[] => {
+    const at = bits.findIndex(b => b[0]?.text === SYM_LINES)
+    const split = at < 0 ? bits.length : at
+    const front = withMenu([head, sp, ...joinWith(bits.slice(0, split), sp)], tokens)
+    const back = bits.slice(split)
+    return back.length ? [...front, sp, ...withMenu(joinWith(back, sp), code)] : front
+  }
   const ctxColor = (pct: number) => (pct > 80 ? c.bad : pct > 60 ? c.high : pct > 40 ? c.warn : c.good)
   const hitColor = (pct: number) => (pct >= 70 ? c.good : pct >= 40 ? c.warn : c.bad)
 
@@ -429,7 +449,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         [icon('$'), seg(call.costUsd === null ? `${SHADE}.${SHADE.repeat(2)}` : fmtCost(call.costUsd), v)],
       )
     }
-    line2.push(withMenu([icon(SYM_CALL), sp, ...joinWith(bits, sp)], 'calls'))
+    line2.push(halves(icon(SYM_CALL), bits, 'calls', 'callLines'))
   }
   if (cfg.show.totals) {
     const v = c.totals
@@ -466,7 +486,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         [icon('$'), seg(cost === null || cost === undefined ? `${SHADE}.${SHADE.repeat(2)}` : fmtCost(cost), v)],
       ]
     }
-    line2.push(withMenu([icon(SYM_TOT), sp, ...joinWith(bits, sp)], 'totals'))
+    line2.push(halves(icon(SYM_TOT), bits, 'totals', 'totalLines'))
   }
 
   const line3: Part[] = []

@@ -138,6 +138,29 @@ export function markerRow(count: number, marked: readonly number[], width: numbe
   return cellsToItems(cells, blank)
 }
 
+export type ColumnBar = { value: number; color: string; id: string; detail: string }
+
+export function columnBars(bars: readonly ColumnBar[], slots: number, barWidth: number, height: number, blank: string): RowItem[][] {
+  const shown = bars.slice(-slots)
+  const max = Math.max(0, ...shown.map(b => b.value))
+  const lines: RowItem[][] = []
+  for (let row = 0; row < height; row += 1) {
+    const fromBottom = height - 1 - row
+    const cells: Cell[] = []
+    for (let slot = 0; slot < slots; slot += 1) {
+      const bar = shown[slot]
+      const eighths = bar && max > 0 && bar.value > 0 ? Math.max(1, Math.round((bar.value / max) * height * 8)) : 0
+      const fill = Math.min(8, Math.max(0, eighths - fromBottom * 8))
+      const char = bar && fromBottom === 0 && fill === 0 ? '▁' : (EIGHTHS[fill] ?? ' ')
+      const tag = bar ? { hoverId: bar.id, detail: bar.detail } : {}
+      for (let w = 0; w < barWidth; w += 1) cells.push({ char, color: bar && fill === 0 ? blank : (bar?.color ?? blank), ...tag })
+      cells.push({ char: ' ', color: blank })
+    }
+    lines.push(cellsToItems(cells, blank))
+  }
+  return lines
+}
+
 export function barChart(values: readonly (number | null)[], barWidth: number, height: number, color: string, blank: string): RowItem[][] {
   const max = Math.max(0, ...values.map(v => v ?? 0))
   const lines: RowItem[][] = []

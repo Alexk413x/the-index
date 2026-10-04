@@ -755,7 +755,15 @@ test('hovering the call telemetry bars cost per token by turn, and a bar shows i
   await band.post({ hover: true }, { in: 'totals-chip' })
   await clock.advance(110)
   const totals = ((await band.find({ key: 'totals-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
-  expect(totals.at(-1)?.at(-1)?.text).toBe('2 calls this session')
+  expect(totals.at(-1)?.at(-1)?.text).toBe('over 2 calls')
+  await band.post({ hover: false }, { in: 'totals-chip' })
+  await band.post({ hover: true }, { in: 'callLines-chip' })
+  await clock.advance(110)
+  expect(await band.find({ key: 'callLines-row' })).toBeDefined()
+  await band.post({ hover: false }, { in: 'callLines-chip' })
+  await band.post({ hover: true }, { in: 'totalLines-chip' })
+  await clock.advance(110)
+  expect(await band.find({ key: 'totalLines-row' })).toBeDefined()
   await band.unmount()
 })
 

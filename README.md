@@ -103,12 +103,18 @@ Hover a section of the band for a chart in a row above it:
   against the full window, a dashed line where auto-compaction starts (Claude Code's own
   threshold, when auto-compaction is on), `▲` under each compaction, and how long the
   prompt cache stays warm.
-- **Δ (the last call):** cost per token for each turn, the last 20 turns, against the
-  session's average in the middle. A red bar above it cost more per token than average;
-  a green bar below it cost less. Hover a bar for that turn's tokens, cost, cost per
-  million tokens, cache hit, output and tokens per second.
-- **Σ (the session totals):** the running total of tokens and cost across every call this
-  session, so the steep steps show where the big calls were.
+- **Δ, its token half (↑ to ⌖):** cost per token for each turn, the last 20 turns,
+  against the session's average in the middle. A red bar above it cost more per token
+  than average; a green bar below it cost less. Hover a bar for that turn's tokens, cost,
+  cost per million tokens, cache hit, output and tokens per second.
+- **Δ, its code half (≡, ⏱, $):** lines changed in each turn as bars, green when the turn
+  cost less per line than the session average and red when it cost more. Hover a bar for
+  the turn's lines, time, lines per minute and cost per line.
+- **Σ, its token half:** one line for each session total (tokens sent, cache writes, cache
+  reads, output, tokens per second, cache hit and cost) showing its growth, with its
+  current value.
+- **Σ, its code half:** lines changed, lines per minute and cost per line across the
+  session's turns. Lines per minute counts the time turns ran, not idle time.
 - **The rate limits:** tokens per day for the last 30 days as bars, with today's tokens,
   the 30-day and all-time totals, and their cost.
 - **The checked-out branch:** lines added and removed and files changed in the working
@@ -119,7 +125,8 @@ Hover a section of the band for a chart in a row above it:
   PR (`View PR #42 ↗`), GitHub's create-PR page when there's none (`Create PR ↗`), or on
   `main` itself the commit history (`View commits ↗`).
 
-Tokens count input, cache writes, cache reads and output. Click a section to pin its
+A terminal cell takes one colour, so where two lines of a chart cross, the cell shows the
+first line's colour. Tokens count input, cache writes, cache reads and output. Click a section to pin its
 chart, as with the other rows.
 
 The daily chart reads `the-index-usage.json` in your Claude config folder. Every session
