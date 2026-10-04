@@ -304,8 +304,10 @@ test('clicking the folder name opens it in the file manager', async ($, on) => {
   engine(on)
   const runs: (readonly string[])[] = []
   on('session.cwd', () => ({ value: 'C:/work/app' }))
+  const envs: unknown[] = []
   on('process.run', ($, e) => {
     runs.push((e as { argv: readonly string[] }).argv)
+    envs.push((e as { init?: { env?: unknown } }).init?.env)
     return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
   })
   mock.env(on, { OS: 'Windows_NT' })
@@ -324,8 +326,9 @@ test('clicking the folder name opens it in the file manager', async ($, on) => {
     '-NoProfile',
     '-NonInteractive',
     '-Command',
-    "(New-Object -ComObject Shell.Application).Open('C:\\work\\app')",
+    '(New-Object -ComObject Shell.Application).Open($env:THE_INDEX_OPEN)',
   ])
+  expect(envs).toContainEqual({ THE_INDEX_OPEN: 'C:\\work\\app' })
 })
 
 test('rows keep their place: a new pin goes to the bottom, an unpinned row stays put until it hides', async ($, on) => {

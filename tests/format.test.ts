@@ -188,10 +188,10 @@ describe('band lines', () => {
     expect(lineText(lines[1] ?? [])).toBe(
       'Δ ↑12 ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ⤒20k ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50',
     )
-    expect(lineText(lines[2] ?? [])).toBe('□ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ main ◻ 0 4 0 ≡ +50 -9')
+    expect(lineText(lines[2] ?? [])).toBe('□ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ origin/main ◻ 0 4 0 ≡ +50 -9')
     const branch = lines[2]?.[1]?.find(s => s.text === 'feat/x')
     expect(branch?.href).toBe('https://github.com/acme/app/tree/feat%2Fx')
-    const pr = lines[2]?.[2]?.find(s => s.text === 'main')
+    const pr = lines[2]?.[2]?.find(s => s.text === 'origin/main')
     expect(pr?.href).toBe('https://github.com/acme/app/compare/main...feat%2Fx?expand=1')
   })
 
@@ -221,14 +221,20 @@ describe('git links', () => {
   test('an unpushed branch links nowhere', () => {
     const lines = buildLines(snapshot({ git: { ...base, branchPushed: false }, host }), readConfig({}))
     expect(lines[2]?.[1]?.find(s => s.text === 'feat/x')?.href).toBeUndefined()
-    expect(lines[2]?.[2]?.find(s => s.text === 'main')?.href).toBeUndefined()
+    expect(lines[2]?.[2]?.find(s => s.text === 'origin/main')?.href).toBeUndefined()
   })
 
-  test('an open PR shows its number and links to it', () => {
+  test('on the base branch, origin/main links to its commit history', () => {
+    const git = { ...base, branch: 'main', branchPushed: true }
+    const lines = buildLines(snapshot({ git, host }), readConfig({}))
+    expect(lines[2]?.[2]?.find(s => s.text === 'origin/main')?.href).toBe('https://github.com/acme/app/commits/main')
+  })
+
+  test('an open PR shows its number before the base name and links to it', () => {
     const git = { ...base, branchPushed: true, prNumber: 42, prLink: 'https://github.com/acme/app/pull/42' }
     const lines = buildLines(snapshot({ git, host }), readConfig({}))
-    const pr = lines[2]?.[2]?.find(s => s.text === 'main #42')
-    expect(pr?.href).toBe('https://github.com/acme/app/pull/42')
+    expect(lines[2]?.[1]?.find(s => s.text === 'feat/x')?.href).toBe('https://github.com/acme/app/tree/feat%2Fx')
+    expect(lines[2]?.[2]?.find(s => s.text === '#42 origin/main')?.href).toBe('https://github.com/acme/app/pull/42')
   })
 })
 

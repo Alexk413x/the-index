@@ -15,17 +15,22 @@ type and status instead of the main session's.
 ```
 ● peer | Claude Opus 5.5 high | VS Code | ☼ 50m 💥 ◑ 45% 1h2m ◵ 23% 2h5m ⧈ 61% 3d4h
 Δ ↑12 ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ⤒20k ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50
-□ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ main #42 ◻ 0 4 0 ≡ +50 -9
+□ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ #42 origin/main ◻ 0 4 0 ≡ +50 -9
 ```
 
 - **Line 1:** Remote Control status (`●` connected, `○` not connected), session name,
   harness, model and effort, IDE, prompt-cache timer, compaction tally, context fill, uptime, and the 5-hour and 7-day rate limits.
 - **Line 2:** the last main-loop API call (Δ) and session totals (Σ).
-- **Line 3:** project, working-tree diff against HEAD, and the branch's diff against
-  the base branch. Click the folder name to open it in Explorer or Finder. The branch
-  name links to the branch on GitHub once it's pushed to `origin`. The base name links
-  to the branch's open PR and shows its number (`main #42`), found with the `gh` CLI;
-  with no open PR it links to GitHub's page for creating one.
+- **Line 3:** the folder, then two sections:
+  - **The checked-out branch:** what the next commit would hold, the working tree against
+    `HEAD` (files added, changed and deleted, and lines). The branch name links to the
+    branch on GitHub once it's pushed.
+  - **`origin/main`:** what a PR would look like now, everything since the branch started
+    against the remote base (commits ahead and behind, files and lines). It shows the open
+    PR's number first (`#42 origin/main`), found with the `gh` CLI, and links to that PR,
+    or to GitHub's create-PR page when there's none. On `main` itself it links to the
+    commit history.
+  Click the folder name to open it in Explorer or Finder.
 
 With a subagent transcript open, line 1's model segment reads
 `⤷ <type> <name or description> <model> <effort> <status>`.

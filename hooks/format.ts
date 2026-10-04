@@ -444,8 +444,8 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     const treeUrl = git.repoWeb && git.branchPushed ? `${git.repoWeb}/tree/${branchUrl}` : undefined
     if (cfg.show.commit_diff) {
       line3.push([
-        seg(SYM_BR, c.icons, treeUrl),
-        seg(' ', c.icons, treeUrl),
+        icon(SYM_BR),
+        sp,
         seg(git.branch, c.branch, treeUrl),
         sp,
         icon(SYM_FILES),
@@ -465,12 +465,13 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     }
     if (cfg.show.pr_diff && git.prBaseRef) {
       const onBase = git.branch === git.prBaseName
-      const label = onBase ? git.prBaseRef : git.prBaseName
+      const label = git.prBaseRef
       const compareUrl =
         !onBase && git.repoWeb && git.branchPushed
           ? `${git.repoWeb}/compare/${encodeURIComponent(git.prBaseName)}...${branchUrl}?expand=1`
           : undefined
-      const prUrl = git.prLink ?? compareUrl
+      const historyUrl = onBase && git.repoWeb ? `${git.repoWeb}/commits/${branchUrl}` : undefined
+      const prUrl = git.prLink ?? compareUrl ?? historyUrl
       line3.push([
         icon(SYM_AHEAD),
         seg(String(git.prAhead), c.good),
@@ -478,9 +479,9 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         icon(SYM_BEHIND),
         seg(String(git.prBehind), c.bad),
         sp,
-        seg(SYM_BR, c.icons, prUrl),
-        seg(' ', c.icons, prUrl),
-        seg(git.prNumber ? `${label} #${git.prNumber}` : label, c.branch, prUrl),
+        icon(SYM_BR),
+        sp,
+        seg(git.prNumber ? `#${git.prNumber} ${label}` : label, c.branch, prUrl),
         sp,
         icon(SYM_FILES),
         sp,
@@ -490,11 +491,11 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         sp,
         seg(String(git.prFilesDeleted), c.bad),
         sp,
-        seg(SYM_LINES, c.icons, prUrl),
-        seg(' ', c.icons, prUrl),
-        seg(`+${git.prLinesAdded}`, c.good, prUrl),
-        seg(' ', c.icons, prUrl),
-        seg(`-${git.prLinesRemoved}`, c.bad, prUrl),
+        icon(SYM_LINES),
+        sp,
+        seg(`+${git.prLinesAdded}`, c.good),
+        sp,
+        seg(`-${git.prLinesRemoved}`, c.bad),
       ])
     }
   }

@@ -283,23 +283,43 @@ async function followModel($: EngineInterface, model: string): Promise<void> {
   await update($, agents, prev => ({ ...prev, [MAIN]: { model, effort: effort ?? prev[MAIN]?.effort } }))
 }
 
+// Windows: the shell's Open brings the window to the front (explorer.exe opens it behind the
+// focused app). The target travels in an environment variable, never inside the -Command
+// script, so quotes in a path or URL can't end the string and run code.
+async function shellOpen($: EngineInterface, target: string): Promise<void> {
+  const isWindows = (await $.env.get('OS')) === 'Windows_NT'
+  try {
+    if (isWindows) {
+      await $.process.run(
+        ['powershell', '-NoProfile', '-NonInteractive', '-Command', '(New-Object -ComObject Shell.Application).Open($env:THE_INDEX_OPEN)'],
+        { timeoutMs: 10_000, env: { THE_INDEX_OPEN: target } },
+      )
+    } else {
+      await $.process.run(['open', target], { timeoutMs: 10_000 })
+    }
+  } catch {
+    try {
+      await $.process.run(['xdg-open', target], { timeoutMs: 10_000 })
+    } catch {
+      $.ui.toast(`Could not open ${target}`)
+    }
+  }
+}
+
+async function openUrl($: EngineInterface, href: string): Promise<void> {
+  let url: URL
+  try {
+    url = new URL(href)
+  } catch {
+    return
+  }
+  if (url.protocol === 'https:') await shellOpen($, url.href)
+}
+
 async function openFolder($: EngineInterface): Promise<void> {
   const cwd = await $.session.cwd()
   const isWindows = (await $.env.get('OS')) === 'Windows_NT'
-  // explorer.exe opens its window behind the focused app; the shell's Open brings it to the front.
-  const windowsPath = cwd.replace(/\//g, '\\').replace(/'/g, "''")
-  const argv = isWindows
-    ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', `(New-Object -ComObject Shell.Application).Open('${windowsPath}')`]
-    : ['open', cwd]
-  try {
-    await $.process.run(argv, { timeoutMs: 10_000 })
-  } catch {
-    try {
-      await $.process.run(['xdg-open', cwd], { timeoutMs: 10_000 })
-    } catch {
-      $.ui.toast(`Could not open ${cwd}`)
-    }
-  }
+  await shellOpen($, isWindows ? cwd.replace(/\//g, '\\') : cwd)
 }
 
 async function switchMainEffort($: EngineInterface, level: IndexEffort | 'auto'): Promise<void> {
@@ -572,6 +592,11 @@ export const register: Register = (on, options) => {
     const data = isRecord(e.data) ? e.data : {}
     if (e.element === 'project-chip') {
       if (data['press'] === true) await openFolder($)
+      return {}
+    }
+    if (e.element.startsWith('link-')) {
+      const href = data['href']
+      if (data['press'] === true && typeof href === 'string' && /^https:\/\//.test(href)) await openUrl($, href)
       return {}
     }
     const panel = PANELS.find(p => e.element.startsWith(`${p}-`))
@@ -998,6 +1023,15 @@ export const register: Register = (on, options) => {
                   )
                 }
                 const texts = run.map(s => <Text color={s.color}>{s.text}</Text>)
+                if (first?.href && Client) {
+                  return (
+                    <Client
+                      key={`link-${index}-${first.text}`}
+                      module="./chip.tsx"
+                      props={{ text: first.text, color: first.color, look: 'link', href: first.href }}
+                    />
+                  )
+                }
                 return first?.href ? <Link href={first.href}>{texts}</Link> : texts
               })}
             </Box>
