@@ -256,9 +256,9 @@ describe('chart rows', () => {
     const cfg = readConfig({})
     expect(lines).toHaveLength(TURN_HALF * 2 + 2)
     expect(lines[0]?.[0]?.text).toBe('Cost/tok')
-    expect(lines[0]?.at(-1)?.text).toBe('▲ costs more per token')
+    expect(lines[0]?.at(-1)?.text).toBe('▲ more per token')
     expect(lines[TURN_HALF]?.at(-1)?.text).toMatch(/^avg \$\d+\.\d\d\/M tokens$/)
-    expect(lines[TURN_HALF * 2]?.at(-1)?.text).toBe('▼ costs less per token')
+    expect(lines[TURN_HALF * 2]?.at(-1)?.text).toBe('▼ less per token')
     const footer = lines.at(-1)?.at(-1)
     expect(footer).toMatchObject({ text: 'hover a bar for its turn · last 6 of 6', footer: true })
     const cells = lines.slice(0, TURN_HALF * 2 + 1).flat()
@@ -281,7 +281,7 @@ describe('chart rows', () => {
     ])
   })
 
-  test('the lines row bars lines per turn, green when it costs less per line than average and red when more', () => {
+  test('the lines row bars lines per turn, green when it less per line than average and red when more', () => {
     const lines = panelLines('callLines', view({ callLog: calls }))
     const cfg = readConfig({})
     expect(lines).toHaveLength(CHART_HEIGHT + 1)

@@ -349,9 +349,9 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     })
     const notes: (RowItem | null)[] = Array.from({ length: TURN_HALF * 2 + 1 }, () => null)
     if (known.length > 0) {
-      notes[0] = colored('▲ costs more per token', cfg.colors.bad)
+      notes[0] = colored('▲ more per token', cfg.colors.bad)
       notes[TURN_HALF] = note(`avg ${perMillion(knownCost, knownTokens)} tokens`)
-      notes[TURN_HALF * 2] = colored('▼ costs less per token', cfg.colors.good)
+      notes[TURN_HALF * 2] = colored('▼ less per token', cfg.colors.good)
     }
     const footer: RowItem = {
       text: turns.length ? `hover a bar for its turn · last ${Math.min(turns.length, TURN_SLOTS)} of ${turns.length}` : 'no turns yet',
@@ -381,8 +381,8 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       notes[0] = colored(`▲ ${fmtNum(Math.max(...turns.map(turnLines)))} lines`, tokensColor)
       notes[1] = note(`avg ${perMinute(changed, activeMs)}`)
       if (average !== null) notes[2] = note(`avg ${perLine(pricedCost, pricedLines)}`)
-      notes[3] = colored('■ costs less per line', cfg.colors.good)
-      notes[4] = colored('■ costs more per line', cfg.colors.bad)
+      notes[3] = colored('■ less per line', cfg.colors.good)
+      notes[4] = colored('■ more per line', cfg.colors.bad)
     }
     const footer: RowItem = {
       text: turns.length
