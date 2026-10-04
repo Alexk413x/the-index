@@ -115,7 +115,7 @@ describe('band lines', () => {
         [MAIN]: { model: 'claude-opus-5-5', effort: 'high' },
         a1: { model: 'claude-sonnet-5-5', effort: 'low' },
       },
-      host: { sessionName: 'peer', bridged: false, ide: 'VS Code', agentName: 'Claude', project: 'app' },
+      host: { sessionName: 'peer', bridged: false, ide: 'VS Code', agent: '', project: 'app' },
     })
     const cfg = readConfig({})
     expect(lineText(buildLines(snap, cfg)[0] ?? [])).toStartWith('peer | Claude Opus 5.5 high | VS Code | ')
@@ -179,7 +179,7 @@ describe('band lines', () => {
         prLinesAdded: 50,
         prLinesRemoved: 9,
       },
-      host: { sessionName: '', bridged: false, ide: '', agentName: 'Claude', project: 'app' },
+      host: { sessionName: '', bridged: false, ide: '', agent: '', project: 'app' },
       agents: { [MAIN]: { model: 'claude-opus-5-5' } },
     })
     const lines = buildLines(snap, readConfig({}))
@@ -217,7 +217,7 @@ describe('git links', () => {
     prBaseRef: 'origin/main',
     prBaseName: 'main',
   }
-  const host = { sessionName: '', bridged: false, ide: '', agentName: 'Claude', project: 'app' }
+  const host = { sessionName: '', bridged: false, ide: '', agent: '', project: 'app' }
 
   test('an unpushed branch links nowhere', () => {
     const lines = buildLines(snapshot({ git: { ...base, branchPushed: false }, host }), readConfig({}))
@@ -290,7 +290,7 @@ describe('glyphs', () => {
   })
 
   test('a linked Remote Control session leads the session name', () => {
-    const host = { sessionName: 'peer', bridged: true, ide: '', agentName: 'Claude', project: '' }
+    const host = { sessionName: 'peer', bridged: true, ide: '', agent: '', project: '' }
     const idle = buildLines(snapshot({ host }), readConfig({}))
     expect(lineText(idle[0] ?? [])).toStartWith('○ peer | ')
     const watched = buildLines(snapshot({ host, clients: 1 }), readConfig({}))

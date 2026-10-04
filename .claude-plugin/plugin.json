@@ -132,58 +132,64 @@
       "description": "Draw the subagent model, effort, type and status while its transcript is open segment.",
       "default": true
     },
+    "color_primary": {
+      "type": "string",
+      "title": "Colour: Primary",
+      "description": "Hex colour of the band's values, such as #d75f00. A colour set below for one segment overrides it, and an agent's own colour replaces it while that agent runs. The dim level scales it.",
+      "default": "#d75f00"
+    },
     "color_session": {
       "type": "string",
       "title": "Colour: Session name",
-      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "description": "Hex colour. At #d75f00 it follows Colour: Primary. The dim level scales it.",
       "default": "#d75f00"
     },
     "color_model": {
       "type": "string",
       "title": "Colour: Model, effort and agent",
-      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "description": "Hex colour. At #d75f00 it follows Colour: Primary. The dim level scales it.",
       "default": "#d75f00"
     },
     "color_ide": {
       "type": "string",
       "title": "Colour: IDE name",
-      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "description": "Hex colour. At #d75f00 it follows Colour: Primary. The dim level scales it.",
       "default": "#d75f00"
     },
     "color_uptime": {
       "type": "string",
       "title": "Colour: Uptime",
-      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "description": "Hex colour. At #d75f00 it follows Colour: Primary. The dim level scales it.",
       "default": "#d75f00"
     },
     "color_resets": {
       "type": "string",
       "title": "Colour: Rate-limit reset countdowns",
-      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "description": "Hex colour. At #d75f00 it follows Colour: Primary. The dim level scales it.",
       "default": "#d75f00"
     },
     "color_calls": {
       "type": "string",
       "title": "Colour: Per-call values",
-      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "description": "Hex colour. At #d75f00 it follows Colour: Primary. The dim level scales it.",
       "default": "#d75f00"
     },
     "color_totals": {
       "type": "string",
       "title": "Colour: Session-total values",
-      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "description": "Hex colour. At #d75f00 it follows Colour: Primary. The dim level scales it.",
       "default": "#d75f00"
     },
     "color_project": {
       "type": "string",
       "title": "Colour: Project folder",
-      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "description": "Hex colour. At #d75f00 it follows Colour: Primary. The dim level scales it.",
       "default": "#d75f00"
     },
     "color_branch": {
       "type": "string",
       "title": "Colour: Branch and base names",
-      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "description": "Hex colour. At #d75f00 it follows Colour: Primary. The dim level scales it.",
       "default": "#d75f00"
     },
     "color_icons": {
@@ -225,8 +231,8 @@
     "color_rules": {
       "type": "string",
       "title": "Colour: Lines around open rows",
-      "description": "Hex colour of the lines above and below the open rows, such as #000000. The dim level scales it.",
-      "default": "#000000"
+      "description": "Hex colour of the lines above and below the open rows. Empty draws them in the prompt border's colour, or the agent's colour when the agent defines one.",
+      "default": ""
     }
   }
 }

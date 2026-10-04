@@ -19,7 +19,7 @@ type and status instead of the main session's.
 ```
 
 - **Line 1:** Remote Control status (`●` connected, `○` not connected), session name,
-  harness, model and effort, IDE, prompt-cache timer, compaction tally, context fill, uptime, and the 5-hour and 7-day rate limits.
+  harness, agent, model and effort, IDE, prompt-cache timer, compaction tally, context fill, uptime, and the 5-hour and 7-day rate limits.
 - **Line 2:** the last main-loop API call (Δ) and session totals (Σ).
 - **Line 3:** the folder, then two sections:
   - **The checked-out branch:** what the next commit would hold, the working tree against
@@ -91,8 +91,24 @@ The list is a table in `hooks/format.ts`. Mods can't read the `/model` picker's 
 ## Session details
 
 Hover the session name for a table of the session name and full id with its start
-time, the Remote Control session id and attached clients when linked, and the folder
-with the Claude Code version.
+time, the agent and its colour, the Remote Control session id and attached clients when
+linked, and the folder with the Claude Code version.
+
+## Colours
+
+The band's values (session, model, effort, IDE, uptime, resets, telemetry, folder and
+branches) draw in one primary colour, orange (`#d75f00`) unless you set `color_primary`.
+
+When the session runs as an agent whose definition sets a `color`, that colour replaces
+the primary colour and the lines around open rows, as Claude Code colours the agent's
+own label. With a subagent's transcript open, the subagent type's colour applies, if its
+definition has one.
+
+The lines above and below open rows draw in the prompt border's theme colour, so they
+follow your theme. Set `color_rules` to a hex colour to fix them.
+
+A segment colour you set to anything other than `#d75f00` keeps that colour; the
+primary and agent colours leave it alone.
 
 ## Install
 
@@ -129,7 +145,8 @@ Each setting is a `userConfig` field. Change it in the config menu, or under
 | `cache_ttl` | `1h` | The lifetime the warm-cache countdown counts down from: `1h` or `5m`. |
 | `glyphs` | `unicode` | The context circle: `unicode` fills in 5 steps (`○◔◑◕●`); `nerd` fills in 9 Nerd Font slices and needs a Nerd Font. |
 | `show_<segment>` | `true` | Draws the segment. Segments: `remote`, `session`, `model`, `ide`, `cache`, `context`, `uptime`, `rate_limits`, `calls`, `totals`, `project`, `commit_diff`, `pr_diff`, `agent_view`. |
-| `color_<name>` | script colours | A hex colour. Names: `session`, `model`, `ide`, `uptime`, `resets`, `calls`, `totals`, `project`, `branch` (segment values); `icons`, `good`, `warn`, `high`, `bad`, `cold` (glyphs and levels); `rules` (the lines around open rows). |
+| `color_primary` | `#d75f00` | The hex colour of the band's values. An agent's colour replaces it while that agent runs. |
+| `color_<name>` | script colours | A hex colour. Names: `session`, `model`, `ide`, `uptime`, `resets`, `calls`, `totals`, `project`, `branch` (segment values, which follow `color_primary` at `#d75f00`); `icons`, `good`, `warn`, `high`, `bad`, `cold` (glyphs and levels); `rules` (the lines around open rows; empty follows the prompt border). |
 
 ## Where each figure comes from
 
@@ -141,6 +158,7 @@ Each setting is a `userConfig` field. Change it in the config menu, or under
 | Lines added and removed | `Edit` and `Write` results' `structuredPatch` |
 | Cache timer | Time of the last main-loop response plus `cache_ttl` |
 | Subagent type and status | `$.agent.list()` |
+| Agent and its colour | The `agent` setting; `name` and `color` in the frontmatter of `~/.claude/agents/*.md` and `.claude/agents/*.md` |
 | Session name, IDE | `~/.claude/sessions` and `~/.claude/ide`, as the script reads them |
 | Remote Control status | `bridgeSessionId` in the session's `~/.claude/sessions` entry; remote clients from `session.attach` and `session.detach` |
 | Git | `git` through `$.process.run`, 2 s after an `Edit`, `Write` or `Bash` call and after each turn; every 30 s the band compares the mtimes of `.git/index`, `HEAD`, `FETCH_HEAD` and `ORIG_HEAD` and runs git only when one changed; a full refresh runs every 5 min |
@@ -173,6 +191,9 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
 - **Session name.** The band reads the peer name. A `/rename` title isn't in the API.
 - **Agent name.** The band reads the `agent` setting. The `--agent` flag isn't in the
   API.
+- **Agent colour.** The band reads agent files in your user and project `agents`
+  folders. A plugin's agents, agents passed with `--agents`, and a `/color` override
+  aren't in the API, so they keep the primary colour.
 - **Project link.** A band link takes only `https:`, so the folder name isn't a
   `file://` link; clicking it opens the folder through the operating system instead.
 

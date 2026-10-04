@@ -12,6 +12,7 @@ const commands: string[] = []
 const toasts: string[] = []
 let stepsFail = false
 let sessionModel = 'claude-opus-5-5'
+let extraSettings: Record<string, unknown> = {}
 let clock: MockClock
 
 function engine(on: On) {
@@ -21,6 +22,7 @@ function engine(on: On) {
   toasts.length = 0
   stepsFail = false
   sessionModel = 'claude-opus-5-5'
+  extraSettings = {}
   on('command.run', ($, e) => {
     commands.push(`${e.command} ${e.args}`)
     if (e.command === 'model') {
@@ -33,7 +35,10 @@ function engine(on: On) {
   })
   on('session.model', () => ({ value: sessionModel }))
   on('settings.read', () => ({
-    value: { modelSettings: { 'claude-fable-5-1': { effortLevel: 'medium' }, 'claude-sonnet-5-5': { effortLevel: 'xhigh' } } },
+    value: {
+      modelSettings: { 'claude-fable-5-1': { effortLevel: 'medium' }, 'claude-sonnet-5-5': { effortLevel: 'xhigh' } },
+      ...extraSettings,
+    },
   }))
   on('ui.toast', ($, e) => {
     toasts.push(JSON.stringify(e))
@@ -79,6 +84,7 @@ type StartOptions = {
   env?: Record<string, string>
   run?: (argv: readonly string[], env: unknown) => Run
   sessionFile?: unknown
+  agentFiles?: Record<string, string>
 }
 
 async function startSession($: { session: { start: (e: never) => Promise<unknown> } }, on: On, opts: StartOptions = {}) {
@@ -96,12 +102,20 @@ async function startSession($: { session: { start: (e: never) => Promise<unknown
     }
   })
   mock.env(on, opts.env ?? { USERPROFILE: 'C:/nobody' })
-  on('fs.list', ($, e) =>
-    opts.sessionFile !== undefined && /sessions$/.test(String((e as { path?: string }).path))
-      ? ({ value: [{ name: '1.json', kind: 'file', size: 0, mtimeMs: 0, isLink: false }] } as never)
-      : { value: [] },
-  )
-  if (opts.sessionFile !== undefined) on('fs.read', () => ({ value: JSON.stringify(opts.sessionFile) }))
+  const entry = (name: string) => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })
+  on('fs.list', ($, e) => {
+    const path = String((e as { path?: string }).path).replace(/\\/g, '/')
+    if (opts.sessionFile !== undefined && /sessions$/.test(path)) return { value: [entry('1.json')] } as never
+    if (path === 'C:/nobody/.claude/agents') return { value: Object.keys(opts.agentFiles ?? {}).map(entry) } as never
+    return { value: [] }
+  })
+  on('fs.read', ($, e) => {
+    const path = String((e as { path?: string }).path).replace(/\\/g, '/')
+    const agentFile = Object.entries(opts.agentFiles ?? {}).find(([name]) => path.endsWith(`/${name}`))
+    if (agentFile) return { value: agentFile[1] }
+    if (opts.sessionFile !== undefined && /sessions/.test(path)) return { value: JSON.stringify(opts.sessionFile) }
+    throw new Error(`ENOENT ${path}`)
+  })
   await $.session.start({ cwd, surface: 'terminal', isInteractive: true } as never)
 }
 
@@ -539,8 +553,9 @@ test('the session row is a three-column table with no separators', async ($, on)
   expect(lines.flat().some(i => i.text === '|')).toBe(false)
   const thirdColumn = (line: { text: string; pad?: number }[]) =>
     line.slice(0, -1).reduce((col, item) => col + item.text.length + (item.pad ?? 0) + 2, 0)
-  expect(lines.map(l => l[l.length - 1]?.text)).toEqual([expect.stringMatching(/^started /), 'Claude Code 2.1.288'])
-  expect(new Set(lines.map(thirdColumn)).size).toBe(1)
+  const withNote = lines.filter(l => l[0]?.text.trim() !== 'Agent')
+  expect(withNote.map(l => l[l.length - 1]?.text)).toEqual([expect.stringMatching(/^started /), 'Claude Code 2.1.288'])
+  expect(new Set(withNote.map(thirdColumn)).size).toBe(1)
   await band.unmount()
 })
 
@@ -666,4 +681,37 @@ test('git links open over https only', async ($, on) => {
   await band.post({ press: true, href: href ?? '' }, { in: key })
   expect(opened).toEqual([{ THE_INDEX_OPEN: href }])
   await band.unmount()
+})
+
+test('the lines above and below open rows follow the prompt border', async ($, on) => {
+  engine(on)
+  await startSession($, on)
+  const plain = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await plain.post({ press: true }, { in: 'effort-chip' })
+  expect((await plain.findAll({ type: 'Text', text: /^─+$/ })).map(r => r.props['color'])).toEqual(['promptBorder', 'promptBorder'])
+  await plain.unmount()
+})
+
+test('the agent setting names the agent after the harness and its file colour tints the band', async ($, on) => {
+  engine(on)
+  extraSettings = { agent: 'reviewer' }
+  await startSession($, on, { sessionFile: { sessionId: 'abc', name: 'peer' }, agentFiles: { 'reviewer.md': '---\nname: reviewer\ncolor: blue\n---\nReview.' } })
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  expect(await bandText(band)).toContain('Claude reviewer Opus 5.5 high')
+  expect((await band.find({ key: 'model-chip' }))?.props['props']).toMatchObject({ color: 'blue_FOR_SUBAGENTS_ONLY' })
+  await band.post({ press: true }, { in: 'session-chip' })
+  expect((await band.findAll({ type: 'Text', text: /^─+$/ }))[0]?.props['color']).toBe('blue_FOR_SUBAGENTS_ONLY')
+  const rows = ((await band.find({ key: 'session-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
+  expect(rows.find(l => l[0]?.text.trim() === 'Agent')?.map(i => i.text.trim())).toEqual(['Agent', 'reviewer', 'colour blue'])
+  await band.unmount()
+})
+
+test('a subagent transcript takes the colour its agent file gives its type', async ($, on) => {
+  engine(on)
+  await startSession($, on, { agentFiles: { 'explore.md': '---\nname: Explore\ncolor: green\n---\n' } })
+  await step($, 'claude-sonnet-5-5', 'low', 'a1')
+  const sub = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props('a1') })
+  expect((await sub.find({ key: 'model-chip' }))?.props['props']).toMatchObject({ color: 'green_FOR_SUBAGENTS_ONLY' })
+  await sub.unmount()
 })

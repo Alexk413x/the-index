@@ -86,8 +86,11 @@ export const COLOR_DEFAULTS = {
   high: '#d75f00',
   bad: '#c80000',
   cold: '#00afd7',
-  rules: '#000000',
+  rules: 'promptBorder',
 } as const
+
+export const PRIMARY_DEFAULT = '#d75f00'
+const PRIMARY: readonly ColorName[] = ['session', 'model', 'ide', 'uptime', 'resets', 'calls', 'totals', 'project', 'branch']
 
 export type ColorName = keyof typeof COLOR_DEFAULTS
 
@@ -97,6 +100,7 @@ export type Config = {
   glyphs: 'unicode' | 'nerd'
   show: Readonly<Record<Segment, boolean>>
   colors: Readonly<Record<ColorName, string>>
+  tinted: readonly ColorName[]
 }
 
 const HEX = /^#?([0-9a-f]{6})$/i
@@ -117,15 +121,35 @@ export function readConfig(options: PluginOptions): Config {
   const dim = Number.isFinite(rawDim) ? Math.min(1, Math.max(0.1, rawDim)) : 0.95
   const show = {} as Record<Segment, boolean>
   for (const s of SEGMENTS) show[s] = options[`show_${s}`] !== false
+  const hexOption = (key: string) => {
+    const raw = options[key]
+    return typeof raw === 'string' && HEX.test(raw.trim()) ? raw.trim().replace(/^#?/, '#').toLowerCase() : undefined
+  }
+  const primary = hexOption('color_primary') ?? PRIMARY_DEFAULT
   const colors = {} as Record<ColorName, string>
+  const tinted: ColorName[] = []
   for (const name of Object.keys(COLOR_DEFAULTS) as ColorName[]) {
-    const raw = options[`color_${name}`]
-    const hex = typeof raw === 'string' && HEX.test(raw.trim()) ? raw.trim() : COLOR_DEFAULTS[name]
-    colors[name] = dimHex(hex.startsWith('#') ? hex : `#${hex}`, dim)
+    const hex = hexOption(`color_${name}`)
+    if (PRIMARY.includes(name) && (!hex || hex === PRIMARY_DEFAULT)) {
+      colors[name] = dimHex(primary, dim)
+      tinted.push(name)
+    } else if (name === 'rules' && !hex) {
+      colors[name] = COLOR_DEFAULTS.rules
+      tinted.push(name)
+    } else {
+      colors[name] = dimHex(hex ?? COLOR_DEFAULTS[name], dim)
+    }
   }
   const cacheTtlMs = options['cache_ttl'] === '5m' ? 300_000 : 3_600_000
   const glyphs = options['glyphs'] === 'nerd' ? 'nerd' : 'unicode'
-  return { dim, cacheTtlMs, glyphs, show, colors }
+  return { dim, cacheTtlMs, glyphs, show, colors, tinted }
+}
+
+export function tint(cfg: Config, color: string | undefined): Config {
+  if (!color) return cfg
+  const colors = { ...cfg.colors }
+  for (const name of cfg.tinted) colors[name] = color
+  return { ...cfg, colors }
 }
 
 export function modelLabel(id: string): string {
@@ -297,7 +321,8 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     const model = main?.model ? modelLabel(main.model) : 'Unknown'
     const effort = effortLabel(main?.effort)
     const head: Seg[] = []
-    if (host?.agentName) head.push({ text: host.agentName, color: c.model, menu: 'harness' }, sp)
+    if (host) head.push({ text: 'Claude', color: c.model, menu: 'harness' }, sp)
+    if (host?.agent) head.push(seg(host.agent, c.model), sp)
     head.push({ text: model, color: c.model, menu: 'model' })
     head.push(sp, { text: effort || SHADE.repeat(2), color: c.model, menu: 'effort' })
     line1.push(head)

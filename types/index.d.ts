@@ -78,7 +78,7 @@ export type IndexHost = {
   version?: string
   bridged: boolean
   ide: string
-  agentName: string
+  agent: string
   project: string
 }
 
@@ -106,6 +106,7 @@ declare module 'claude-code' {
       hover: IndexHover | null
       harnesses: readonly IndexHarness[] | null
       ultracode: boolean
+      agentColors: Readonly<Record<string, string>>
     }
   }
 }

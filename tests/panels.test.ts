@@ -20,7 +20,7 @@ const SETTINGS = {
   effortLevel: 'low',
   modelSettings: { 'claude-sonnet-5-5': { effortLevel: 'xhigh' }, 'claude-haiku-4-5-20251001': {} },
 }
-const HOST = { sessionName: 'peer', sessionId: 'abc', bridged: false, cwd: 'C:/work/app', version: '2.1.288', ide: '', agentName: 'Claude', project: 'app' }
+const HOST = { sessionName: 'peer', sessionId: 'abc', bridged: false, cwd: 'C:/work/app', version: '2.1.288', ide: '', agent: '', project: 'app' }
 
 function view(over: Partial<PanelView> = {}): PanelView {
   return {
@@ -162,11 +162,16 @@ describe('row layout', () => {
 
   test('the session table adds a Remote row only when linked, and lines up its third column', () => {
     const plain = panelLines('session', view({ startedAt: new Date(2026, 9, 4, 9, 5).getTime() }))
-    expect(plain.map(l => l[0]?.text)).toEqual(['Session', 'Folder'])
+    expect(plain.map(l => l[0]?.text)).toEqual(['Session', 'Agent', 'Folder'])
+    expect(plain[1]?.map(i => i.text.trim())).toEqual(['Agent', 'none'])
     expect(plain[0]?.at(-1)?.text).toBe('started 09:05')
-    const linked = panelLines('session', view({ host: { ...HOST, bridged: true, bridgeId: 'cse_1' }, attached: 2, startedAt: 0 }))
-    expect(linked.map(l => l[0]?.text)).toEqual(['Session', 'Remote', 'Folder'])
-    expect(linked[1]?.at(-1)?.text).toBe('2 attached')
+    const linked = panelLines(
+      'session',
+      view({ host: { ...HOST, agent: 'reviewer', bridged: true, bridgeId: 'cse_1' }, agentColor: 'blue', attached: 2, startedAt: 0 }),
+    )
+    expect(linked.map(l => l[0]?.text)).toEqual(['Session', 'Agent', 'Remote', 'Folder'])
+    expect(linked[1]?.at(-1)?.text).toBe('colour blue')
+    expect(linked[2]?.at(-1)?.text).toBe('2 attached')
     expect(new Set(linked.map(l => starts(l).at(-1))).size).toBe(1)
     expect(panelLines('session', view({ host: null }))).toEqual([])
   })

@@ -14,6 +14,7 @@ import {
   patchLineCounts,
   projectName,
   readConfig,
+  tint,
   type Config,
   type Seg,
   type ViewedAgent,
@@ -40,6 +41,7 @@ import {
   parseSharedLimits,
   serializeSharedLimits,
 } from './git'
+import { agentColorKey, parseAgentFile } from './agents'
 
 const agents = atom({ plugin: 'the-index', key: 'agents' } as const, {})
 const call = atom({ plugin: 'the-index', key: 'call' } as const, null)
@@ -56,6 +58,7 @@ const slots = atom({ plugin: 'the-index', key: 'slots' } as const, [])
 const hover = atom({ plugin: 'the-index', key: 'hover' } as const, null)
 const harnesses = atom({ plugin: 'the-index', key: 'harnesses' } as const, null)
 const ultracode = atom({ plugin: 'the-index', key: 'ultracode' } as const, false)
+const agentColors = atom({ plugin: 'the-index', key: 'agentColors' } as const, {})
 
 const EWMA_ALPHA = 0.3
 const COMPACTION_DROP = 30
@@ -234,6 +237,7 @@ async function nextTickDelay($: EngineInterface, cfg: Config): Promise<number> {
 }
 
 async function refreshHost($: EngineInterface): Promise<void> {
+  void loadAgentColors($)
   const [cwd, id, settings, dir, version] = await Promise.all([
     $.session.cwd(),
     $.session.id(),
@@ -251,7 +255,7 @@ async function refreshHost($: EngineInterface): Promise<void> {
     cwd,
     version: version.version,
     ide,
-    agentName: typeof agentSetting === 'string' && agentSetting ? agentSetting : 'Claude',
+    agent: typeof agentSetting === 'string' ? agentSetting : '',
     project: projectName(cwd),
   }))
 }
@@ -314,6 +318,22 @@ async function switchMainEffort($: EngineInterface, level: IndexEffort | 'auto')
   const text = commandText(result)
   if (text) $.ui.toast((text.split(':')[0] ?? text).replace(/`/g, ''))
   await update($, agents, prev => ({ ...prev, [MAIN]: { model: prev[MAIN]?.model ?? '', effort: level } }))
+}
+
+async function loadAgentColors($: EngineInterface): Promise<void> {
+  const [cwd, dir] = await Promise.all([$.session.cwd(), configDir($)])
+  const found: Record<string, string> = {}
+  for (const agentsDir of [`${dir}/agents`, `${cwd.replace(/[\\/]+$/, '')}/.claude/agents`]) {
+    for (const name of await listNames($, agentsDir)) {
+      if (!name.toLowerCase().endsWith('.md')) continue
+      const text = await $.fs.read(`${agentsDir}/${name}`).catch(() => '')
+      const agent = parseAgentFile(text, name)
+      if (agent?.color) found[agent.name] = agent.color
+      else if (agent) delete found[agent.name]
+    }
+  }
+  const before = await read($, agentColors)
+  if (JSON.stringify(before) !== JSON.stringify(found)) await update($, agentColors, () => found)
 }
 
 async function refreshHostUntilLinked($: EngineInterface): Promise<void> {
@@ -739,7 +759,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn] =
+    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf] =
       await Promise.all([
         read($, agents),
         read($, call),
@@ -756,6 +776,7 @@ export const register: Register = (on, options) => {
         read($, hover),
         read($, harnesses),
         read($, ultracode),
+        read($, agentColors),
       ])
     const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
     const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
@@ -773,6 +794,8 @@ export const register: Register = (on, options) => {
       }
     }
 
+    const agentColor = colorOf[viewed?.type ?? ''] ?? colorOf[hostInfo?.agent ?? '']
+    const look = tint(cfg, agentColorKey(agentColor))
     const attached = Object.keys(remotes).length
     const lines = buildLines(
       {
@@ -787,19 +810,20 @@ export const register: Register = (on, options) => {
         agentEfforts: efforts,
         agentModels: models,
       },
-      cfg,
+      look,
       viewed,
     )
     if (lines.length === 0) return next(e)
 
     const target = viewed?.id ?? MAIN
     const view = {
-      cfg,
+      cfg: look,
       choices: currentChoices(target, steps[target], { model: models[target], effort: efforts[target] }, settings),
       harnesses: harnessList,
       ultracode: ultracodeOn,
       contextTokens: measured?.contextTokens ?? null,
       host: hostInfo,
+      agentColor,
       startedAt: measured?.startedAt ?? null,
       attached,
     }
@@ -815,7 +839,7 @@ export const register: Register = (on, options) => {
             <Client
               key={`${panel}-pin`}
               module="./chip.tsx"
-              props={{ text: isPinnedRow ? PIN_ON : PIN_OFF, color: cfg.colors.model }}
+              props={{ text: isPinnedRow ? PIN_ON : PIN_OFF, color: look.colors.model }}
             />
             {rows.slice(1).map((_, i) => (
               <Text key={`${panel}-pin-space${i}`}>{PIN_SPACE}</Text>
@@ -827,7 +851,7 @@ export const register: Register = (on, options) => {
             props={{
               lines: rows,
               gap: ROW_GAP,
-              hoverColor: cfg.colors.model,
+              hoverColor: look.colors.model,
               fade: !isPinnedRow,
               closing: !isPinnedRow && hovering?.panel === panel && hovering.closing,
               target,
@@ -842,11 +866,11 @@ export const register: Register = (on, options) => {
       .map(panelBlock)
       .filter(block => block !== null)
     const rule = (key: string) => (
-      <Text key={key} color={cfg.colors.rules}>
+      <Text key={key} color={look.colors.rules}>
         {'─'.repeat(Math.max(1, e.props.bodyColumns))}
       </Text>
     )
-    const sep: Seg = { text: ' | ', color: cfg.colors.icons }
+    const sep: Seg = { text: ' | ', color: look.colors.icons }
 
     return (
       <Box flexDirection="column">

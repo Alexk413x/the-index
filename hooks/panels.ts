@@ -62,6 +62,7 @@ export type PanelView = {
   ultracode: boolean
   contextTokens: number | null
   host: IndexHost | null
+  agentColor?: string
   startedAt: number | null
   attached: number
 }
@@ -118,6 +119,11 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       view.startedAt === null ? null : note(`started ${clockTime(view.startedAt)}`),
     ],
   ]
+  rows.push([
+    'Agent',
+    [value(host.agent || 'none', host.agent ? cfg.colors.model : cfg.colors.icons)],
+    host.agent ? note(view.agentColor ? `colour ${view.agentColor}` : 'no colour') : null,
+  ])
   if (host.bridgeId) {
     rows.push([
       'Remote',

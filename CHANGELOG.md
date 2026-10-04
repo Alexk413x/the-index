@@ -2,6 +2,25 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- `color_primary`, the colour of the band's values, orange by default.
+- The agent's name after the harness on line 1, and an Agent row in the session table.
+- An agent's colour from its definition file tints the values and the lines around
+  open rows; a subagent transcript takes its type's colour.
+
+### Changed
+
+- The lines around open rows follow the prompt border's theme colour by default.
+- Row layout lives in a pure module, `hooks/panels.ts`; the folder opens with
+  `xdg-open` when `open` fails off Windows.
+
+### Removed
+
+- `/index-debug`.
+
 ## [0.1.0] - 2026-10-04
 
 ### Added
@@ -15,10 +34,11 @@ All notable changes to the the-index plugin. Format follows [Keep a Changelog](h
   subagent's transcript open, the picks apply to that subagent's requests.
 - An `ultracode` button that adds or removes the keyword in the prompt draft.
 - Opening another agent CLI in a new tab through the ide-agent-tabs plugin.
-- A clickable folder name that opens the folder in Explorer, Finder or `xdg-open`, branch links,
+- A clickable folder name that opens the folder in Explorer or Finder, branch links,
   and the open PR's number and link via the `gh` CLI.
 - A Remote Control status before the session name (`●` connected, `○` not connected).
 - `userConfig` fields for the dim level, the cache TTL, the context glyphs, each
   segment's visibility and each colour.
-- `/index-effort` to pin the effort row.
+- `/index-effort` to pin the effort row and `/index-debug` to compare the band's
+  values with Claude Code's.
 - The rate-limit file `claude-statusline-ratelimits.json`, shared with `statusline.py`.
