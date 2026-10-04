@@ -1,0 +1,28 @@
+{
+  "name": "the-index",
+  "owner": {
+    "name": "Alexk413x",
+    "email": "alexk413x@gmail.com"
+  },
+  "metadata": {
+    "description": "The Index: a status band above the Claude Code prompt, with live model, effort and harness switching."
+  },
+  "plugins": [
+    {
+      "name": "the-index",
+      "source": ".",
+      "description": "A band above the Claude Code prompt that ports a three-line status line: session, harness, model and effort, IDE, prompt-cache timer, context fill, uptime, rate limits, per-call and session telemetry, and git diffs against HEAD and the base branch with PR links. Hover or pin rows to switch model and effort live, open another agent CLI in a new tab through ide-agent-tabs, or toggle ultracode. With a subagent's transcript open, the band shows and switches that agent's model and effort. Colours, dim level and each segment are user settings.",
+      "category": "productivity",
+      "tags": [
+        "status-line",
+        "statusline",
+        "band",
+        "mod",
+        "subagents",
+        "telemetry",
+        "rate-limits",
+        "model-switcher"
+      ]
+    }
+  ]
+}

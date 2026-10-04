@@ -1,0 +1,232 @@
+{
+  "name": "the-index",
+  "version": "0.1.0",
+  "description": "A band above the prompt that shows the status line: session, model, context, cache, rate limits, per-call and session telemetry, and git diffs. With a subagent transcript open, it shows that agent's model, effort, type and status.",
+  "author": {
+    "name": "Alexk413x",
+    "email": "alexk413x@gmail.com"
+  },
+  "homepage": "https://github.com/Alexk413x/the-index",
+  "repository": "https://github.com/Alexk413x/the-index",
+  "license": "LicenseRef-Proprietary",
+  "keywords": [
+    "status-line",
+    "statusline",
+    "band",
+    "mod",
+    "subagents",
+    "telemetry",
+    "rate-limits"
+  ],
+  "types": "./types/index.d.ts",
+  "userConfig": {
+    "dim": {
+      "type": "number",
+      "title": "Dim level",
+      "description": "Brightness of every colour, from 0.1 to 1. 1 draws full colour. statusline.py uses 0.95.",
+      "default": 0.95,
+      "min": 0.1,
+      "max": 1
+    },
+    "cache_ttl": {
+      "type": "string",
+      "title": "Prompt-cache TTL",
+      "description": "The cache lifetime the warm-cache countdown counts down from. The mod API does not report it.",
+      "options": [
+        "1h",
+        "5m"
+      ],
+      "default": "1h"
+    },
+    "glyphs": {
+      "type": "string",
+      "title": "Context glyphs",
+      "description": "unicode draws the context circle in 5 steps with standard characters. nerd draws it in 9 steps with Nerd Font circle slices, which need a Nerd Font in the terminal.",
+      "options": [
+        "unicode",
+        "nerd"
+      ],
+      "default": "unicode"
+    },
+    "show_remote": {
+      "type": "boolean",
+      "title": "Show: Remote Control status",
+      "description": "Draw ● before the session name while a Remote Control client is connected, and ○ while the session is linked with none connected.",
+      "default": true
+    },
+    "show_session": {
+      "type": "boolean",
+      "title": "Show: Session name",
+      "description": "Draw the session name segment.",
+      "default": true
+    },
+    "show_model": {
+      "type": "boolean",
+      "title": "Show: Model, effort and agent",
+      "description": "Draw the model, effort and agent segment.",
+      "default": true
+    },
+    "show_ide": {
+      "type": "boolean",
+      "title": "Show: IDE",
+      "description": "Draw the iDE segment.",
+      "default": true
+    },
+    "show_cache": {
+      "type": "boolean",
+      "title": "Show: Prompt-cache timer",
+      "description": "Draw the prompt-cache timer segment.",
+      "default": true
+    },
+    "show_context": {
+      "type": "boolean",
+      "title": "Show: Context fill and compactions",
+      "description": "Draw the context fill and compactions segment.",
+      "default": true
+    },
+    "show_uptime": {
+      "type": "boolean",
+      "title": "Show: Session uptime",
+      "description": "Draw the session uptime segment.",
+      "default": true
+    },
+    "show_rate_limits": {
+      "type": "boolean",
+      "title": "Show: 5-hour and 7-day rate limits",
+      "description": "Draw the 5-hour and 7-day rate limits segment.",
+      "default": true
+    },
+    "show_calls": {
+      "type": "boolean",
+      "title": "Show: Per-call telemetry (Δ line)",
+      "description": "Draw the per-call telemetry (Δ line) segment.",
+      "default": true
+    },
+    "show_totals": {
+      "type": "boolean",
+      "title": "Show: Session totals (Σ line)",
+      "description": "Draw the session totals (Σ line) segment.",
+      "default": true
+    },
+    "show_project": {
+      "type": "boolean",
+      "title": "Show: Project folder",
+      "description": "Draw the project folder segment.",
+      "default": true
+    },
+    "show_commit_diff": {
+      "type": "boolean",
+      "title": "Show: Branch and working-tree diff",
+      "description": "Draw the branch and working-tree diff segment.",
+      "default": true
+    },
+    "show_pr_diff": {
+      "type": "boolean",
+      "title": "Show: Ahead/behind and PR diff against the base branch",
+      "description": "Draw the ahead/behind and PR diff against the base branch segment.",
+      "default": true
+    },
+    "show_agent_view": {
+      "type": "boolean",
+      "title": "Show: Subagent model, effort, type and status while its transcript is open",
+      "description": "Draw the subagent model, effort, type and status while its transcript is open segment.",
+      "default": true
+    },
+    "color_session": {
+      "type": "string",
+      "title": "Colour: Session name",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_model": {
+      "type": "string",
+      "title": "Colour: Model, effort and agent",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_ide": {
+      "type": "string",
+      "title": "Colour: IDE name",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_uptime": {
+      "type": "string",
+      "title": "Colour: Uptime",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_resets": {
+      "type": "string",
+      "title": "Colour: Rate-limit reset countdowns",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_calls": {
+      "type": "string",
+      "title": "Colour: Per-call values",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_totals": {
+      "type": "string",
+      "title": "Colour: Session-total values",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_project": {
+      "type": "string",
+      "title": "Colour: Project folder",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_branch": {
+      "type": "string",
+      "title": "Colour: Branch and base names",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_icons": {
+      "type": "string",
+      "title": "Colour: Icons and separators",
+      "description": "Hex colour, such as #808080. The dim level scales it.",
+      "default": "#808080"
+    },
+    "color_good": {
+      "type": "string",
+      "title": "Colour: Good level (low use, high cache hit, additions)",
+      "description": "Hex colour, such as #008700. The dim level scales it.",
+      "default": "#008700"
+    },
+    "color_warn": {
+      "type": "string",
+      "title": "Colour: Warning level",
+      "description": "Hex colour, such as #d7d700. The dim level scales it.",
+      "default": "#d7d700"
+    },
+    "color_high": {
+      "type": "string",
+      "title": "Colour: High level and compaction tally",
+      "description": "Hex colour, such as #d75f00. The dim level scales it.",
+      "default": "#d75f00"
+    },
+    "color_bad": {
+      "type": "string",
+      "title": "Colour: Bad level (high use, low cache hit, deletions)",
+      "description": "Hex colour, such as #c80000. The dim level scales it.",
+      "default": "#c80000"
+    },
+    "color_cold": {
+      "type": "string",
+      "title": "Colour: Cold prompt cache",
+      "description": "Hex colour, such as #00afd7. The dim level scales it.",
+      "default": "#00afd7"
+    },
+    "color_rules": {
+      "type": "string",
+      "title": "Colour: Lines around open rows",
+      "description": "Hex colour of the lines above and below the open rows, such as #000000. The dim level scales it.",
+      "default": "#000000"
+    }
+  }
+}

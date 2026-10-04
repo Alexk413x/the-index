@@ -1,0 +1,112 @@
+export type IndexEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max' | 'auto' | number
+
+export type IndexAgentStep = {
+  model: string
+  effort?: IndexEffort
+}
+
+export type IndexCall = {
+  input: number
+  cacheWrite: number
+  cacheRead: number
+  output: number
+  apiMs: number
+  costUsd: number | null
+  linesAdded: number
+  linesRemoved: number
+}
+
+export type IndexTotals = {
+  requests: number
+  input: number
+  cacheWrite: number
+  cacheRead: number
+  apiMs: number
+  ewmaHit: number | null
+  linesAdded: number
+  linesRemoved: number
+  lastResponseAt: number | null
+  markAdded: number
+  markRemoved: number
+  markCostUsd: number | null
+  cacheTtlMs?: number
+}
+
+export type IndexRateLimit = {
+  usedPercentage: number
+  resetsAt: number
+}
+
+export type IndexUsage = {
+  startedAt: number
+  contextPercent: number | null
+  contextTokens: number | null
+  costUsd: number | null
+  fiveHour: IndexRateLimit | null
+  sevenDay: IndexRateLimit | null
+  compactions: number
+  lastPercent: number | null
+}
+
+export type IndexGit = {
+  branch: string
+  branchPushed: boolean
+  prNumber?: number
+  prLink?: string
+  repoWeb: string
+  filesAdded: number
+  filesModified: number
+  filesDeleted: number
+  linesAdded: number
+  linesRemoved: number
+  prBaseRef: string
+  prBaseName: string
+  prFilesAdded: number
+  prFilesModified: number
+  prFilesDeleted: number
+  prLinesAdded: number
+  prLinesRemoved: number
+  prAhead: number
+  prBehind: number
+}
+
+export type IndexHost = {
+  sessionName: string
+  sessionId?: string
+  bridgeId?: string
+  cwd?: string
+  version?: string
+  bridged: boolean
+  ide: string
+  agentName: string
+  project: string
+  model: string
+  effort?: IndexEffort
+}
+
+export type IndexPanel = 'harness' | 'effort' | 'model' | 'session'
+
+export type IndexHarness = { name: string; label: string }
+
+declare module 'claude-code' {
+  interface PluginState {
+    'the-index': {
+      agents: Readonly<Record<string, IndexAgentStep>>
+      call: IndexCall | null
+      totals: IndexTotals
+      usage: IndexUsage | null
+      git: IndexGit | null
+      host: IndexHost | null
+      tick: number
+      clients: Readonly<Record<string, string>>
+      efforts: Readonly<Record<string, IndexEffort>>
+      pinned: readonly IndexPanel[]
+      slots: readonly IndexPanel[]
+      hover: IndexPanel | null
+      harnesses: readonly IndexHarness[] | null
+      fading: boolean
+      ultracode: boolean
+      models: Readonly<Record<string, string>>
+    }
+  }
+}

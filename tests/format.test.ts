@@ -1,0 +1,318 @@
+import { describe, expect, test } from 'claude-code/testing'
+
+import {
+  EMPTY_TOTALS,
+  MAIN,
+  buildLines,
+  fiveHourGlyph,
+  cacheGlyph,
+  contextGlyph,
+  nextChangeMs,
+  dimHex,
+  fmtCost,
+  fmtDur,
+  fmtMs,
+  fmtNum,
+  fmtUntil,
+  lineText,
+  mergeRateLimit,
+  modelLabel,
+  patchLineCounts,
+  readConfig,
+  repoWebFromRemote,
+  type Snapshot,
+} from '../hooks/format'
+import { applyBase, applyPr, applyStatus, emptyGit, parseSharedLimits, serializeSharedLimits } from '../hooks/git'
+
+const NOW = 1_800_000_000_000
+
+function snapshot(over: Partial<Snapshot> = {}): Snapshot {
+  return {
+    now: NOW,
+    agents: {},
+    call: null,
+    totals: EMPTY_TOTALS,
+    usage: null,
+    git: null,
+    host: null,
+    clients: 0,
+    efforts: {},
+    models: {},
+    ...over,
+  }
+}
+
+describe('formatters match statusline.py', () => {
+  test('numbers, money and durations', () => {
+    expect(fmtNum(999)).toBe('999')
+    expect(fmtNum(1234)).toBe('1.2k')
+    expect(fmtNum(12_345)).toBe('12k')
+    expect(fmtNum(2_500_000)).toBe('2.5M')
+    expect(fmtCost(1.456)).toBe('1.46')
+    expect(fmtCost(0.0034)).toBe('0.0034')
+    expect(fmtCost(0)).toBe('0.00')
+    expect(fmtDur(59)).toBe('59s')
+    expect(fmtDur(61)).toBe('1m1s')
+    expect(fmtDur(3700)).toBe('1h1m')
+    expect(fmtDur(90_000)).toBe('1d1h')
+    expect(fmtMs(250)).toBe('250ms')
+    expect(fmtMs(2500)).toBe('2.5s')
+    expect(fmtMs(75_000)).toBe('1m15s')
+    expect(fmtUntil(NOW + 2 * 3600_000 + 5 * 60_000, NOW)).toBe('2h5m')
+    expect(fmtUntil(NOW - 1, NOW)).toBe('0m')
+  })
+
+  test('model ids read as display names', () => {
+    expect(modelLabel('claude-opus-5-5')).toBe('Opus 5.5')
+    expect(modelLabel('claude-haiku-4-5-20251001')).toBe('Haiku 4.5')
+    expect(modelLabel('claude-sonnet-5-5[1m]')).toBe('Sonnet 5.5 (1M context)')
+    expect(modelLabel('some-gateway-model')).toBe('some-gateway-model')
+  })
+
+  test('remotes become web URLs', () => {
+    expect(repoWebFromRemote('git@github.com:acme/app.git')).toBe('https://github.com/acme/app')
+    expect(repoWebFromRemote('ssh://git@github.com/acme/app')).toBe('https://github.com/acme/app')
+    expect(repoWebFromRemote('http://example.com/acme/app.git')).toBe('https://example.com/acme/app')
+    expect(repoWebFromRemote('/srv/repo')).toBe('')
+  })
+
+  test('patch hunks count added and removed lines', () => {
+    expect(patchLineCounts([{ lines: [' a', '-b', '+c', '+d'] }, { lines: ['-e'] }])).toEqual({ added: 2, removed: 2 })
+  })
+})
+
+describe('config', () => {
+  test('defaults draw every segment at the script dim level', () => {
+    const cfg = readConfig({})
+    expect(cfg.dim).toBe(0.95)
+    expect(cfg.show.rate_limits).toBe(true)
+    expect(cfg.colors.high).toBe(dimHex('#d75f00', 0.95))
+    expect(cfg.cacheTtlMs).toBe(3_600_000)
+  })
+
+  test('toggles, colours and dim apply', () => {
+    const cfg = readConfig({ dim: 0.5, show_calls: false, color_model: '#ffffff', color_bad: 'nonsense', cache_ttl: '5m' })
+    expect(cfg.show.calls).toBe(false)
+    expect(cfg.colors.model).toBe('#808080')
+    expect(cfg.colors.bad).toBe(dimHex('#c80000', 0.5))
+    expect(cfg.cacheTtlMs).toBe(300_000)
+  })
+})
+
+describe('band lines', () => {
+  test('before the first call every value is a placeholder', () => {
+    const lines = buildLines(snapshot(), readConfig({}))
+    expect(lines).toHaveLength(2)
+    expect(lineText(lines[0] ?? [])).toBe('Unknown ░░ | ☀ ░░m ○ ░░% ◷ ░░% ░h░░m ⧈ ░░% ░d░░h')
+    expect(lineText(lines[1] ?? [])).toBe(
+      'Δ ↑░░ ⤒░░░░ ⤓░░░░ ↓░░░░ ↯░░ ⌖░░% ≡+░░ -░░ ⏱ ░░s $░.░░ | Σ ⤒░░░░░ ⌖░░% ░░% ≡+░░░ -░░░ ⏱ ░░m░░s $░.░░',
+    )
+  })
+
+  test('the main view reads the main loop, a subagent view reads that agent', () => {
+    const snap = snapshot({
+      agents: {
+        [MAIN]: { model: 'claude-opus-5-5', effort: 'high' },
+        a1: { model: 'claude-sonnet-5-5', effort: 'low' },
+      },
+      host: { sessionName: 'peer', bridged: false, ide: 'VS Code', agentName: 'Claude', project: 'app', model: 'opus' },
+    })
+    const cfg = readConfig({})
+    expect(lineText(buildLines(snap, cfg)[0] ?? [])).toStartWith('peer | Claude Opus 5.5 high | VS Code | ')
+    const sub = buildLines(snap, cfg, { id: 'a1', type: 'Explore', status: 'running', label: 'scan' })
+    expect(lineText(sub[0] ?? [])).toStartWith('peer | ⤷ Explore scan Sonnet 5.5 low running | VS Code | ')
+    const off = buildLines(snap, readConfig({ show_agent_view: false }), {
+      id: 'a1',
+      type: 'Explore',
+      status: 'running',
+      label: '',
+    })
+    expect(lineText(off[0] ?? [])).toStartWith('peer | Claude Opus 5.5 high')
+  })
+
+  test('telemetry, gauges and git render like the script', () => {
+    const snap = snapshot({
+      call: {
+        input: 12,
+        cacheWrite: 1500,
+        cacheRead: 48_000,
+        output: 800,
+        apiMs: 4000,
+        costUsd: 0.12,
+        linesAdded: 3,
+        linesRemoved: 1,
+      },
+      totals: {
+        ...EMPTY_TOTALS,
+        requests: 5,
+        input: 100,
+        cacheWrite: 20_000,
+        cacheRead: 80_000,
+        apiMs: 65_000,
+        ewmaHit: 0.9,
+        linesAdded: 40,
+        linesRemoved: 7,
+        lastResponseAt: NOW - 10 * 60_000,
+      },
+      usage: {
+        startedAt: NOW - 3_725_000,
+        contextPercent: 45,
+        contextTokens: 90_000,
+        costUsd: 1.5,
+        fiveHour: { usedPercentage: 23.5, resetsAt: NOW + 2 * 3600_000 },
+        sevenDay: { usedPercentage: 61, resetsAt: NOW - 1 },
+        compactions: 2,
+        lastPercent: 45,
+      },
+      git: {
+        ...emptyGit('git@github.com:acme/app.git'),
+        branch: 'feat/x',
+        branchPushed: true,
+        filesAdded: 1,
+        filesModified: 2,
+        linesAdded: 10,
+        linesRemoved: 4,
+        prBaseRef: 'origin/main',
+        prBaseName: 'main',
+        prAhead: 3,
+        prFilesModified: 4,
+        prLinesAdded: 50,
+        prLinesRemoved: 9,
+      },
+      host: { sessionName: '', bridged: false, ide: '', agentName: 'Claude', project: 'app', model: 'opus' },
+    })
+    const lines = buildLines(snap, readConfig({}))
+    expect(lineText(lines[0] ?? [])).toBe(
+      'Claude opus ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ◵ 23% 2h0m ⧈ ░░% ░d░░h',
+    )
+    expect(lineText(lines[1] ?? [])).toBe(
+      'Δ ↑12 ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ⤒20k ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50',
+    )
+    expect(lineText(lines[2] ?? [])).toBe('□ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ main ◻ 0 4 0 ≡ +50 -9')
+    const branch = lines[2]?.[1]?.find(s => s.text === 'feat/x')
+    expect(branch?.href).toBe('https://github.com/acme/app/tree/feat%2Fx')
+    const pr = lines[2]?.[2]?.find(s => s.text === 'main')
+    expect(pr?.href).toBe('https://github.com/acme/app/compare/main...feat%2Fx?expand=1')
+  })
+
+  test('toggled-off segments leave the band', () => {
+    const cfg = readConfig({
+      show_model: false,
+      show_cache: false,
+      show_context: false,
+      show_uptime: false,
+      show_rate_limits: false,
+      show_calls: false,
+      show_totals: false,
+    })
+    expect(buildLines(snapshot(), cfg)).toHaveLength(0)
+  })
+})
+
+describe('git links', () => {
+  const base = {
+    ...emptyGit('git@github.com:acme/app.git'),
+    branch: 'feat/x',
+    prBaseRef: 'origin/main',
+    prBaseName: 'main',
+  }
+  const host = { sessionName: '', bridged: false, ide: '', agentName: 'Claude', project: 'app', model: 'opus' }
+
+  test('an unpushed branch links nowhere', () => {
+    const lines = buildLines(snapshot({ git: { ...base, branchPushed: false }, host }), readConfig({}))
+    expect(lines[2]?.[1]?.find(s => s.text === 'feat/x')?.href).toBeUndefined()
+    expect(lines[2]?.[2]?.find(s => s.text === 'main')?.href).toBeUndefined()
+  })
+
+  test('an open PR shows its number and links to it', () => {
+    const git = { ...base, branchPushed: true, prNumber: 42, prLink: 'https://github.com/acme/app/pull/42' }
+    const lines = buildLines(snapshot({ git, host }), readConfig({}))
+    const pr = lines[2]?.[2]?.find(s => s.text === 'main #42')
+    expect(pr?.href).toBe('https://github.com/acme/app/pull/42')
+  })
+})
+
+describe('git parsing', () => {
+  test('status, base and PR diff fold into a snapshot', () => {
+    const snap = emptyGit('')
+    applyStatus(
+      snap,
+      ['# branch.oid abc', '# branch.head feat', '1 .M N... a', '1 A. N... b', '1 D. N... c', '? d'].join('\n'),
+    )
+    expect(snap).toMatchObject({ branch: 'feat', filesAdded: 2, filesModified: 1, filesDeleted: 1 })
+    applyBase(snap, 'refs/remotes/origin/HEAD\trefs/remotes/origin/main\nrefs/remotes/origin/main\t')
+    expect(snap.prBaseRef).toBe('origin/main')
+    applyPr(snap, ':100644 100644 a b M\tx\n:000000 100644 0 c A\ty\n5\t2\tx\n1\t0\ty', '1\t4')
+    expect(snap).toMatchObject({ prFilesModified: 1, prFilesAdded: 1, prLinesAdded: 6, prLinesRemoved: 2, prBehind: 1, prAhead: 4 })
+  })
+
+  test('local base on the base branch has no PR section', () => {
+    const snap = emptyGit('')
+    snap.branch = 'main'
+    applyBase(snap, 'refs/heads/main\t')
+    expect(snap.prBaseRef).toBe('')
+  })
+})
+
+describe('shared rate limits', () => {
+  test('the newest window wins, then the higher reading', () => {
+    const a = { usedPercentage: 30, resetsAt: NOW }
+    const b = { usedPercentage: 10, resetsAt: NOW + 3600_000 }
+    expect(mergeRateLimit([a, b])).toEqual(b)
+    expect(mergeRateLimit([a, { usedPercentage: 35, resetsAt: NOW + 60_000 }])?.usedPercentage).toBe(35)
+    expect(mergeRateLimit([null, undefined])).toBeNull()
+  })
+
+  test('the file keeps statusline.py seconds-based shape', () => {
+    const text = serializeSharedLimits({ fiveHour: { usedPercentage: 12, resetsAt: 1_700_000_000_000 }, sevenDay: null })
+    expect(JSON.parse(text)).toEqual({ five_hour: { used_percentage: 12, resets_at: 1_700_000_000 } })
+    expect(parseSharedLimits(JSON.parse(text)).fiveHour).toEqual({ usedPercentage: 12, resetsAt: 1_700_000_000_000 })
+  })
+})
+
+describe('glyphs', () => {
+  test('the context circle fills in five unicode steps or nine nerd-font slices', () => {
+    expect([0, 10, 40, 60, 90].map(p => contextGlyph(p, 'unicode')).join('')).toBe('○◔◑◕●')
+    expect(contextGlyph(0, 'nerd').codePointAt(0)).toBe(0xf0766)
+    expect(contextGlyph(13, 'nerd').codePointAt(0)).toBe(0xf0a9e)
+    expect(contextGlyph(100, 'nerd').codePointAt(0)).toBe(0xf0aa5)
+  })
+
+  test('the cache glyph cools from sun to snowflake', () => {
+    expect([0.9, 0.4, 0.2, 0.05, 0].map(cacheGlyph).join('')).toBe('☀☼☼❅❄')
+  })
+
+  test('a linked Remote Control session leads the session name', () => {
+    const host = { sessionName: 'peer', bridged: true, ide: '', agentName: 'Claude', project: '', model: 'opus' }
+    const idle = buildLines(snapshot({ host }), readConfig({}))
+    expect(lineText(idle[0] ?? [])).toStartWith('○ peer | ')
+    const watched = buildLines(snapshot({ host, clients: 1 }), readConfig({}))
+    expect(watched[0]?.[0]?.[0]?.color).toBe(readConfig({}).colors.good)
+    expect(watched[0]?.[0]?.[0]?.text).toBe('●')
+    const off = buildLines(snapshot({ host }), readConfig({ show_remote: false }))
+    expect(lineText(off[0] ?? [])).toStartWith('peer | ')
+  })
+})
+
+describe('five-hour clock', () => {
+  test('the hand sweeps a quarter for each 75 minutes of the window', () => {
+    const at = (left: number) => fiveHourGlyph({ usedPercentage: 9, resetsAt: NOW + left * 60_000 }, NOW)
+    expect([299, 225, 224, 150, 149, 75, 74, 1].map(at).join('')).toBe('◷◷◶◶◵◵◴◴')
+    expect(fiveHourGlyph(null, NOW)).toBe('◷')
+    expect(at(-1)).toBe('◷')
+  })
+})
+
+describe('redraw schedule', () => {
+  test('idle bands redraw once a minute', () => {
+    expect(nextChangeMs(snapshot(), readConfig({}))).toBe(60_000)
+  })
+
+  test('a warm cache redraws when its minute ticks over, then every second', () => {
+    const cfg = readConfig({ cache_ttl: '5m' })
+    const warm = snapshot({ totals: { ...EMPTY_TOTALS, lastResponseAt: NOW - 30_500 } })
+    expect(nextChangeMs(warm, cfg)).toBe(29_501)
+    const last = snapshot({ totals: { ...EMPTY_TOTALS, lastResponseAt: NOW - 250_000 } })
+    expect(nextChangeMs(last, cfg)).toBe(1000)
+  })
+})
