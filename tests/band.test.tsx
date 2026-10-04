@@ -1,12 +1,15 @@
 import { expect, mock, test, type MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { ROW_GAP, TITLE_WIDTH } from '../hooks/panels'
+
 const SURFACES = ['terminal', 'desktop'] as const
 const START = 1_800_000_000_000
 
 const seenEfforts: (string | number | undefined)[] = []
 const seenModels: string[] = []
 const commands: string[] = []
+const toasts: string[] = []
 let stepsFail = false
 let sessionModel = 'claude-opus-5-5'
 let clock: MockClock
@@ -15,6 +18,7 @@ function engine(on: On) {
   seenEfforts.length = 0
   seenModels.length = 0
   commands.length = 0
+  toasts.length = 0
   stepsFail = false
   sessionModel = 'claude-opus-5-5'
   on('command.run', ($, e) => {
@@ -31,7 +35,10 @@ function engine(on: On) {
   on('settings.read', () => ({
     value: { modelSettings: { 'claude-fable-5-1': { effortLevel: 'medium' }, 'claude-sonnet-5-5': { effortLevel: 'xhigh' } } },
   }))
-  on('ui.toast', () => ({ value: undefined }))
+  on('ui.toast', ($, e) => {
+    toasts.push(JSON.stringify(e))
+    return { value: undefined }
+  })
   clock = mock.clock(on, { now: START + 60_000 })
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -62,6 +69,40 @@ function engine(on: On) {
       },
     }
   })
+}
+
+type Run = { exitCode?: number; stdout?: string }
+
+type StartOptions = {
+  cwd?: string
+  id?: string
+  env?: Record<string, string>
+  run?: (argv: readonly string[], env: unknown) => Run
+  sessionFile?: unknown
+}
+
+async function startSession($: { session: { start: (e: never) => Promise<unknown> } }, on: On, opts: StartOptions = {}) {
+  const cwd = opts.cwd ?? 'C:/work/app'
+  on('session.start', () => ({ cwd }))
+  on('command.register', () => ({ value: {} }) as never)
+  on('session.cwd', () => ({ value: cwd }))
+  on('session.id', () => ({ value: opts.id ?? 'abc' }))
+  on('session.version', () => ({ value: { version: '2.1.288' } }) as never)
+  on('process.run', ($, e) => {
+    const { argv, init } = e as { argv: readonly string[]; init?: { env?: unknown } }
+    const r = opts.run?.(argv, init?.env) ?? {}
+    return {
+      value: { exitCode: r.exitCode ?? 1, stdout: r.stdout ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
+    }
+  })
+  mock.env(on, opts.env ?? { USERPROFILE: 'C:/nobody' })
+  on('fs.list', ($, e) =>
+    opts.sessionFile !== undefined && /sessions$/.test(String((e as { path?: string }).path))
+      ? ({ value: [{ name: '1.json', kind: 'file', size: 0, mtimeMs: 0, isLink: false }] } as never)
+      : { value: [] },
+  )
+  if (opts.sessionFile !== undefined) on('fs.read', () => ({ value: JSON.stringify(opts.sessionFile) }))
+  await $.session.start({ cwd, surface: 'terminal', isInteractive: true } as never)
 }
 
 async function step(
@@ -105,6 +146,19 @@ async function pinnedOf(band: { find: (q: { key: string }) => Promise<{ props: R
 
 async function bandText(mounted: { drawn: () => Promise<unknown> }) {
   return visible(await mounted.drawn())
+}
+
+async function blockOrder(band: { drawn: () => Promise<unknown> }) {
+  const keys: string[] = []
+  const walk = (node: unknown) => {
+    if (!node || typeof node !== 'object') return
+    if (Array.isArray(node)) return node.forEach(walk)
+    const n = node as { props?: { key?: string }; children?: unknown[] }
+    if (n.props?.key?.endsWith('-block')) keys.push(n.props.key.replace('-block', ''))
+    ;(n.children ?? []).forEach(walk)
+  }
+  walk(await band.drawn())
+  return keys
 }
 
 test('the band follows the transcript on screen', async ($, on) => {
@@ -303,19 +357,15 @@ test('a typed /effort moves the band', async ($, on) => {
 test('clicking the folder name opens it in the file manager', async ($, on) => {
   engine(on)
   const runs: (readonly string[])[] = []
-  on('session.cwd', () => ({ value: 'C:/work/app' }))
   const envs: unknown[] = []
-  on('process.run', ($, e) => {
-    runs.push((e as { argv: readonly string[] }).argv)
-    envs.push((e as { init?: { env?: unknown } }).init?.env)
-    return { value: { exitCode: 0, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  await startSession($, on, {
+    env: { OS: 'Windows_NT' },
+    run: (argv, env) => {
+      runs.push(argv)
+      envs.push(env)
+      return { exitCode: 0 }
+    },
   })
-  mock.env(on, { OS: 'Windows_NT' })
-  on('session.start', () => ({ cwd: 'C:/work/app' }))
-  on('command.register', () => ({ value: {} }) as never)
-  on('session.id', () => ({ value: 'abc' }))
-  on('session.version', () => ({ value: { version: '2.1.288' } }) as never)
-  await $.session.start({ cwd: 'C:/work/app', surface: 'terminal', isInteractive: true } as never).catch(() => undefined)
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const chip = await band.find({ key: 'project-chip' })
   if (chip) await band.post({ press: true }, { in: 'project-chip' })
@@ -335,51 +385,31 @@ test('rows keep their place: a new pin goes to the bottom, an unpinned row stays
   engine(on)
   await step($, 'claude-opus-5-5', 'high')
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  const order = async () => {
-    const keys: string[] = []
-    const walk = (node: unknown) => {
-      if (!node || typeof node !== 'object') return
-      if (Array.isArray(node)) return node.forEach(walk)
-      const n = node as { props?: { key?: string }; children?: unknown[] }
-      if (n.props?.key?.endsWith('-block')) keys.push(n.props.key.replace('-block', ''))
-      ;(n.children ?? []).forEach(walk)
-    }
-    walk(await band.drawn())
-    return keys
-  }
   await band.post({ press: true }, { in: 'effort-chip' })
   await band.post({ press: true }, { in: 'model-chip' })
-  expect(await order()).toEqual(['effort', 'model'])
+  expect(await blockOrder(band)).toEqual(['effort', 'model'])
   expect((await band.find({ key: 'model-chip' }))?.props['props']).toMatchObject({ isActive: true })
 
   await band.post({ hover: true }, { in: 'effort-pin' })
   await band.post({ press: true }, { in: 'effort-pin' })
-  expect(await order()).toEqual(['effort', 'model'])
+  expect(await blockOrder(band)).toEqual(['effort', 'model'])
   expect(await pinnedOf(band, 'effort')).toBe(false)
 
   await band.post({ hover: false }, { in: 'effort-pin' })
   await clock.advance(1010)
-  expect(await order()).toEqual(['model'])
+  expect(await blockOrder(band)).toEqual(['model'])
 
   await band.post({ press: true }, { in: 'effort-chip' })
-  expect(await order()).toEqual(['model', 'effort'])
+  expect(await blockOrder(band)).toEqual(['model', 'effort'])
   await band.post({ press: true }, { in: 'model-pin' })
-  expect(await order()).toEqual(['effort'])
+  expect(await blockOrder(band)).toEqual(['effort'])
   await band.unmount()
 })
 
 test('the effort shows before the first request, from the saved setting for the model', async ($, on) => {
   engine(on)
   sessionModel = 'claude-sonnet-5-5'
-  on('session.start', () => ({ cwd: '.' }))
-  mock.env(on, { USERPROFILE: 'C:/nobody' })
-  on('fs.list', () => ({ value: [] }))
-  on('command.register', () => ({ value: {} }) as never)
-  on('session.cwd', () => ({ value: '.' }))
-  on('session.id', () => ({ value: 'abc' }))
-  on('session.version', () => ({ value: { version: '2.1.288' } }) as never)
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
-  await $.session.start({ cwd: '.', surface: 'terminal', isInteractive: true } as never)
+  await startSession($, on)
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   expect(await bandText(band)).toContain('Sonnet 5.5 xhigh')
   await band.unmount()
@@ -416,15 +446,7 @@ test('the harness name lists agent-tabs harnesses and a pick opens one in a new 
     })
     return { value: { content: [{ type: 'text', text }], isError: false } } as never
   })
-  on('session.start', () => ({ cwd: 'C:/work/app' }))
-  on('command.register', () => ({ value: {} }) as never)
-  on('session.cwd', () => ({ value: 'C:/work/app' }))
-  on('session.id', () => ({ value: 'abc' }))
-  on('session.version', () => ({ value: { version: '2.1.288' } }) as never)
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
-  mock.env(on, { USERPROFILE: 'C:/nobody' })
-  on('fs.list', () => ({ value: [] }))
-  await $.session.start({ cwd: 'C:/work/app', surface: 'terminal', isInteractive: true } as never)
+  await startSession($, on)
   await step($, 'claude-opus-5-5', 'high')
 
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
@@ -508,20 +530,7 @@ test('the ultracode button toggles the keyword in the draft and lights while it 
 
 test('the session row is a three-column table with no separators', async ($, on) => {
   engine(on)
-  on('session.start', () => ({ cwd: 'C:/work/app' }))
-  on('command.register', () => ({ value: {} }) as never)
-  on('session.cwd', () => ({ value: 'C:/work/app' }))
-  on('session.id', () => ({ value: 'abc-123' }))
-  on('session.version', () => ({ value: { version: '2.1.288' } }) as never)
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
-  mock.env(on, { USERPROFILE: 'C:/nobody' })
-  on('fs.list', ($, e) =>
-    /sessions$/.test(String((e as { path?: string }).path))
-      ? ({ value: [{ name: '1.json', kind: 'file', size: 0, mtimeMs: 0, isLink: false }] } as never)
-      : { value: [] },
-  )
-  on('fs.read', () => ({ value: JSON.stringify({ sessionId: 'abc-123', name: 'peer' }) }))
-  await $.session.start({ cwd: 'C:/work/app', surface: 'terminal', isInteractive: true } as never)
+  await startSession($, on, { id: 'abc-123', sessionFile: { sessionId: 'abc-123', name: 'peer' } })
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   expect(await bandText(band)).toContain('peer')
   await band.post({ press: true }, { in: 'session-chip' })
@@ -539,28 +548,122 @@ test('a row opened again after moving straight to another name goes back in at t
   engine(on)
   await step($, 'claude-opus-5-5', 'high')
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  const order = async () => {
-    const keys: string[] = []
-    const walk = (node: unknown) => {
-      if (!node || typeof node !== 'object') return
-      if (Array.isArray(node)) return node.forEach(walk)
-      const n = node as { props?: { key?: string }; children?: unknown[] }
-      if (n.props?.key?.endsWith('-block')) keys.push(n.props.key.replace('-block', ''))
-      ;(n.children ?? []).forEach(walk)
-    }
-    walk(await band.drawn())
-    return keys
-  }
   await band.post({ hover: true }, { in: 'effort-chip' })
   await clock.advance(110)
   await band.post({ hover: false }, { in: 'effort-chip' })
   await band.post({ hover: true }, { in: 'model-chip' })
   await clock.advance(110)
-  expect(await order()).toEqual(['model'])
+  expect(await blockOrder(band)).toEqual(['model'])
   await band.post({ press: true }, { in: 'model-chip' })
   await band.post({ hover: false }, { in: 'model-chip' })
   await band.post({ hover: true }, { in: 'effort-chip' })
   await clock.advance(110)
-  expect(await order()).toEqual(['model', 'effort'])
+  expect(await blockOrder(band)).toEqual(['model', 'effort'])
+  await band.unmount()
+})
+
+test('a click in a row picks the choice under the pointer, and Left, Right and Enter pick from the keyboard', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ press: true }, { in: 'effort-chip' })
+  await band.pointer({ type: 'up', x: TITLE_WIDTH + ROW_GAP, y: 0, button: 'left', in: 'effort-row' })
+  expect(commands).toEqual(['effort low'])
+
+  await band.post({ press: true }, { in: 'effort-chip' })
+  await band.key({ key: 'right', in: 'effort-row' })
+  await band.key({ key: 'return', in: 'effort-row' })
+  expect(commands).toEqual(['effort low', 'effort high'])
+  await band.unmount()
+})
+
+test('the name chip opens its row on pointer enter and pins it on click', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.pointer({ type: 'enter', x: 0, y: 0, in: 'model-chip' })
+  await clock.advance(110)
+  expect(await band.find({ key: 'model-row' })).toBeDefined()
+  expect(await pinnedOf(band, 'model')).toBe(false)
+  await band.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'model-chip' })
+  expect(await pinnedOf(band, 'model')).toBe(true)
+  await band.unmount()
+})
+
+test('a hovered row fades out by its own frames and then closes', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ hover: true }, { in: 'effort-chip' })
+  await clock.advance(110)
+  await band.advance(400)
+  await band.post({ hover: false }, { in: 'effort-chip' })
+  await band.advance(700)
+  expect(await band.find({ key: 'effort-row' })).toBeUndefined()
+  await band.unmount()
+})
+
+test('a pinned row stays open when the pointer leaves it', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ press: true }, { in: 'effort-chip' })
+  await band.post({ hover: true }, { in: 'effort-row' })
+  await band.post({ hover: false }, { in: 'effort-row' })
+  await clock.advance(1100)
+  expect((await band.find({ key: 'effort-row' }))?.props['props']).toMatchObject({ fade: false, closing: false })
+  expect(await blockOrder(band)).toEqual(['effort'])
+  await band.unmount()
+})
+
+test('off Windows the folder opens with open, then xdg-open, and a failure says so', async ($, on) => {
+  engine(on)
+  const runs: string[] = []
+  let opens = true
+  await startSession($, on, {
+    env: { HOME: '/home/me' },
+    run: argv => {
+      if (argv[0] === 'open' || argv[0] === 'xdg-open') runs.push(argv.join(' '))
+      return { exitCode: opens && argv[0] === 'xdg-open' ? 0 : 1 }
+    },
+  })
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ press: true }, { in: 'project-chip' })
+  expect(runs).toEqual(['open C:/work/app', 'xdg-open C:/work/app'])
+  expect(toasts.join('')).not.toContain('Could not open')
+  opens = false
+  await band.post({ press: true }, { in: 'project-chip' })
+  expect(toasts.join('')).toContain('Could not open C:/work/app')
+  await band.unmount()
+})
+
+test('git links open over https only', async ($, on) => {
+  engine(on)
+  const opened: unknown[] = []
+  await startSession($, on, {
+    env: { OS: 'Windows_NT' },
+    run: (argv, env) => {
+      if (argv[0] === 'powershell') {
+        opened.push(env)
+        return { exitCode: 0 }
+      }
+      if (argv.includes('status')) return { exitCode: 0, stdout: '# branch.oid abc\n# branch.head feat/x' }
+      if (argv.includes('config')) return { exitCode: 0, stdout: 'git@github.com:acme/app.git' }
+      if (argv.includes('for-each-ref')) return { exitCode: 0, stdout: 'refs/remotes/origin/main\t' }
+      if (argv.includes('--verify')) return { exitCode: 0, stdout: 'abc' }
+      if (argv.includes('rev-list')) return { exitCode: 0, stdout: '0\t3' }
+      return { exitCode: argv[0] === 'git' ? 0 : 1 }
+    },
+  })
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  const link = (await band.findAll({ type: 'Client' })).find(c => String(c.props['key']).startsWith('link-'))
+  const key = String(link?.props['key'])
+  const href = (link?.props['props'] as { href?: string } | undefined)?.href
+  expect(href).toBe('https://github.com/acme/app/tree/feat%2Fx')
+  await band.post({ press: true, href: 'http://example.com/x' }, { in: key })
+  await band.post({ press: true, href: 'file:///C:/Windows' }, { in: key })
+  expect(opened).toEqual([])
+  await band.post({ press: true, href: href ?? '' }, { in: key })
+  expect(opened).toEqual([{ THE_INDEX_OPEN: href }])
   await band.unmount()
 })

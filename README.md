@@ -30,7 +30,7 @@ type and status instead of the main session's.
     PR's number first (`#42 origin/main`), found with the `gh` CLI, and links to that PR,
     or to GitHub's create-PR page when there's none. On `main` itself it links to the
     commit history.
-  Click the folder name to open it in Explorer or Finder.
+  Click the folder name to open it in Explorer, Finder or, on Linux, the app `xdg-open` picks.
 
 With a subagent transcript open, line 1's model segment reads
 `⤷ <type> <name or description> <model> <effort> <status>`.
@@ -108,7 +108,7 @@ The repository is private, so the marketplace needs GitHub access to `Alexk413x/
 To try a local checkout instead, load the folder for one session:
 
 ```sh
-claude --plugin-dir C:/Users/you/Projects/Plugins/the-index
+claude --plugin-dir path/to/the-index
 ```
 
 For apps you can't pass a flag to (the desktop app, an SDK host), add the path to

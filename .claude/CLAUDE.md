@@ -11,12 +11,15 @@ the prompt. `README.md` describes the band, its settings, and how it differs fro
 - `hooks/hooks.json` — names the one hooks module.
 - `hooks/register.tsx` — the hooks module: state atoms, the `$` helpers, and every hook.
 - `hooks/format.ts` — pure: config, formatters, and `buildLines`, which builds the band.
+- `hooks/panels.ts` — pure: the rows above the band (`panelLines`), their order, and
+  which model and effort are current.
 - `hooks/git.ts` — pure: git output parsers and the shared rate-limit file's format.
 - `hooks/chip.tsx` — the `Client` module for clickable coloured text (the effort, model
   and session names, the pins and the folder name). It has no `$`; it posts `{ press }`
   and `{ hover }` to the hooks module.
 - `hooks/row.tsx` — the `Client` module for a hover or pinned row: draws its lines, fades
-  in, and posts `{ hover }` and `{ pick, target }` to the hooks module.
+  in and out, and posts `{ hover }`, `{ pick, target }` and `{ faded }` to the hooks
+  module.
 - `types/index.d.ts` — the `$.state` contract.
 - `tests/` — `*.test.ts(x)` files for `claude plugin test`.
 - `knowledge/code_graph.db` — the codebase-kg map of this repo. Committed.
@@ -30,7 +33,7 @@ the prompt. `README.md` describes the band, its settings, and how it differs fro
 - A function that takes `$` is a top-level function declaration in `register.tsx`, and
   calls `$` as `$.noun.method(...)`. `$.env.get` takes a literal name. The validator
   refuses anything else.
-- Keep `format.ts` and `git.ts` free of `$`, so tests call them directly.
+- Keep `format.ts`, `panels.ts` and `git.ts` free of `$`, so tests call them directly.
 - A render hook never writes state. Timers and event hooks write; the band reads.
 - Never show an invented figure. A value the API doesn't give is a `░` placeholder, and
   `README.md` lists it under the differences from `statusline.py`.

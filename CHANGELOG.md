@@ -15,11 +15,10 @@ All notable changes to the the-index plugin. Format follows [Keep a Changelog](h
   subagent's transcript open, the picks apply to that subagent's requests.
 - An `ultracode` button that adds or removes the keyword in the prompt draft.
 - Opening another agent CLI in a new tab through the ide-agent-tabs plugin.
-- A clickable folder name that opens the folder in Explorer or Finder, branch links,
+- A clickable folder name that opens the folder in Explorer, Finder or `xdg-open`, branch links,
   and the open PR's number and link via the `gh` CLI.
 - A Remote Control status before the session name (`●` connected, `○` not connected).
 - `userConfig` fields for the dim level, the cache TTL, the context glyphs, each
   segment's visibility and each colour.
-- `/index-effort` to pin the effort row and `/index-debug` to compare the band's
-  values with Claude Code's.
+- `/index-effort` to pin the effort row.
 - The rate-limit file `claude-statusline-ratelimits.json`, shared with `statusline.py`.

@@ -36,8 +36,8 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
     git: null,
     host: null,
     clients: 0,
-    efforts: {},
-    models: {},
+    agentEfforts: {},
+    agentModels: {},
     ...over,
   }
 }
@@ -115,7 +115,7 @@ describe('band lines', () => {
         [MAIN]: { model: 'claude-opus-5-5', effort: 'high' },
         a1: { model: 'claude-sonnet-5-5', effort: 'low' },
       },
-      host: { sessionName: 'peer', bridged: false, ide: 'VS Code', agentName: 'Claude', project: 'app', model: 'opus' },
+      host: { sessionName: 'peer', bridged: false, ide: 'VS Code', agentName: 'Claude', project: 'app' },
     })
     const cfg = readConfig({})
     expect(lineText(buildLines(snap, cfg)[0] ?? [])).toStartWith('peer | Claude Opus 5.5 high | VS Code | ')
@@ -179,11 +179,12 @@ describe('band lines', () => {
         prLinesAdded: 50,
         prLinesRemoved: 9,
       },
-      host: { sessionName: '', bridged: false, ide: '', agentName: 'Claude', project: 'app', model: 'opus' },
+      host: { sessionName: '', bridged: false, ide: '', agentName: 'Claude', project: 'app' },
+      agents: { [MAIN]: { model: 'claude-opus-5-5' } },
     })
     const lines = buildLines(snap, readConfig({}))
     expect(lineText(lines[0] ?? [])).toBe(
-      'Claude opus ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ◵ 23% 2h0m ⧈ ░░% ░d░░h',
+      'Claude Opus 5.5 ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ◵ 23% 2h0m ⧈ ░░% ░d░░h',
     )
     expect(lineText(lines[1] ?? [])).toBe(
       'Δ ↑12 ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ⤒20k ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50',
@@ -216,7 +217,7 @@ describe('git links', () => {
     prBaseRef: 'origin/main',
     prBaseName: 'main',
   }
-  const host = { sessionName: '', bridged: false, ide: '', agentName: 'Claude', project: 'app', model: 'opus' }
+  const host = { sessionName: '', bridged: false, ide: '', agentName: 'Claude', project: 'app' }
 
   test('an unpushed branch links nowhere', () => {
     const lines = buildLines(snapshot({ git: { ...base, branchPushed: false }, host }), readConfig({}))
@@ -289,7 +290,7 @@ describe('glyphs', () => {
   })
 
   test('a linked Remote Control session leads the session name', () => {
-    const host = { sessionName: 'peer', bridged: true, ide: '', agentName: 'Claude', project: '', model: 'opus' }
+    const host = { sessionName: 'peer', bridged: true, ide: '', agentName: 'Claude', project: '' }
     const idle = buildLines(snapshot({ host }), readConfig({}))
     expect(lineText(idle[0] ?? [])).toStartWith('○ peer | ')
     const watched = buildLines(snapshot({ host, clients: 1 }), readConfig({}))

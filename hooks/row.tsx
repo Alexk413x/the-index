@@ -1,10 +1,10 @@
 import type { ClientModule } from 'claude-code'
 
-type RowItem = { text: string; color: string; pick?: string; pad?: number }
-type RowProps = { lines: RowItem[][]; hoverColor: string; fade: boolean; closing?: boolean; target: string }
+import type { RowItem } from './panels'
+
+type RowProps = { lines: RowItem[][]; gap: number; hoverColor: string; fade: boolean; closing?: boolean; target: string }
 type RowState = { step: number; goal: number; skip: boolean; hovered: string | null; focus: number }
 
-const GAP = '  '
 const FADE_STEPS = 10
 const FADE_FRAME_MS = 30
 const IDLE: RowState = { step: FADE_STEPS, goal: FADE_STEPS, skip: false, hovered: null, focus: 0 }
@@ -17,11 +17,11 @@ function fadeColor(hex: string, amount: number): string {
   return `#${[16, 8, 0].map(shift => Math.round(((n >> shift) & 255) * scale).toString(16).padStart(2, '0')).join('')}`
 }
 
-function pickAt(lines: RowItem[][], x: number, y: number): string | null {
+function pickAt(lines: RowItem[][], gap: number, x: number, y: number): string | null {
   let col = 0
   for (const item of lines[y] ?? []) {
     if (x >= col && x < col + item.text.length) return item.pick ?? null
-    col += item.text.length + (item.pad ?? 0) + GAP.length
+    col += item.text.length + (item.pad ?? 0) + gap
   }
   return null
 }
@@ -55,10 +55,10 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
         surface.setState({ ...state, hovered: null })
         surface.post({ hover: false })
       } else if (e.type === 'move') {
-        const hovered = pickAt(props.lines, e.x, e.y)
+        const hovered = pickAt(props.lines, props.gap, e.x, e.y)
         if (hovered !== state.hovered) surface.setState({ ...state, hovered })
       } else if (e.type === 'up' && e.button === 'left') {
-        const pick = pickAt(props.lines, e.x, e.y)
+        const pick = pickAt(props.lines, props.gap, e.x, e.y)
         if (pick) surface.post({ pick, target: props.target })
       }
     })
@@ -90,7 +90,7 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
               key={`item${y}-${i}`}
               color={fadeColor(item.pick !== undefined && item.pick === state.hovered ? props.hoverColor : item.color, amount)}
             >
-              {i > 0 ? GAP : ''}
+              {i > 0 ? ' '.repeat(props.gap) : ''}
               {item.text}
               {' '.repeat(item.pad ?? 0)}
             </Text>

@@ -80,13 +80,13 @@ export type IndexHost = {
   ide: string
   agentName: string
   project: string
-  model: string
-  effort?: IndexEffort
 }
 
 export type IndexPanel = 'harness' | 'effort' | 'model' | 'session'
 
 export type IndexHarness = { name: string; label: string }
+
+export type IndexHover = { panel: IndexPanel; closing: boolean }
 
 declare module 'claude-code' {
   interface PluginState {
@@ -99,14 +99,13 @@ declare module 'claude-code' {
       host: IndexHost | null
       tick: number
       clients: Readonly<Record<string, string>>
-      efforts: Readonly<Record<string, IndexEffort>>
+      agentEfforts: Readonly<Record<string, Exclude<IndexEffort, 'auto'>>>
+      agentModels: Readonly<Record<string, string>>
       pinned: readonly IndexPanel[]
       slots: readonly IndexPanel[]
-      hover: IndexPanel | null
+      hover: IndexHover | null
       harnesses: readonly IndexHarness[] | null
-      fading: boolean
       ultracode: boolean
-      models: Readonly<Record<string, string>>
     }
   }
 }

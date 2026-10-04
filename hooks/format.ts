@@ -233,7 +233,7 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
 }
 
 export type Menu = 'harness' | 'effort' | 'model' | 'session' | 'project'
-export type Seg = { text: string; color: string; href?: string; effortOf?: string; menu?: Menu }
+export type Seg = { text: string; color: string; href?: string; menu?: Menu }
 export type Part = readonly Seg[]
 export type Line = readonly Part[]
 
@@ -246,8 +246,8 @@ export type Snapshot = {
   git: IndexGit | null
   host: IndexHost | null
   clients: number
-  efforts: Readonly<Record<string, IndexEffort>>
-  models: Readonly<Record<string, string>>
+  agentEfforts: Readonly<Record<string, IndexEffort>>
+  agentModels: Readonly<Record<string, string>>
 }
 
 export type ViewedAgent = {
@@ -286,21 +286,20 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
       viewed.status === 'running' ? c.good : viewed.status === 'completed' ? c.icons : c.bad
     const head: Seg[] = [icon(SYM_AGENT), sp, seg(viewed.type, c.model)]
     if (viewed.label) head.push(sp, seg(viewed.label, c.icons))
-    const agentModel = snap.models[viewed.id] ?? step?.model
+    const agentModel = snap.agentModels[viewed.id] ?? step?.model
     head.push(sp, { text: agentModel ? modelLabel(agentModel) : SHADE.repeat(2), color: c.model, menu: 'model' })
-    const effort = effortLabel(snap.efforts[viewed.id] ?? step?.effort)
-    head.push(sp, { text: effort || SHADE.repeat(2), color: c.model, effortOf: viewed.id, menu: 'effort' })
+    const effort = effortLabel(snap.agentEfforts[viewed.id] ?? step?.effort)
+    head.push(sp, { text: effort || SHADE.repeat(2), color: c.model, menu: 'effort' })
     head.push(sp, seg(viewed.status, statusColor))
     line1.push(head)
   } else if (cfg.show.model) {
     const main = snap.agents[MAIN]
-    const chosenModel = snap.models[MAIN] ?? main?.model ?? host?.model
-    const model = chosenModel ? modelLabel(chosenModel) : 'Unknown'
-    const effort = effortLabel(snap.efforts[MAIN] ?? main?.effort ?? host?.effort)
+    const model = main?.model ? modelLabel(main.model) : 'Unknown'
+    const effort = effortLabel(main?.effort)
     const head: Seg[] = []
     if (host?.agentName) head.push({ text: host.agentName, color: c.model, menu: 'harness' }, sp)
     head.push({ text: model, color: c.model, menu: 'model' })
-    head.push(sp, { text: effort || SHADE.repeat(2), color: c.model, effortOf: MAIN, menu: 'effort' })
+    head.push(sp, { text: effort || SHADE.repeat(2), color: c.model, menu: 'effort' })
     line1.push(head)
   }
 

@@ -1,12 +1,11 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, Timer, SessionContextUsage, SessionCost, SessionRateLimit } from 'claude-code'
 
-import type { IndexEffort, IndexHarness, IndexPanel, IndexGit, IndexRateLimit, IndexUsage } from '../types'
+import type { IndexAgentStep, IndexEffort, IndexHarness, IndexPanel, IndexGit, IndexRateLimit, IndexUsage } from '../types'
 import {
   EMPTY_TOTALS,
   MAIN,
   buildLines,
-  fmtNum,
   MODEL_CHOICES,
   mergeRateLimit,
   modelLabel,
@@ -16,10 +15,19 @@ import {
   projectName,
   readConfig,
   type Config,
-  type Menu,
   type Seg,
   type ViewedAgent,
 } from './format'
+import {
+  EFFORTS,
+  PANELS,
+  ROW_GAP,
+  currentChoices,
+  mainStep,
+  panelLines,
+  rowOrder,
+  savedEffortFor,
+} from './panels'
 import {
   BASE_REFS,
   applyBase,
@@ -41,14 +49,13 @@ const git = atom({ plugin: 'the-index', key: 'git' } as const, null)
 const host = atom({ plugin: 'the-index', key: 'host' } as const, null)
 const tick = atom({ plugin: 'the-index', key: 'tick' } as const, 0)
 const clients = atom({ plugin: 'the-index', key: 'clients' } as const, {})
-const efforts = atom({ plugin: 'the-index', key: 'efforts' } as const, {})
+const agentEfforts = atom({ plugin: 'the-index', key: 'agentEfforts' } as const, {})
+const agentModels = atom({ plugin: 'the-index', key: 'agentModels' } as const, {})
 const pinned = atom({ plugin: 'the-index', key: 'pinned' } as const, [])
 const slots = atom({ plugin: 'the-index', key: 'slots' } as const, [])
 const hover = atom({ plugin: 'the-index', key: 'hover' } as const, null)
 const harnesses = atom({ plugin: 'the-index', key: 'harnesses' } as const, null)
-const fading = atom({ plugin: 'the-index', key: 'fading' } as const, false)
 const ultracode = atom({ plugin: 'the-index', key: 'ultracode' } as const, false)
-const models = atom({ plugin: 'the-index', key: 'models' } as const, {})
 
 const EWMA_ALPHA = 0.3
 const COMPACTION_DROP = 30
@@ -59,7 +66,6 @@ const HOST_MIN_GAP_MS = 300_000
 const PR_CACHE_MS = 300_000
 const prCache = new Map<string, { at: number; pr: { number: number; url: string } | null }>()
 const GIT_STAMP_FILES = ['index', 'HEAD', 'FETCH_HEAD', 'ORIG_HEAD']
-const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 
 type Measured = {
   context: SessionContextUsage
@@ -71,11 +77,6 @@ function toLimit(rl: SessionRateLimit | undefined): IndexRateLimit | null {
   if (!rl) return null
   const resetsAt = rl.resetsAt ? Date.parse(rl.resetsAt) : 0
   return { usedPercentage: rl.percentUsed, resetsAt: Number.isFinite(resetsAt) ? resetsAt : 0 }
-}
-
-function settingsEffort(value: unknown): IndexEffort | undefined {
-  if (typeof value === 'number') return value
-  return typeof value === 'string' && (EFFORTS as readonly string[]).includes(value) ? (value as IndexEffort) : undefined
 }
 
 async function readJson($: EngineInterface, path: string): Promise<unknown> {
@@ -227,23 +228,21 @@ async function gitStamp($: EngineInterface, gitDir: string): Promise<string> {
 async function nextTickDelay($: EngineInterface, cfg: Config): Promise<number> {
   const [sums, measured, now] = await Promise.all([read($, totals), read($, usage), $.clock.now()])
   return nextChangeMs(
-    { now, agents: {}, call: null, totals: sums, usage: measured, git: null, host: null, clients: 0, efforts: {}, models: {} },
+    { now, agents: {}, call: null, totals: sums, usage: measured, git: null, host: null, clients: 0, agentEfforts: {}, agentModels: {} },
     cfg,
   )
 }
 
 async function refreshHost($: EngineInterface): Promise<void> {
-  const [cwd, id, model, settings, dir, version] = await Promise.all([
+  const [cwd, id, settings, dir, version] = await Promise.all([
     $.session.cwd(),
     $.session.id(),
-    $.session.model(),
     $.settings.read(),
     configDir($),
     $.session.version(),
   ])
   const [entry, ide] = await Promise.all([sessionEntry($, dir, id), detectIde($, dir, cwd)])
   const agentSetting = settings['agent']
-  const effort = await savedEffort($, model)
   await update($, host, () => ({
     sessionName: entry.name,
     sessionId: id,
@@ -254,8 +253,6 @@ async function refreshHost($: EngineInterface): Promise<void> {
     ide,
     agentName: typeof agentSetting === 'string' && agentSetting ? agentSetting : 'Claude',
     project: projectName(cwd),
-    model,
-    effort,
   }))
 }
 
@@ -271,15 +268,8 @@ async function switchMainModel($: EngineInterface, alias: string, id: string | u
   if (shown) await followModel($, shown)
 }
 
-async function savedEffort($: EngineInterface, model: string): Promise<IndexEffort | undefined> {
-  const settings = await $.settings.read()
-  const perModel = settings['modelSettings']
-  const entry = isRecord(perModel) ? perModel[model.replace(/\[1m\]$/, '')] : undefined
-  return settingsEffort(isRecord(entry) ? entry['effortLevel'] : undefined) ?? settingsEffort(settings['effortLevel'])
-}
-
 async function followModel($: EngineInterface, model: string): Promise<void> {
-  const effort = await savedEffort($, model)
+  const effort = savedEffortFor(await $.settings.read(), model)
   await update($, agents, prev => ({ ...prev, [MAIN]: { model, effort: effort ?? prev[MAIN]?.effort } }))
 }
 
@@ -288,22 +278,19 @@ async function followModel($: EngineInterface, model: string): Promise<void> {
 // script, so quotes in a path or URL can't end the string and run code.
 async function shellOpen($: EngineInterface, target: string): Promise<void> {
   const isWindows = (await $.env.get('OS')) === 'Windows_NT'
-  try {
-    if (isWindows) {
-      await $.process.run(
-        ['powershell', '-NoProfile', '-NonInteractive', '-Command', '(New-Object -ComObject Shell.Application).Open($env:THE_INDEX_OPEN)'],
-        { timeoutMs: 10_000, env: { THE_INDEX_OPEN: target } },
-      )
-    } else {
-      await $.process.run(['open', target], { timeoutMs: 10_000 })
-    }
-  } catch {
+  const openers: [readonly string[], Record<string, string>?][] = isWindows
+    ? [[['powershell', '-NoProfile', '-NonInteractive', '-Command', '(New-Object -ComObject Shell.Application).Open($env:THE_INDEX_OPEN)'], { THE_INDEX_OPEN: target }]]
+    : // macOS has `open`; Linux has xdg-open, and its `open` (openvt) exits non-zero, so each is tried in turn.
+      [[['open', target]], [['xdg-open', target]]]
+  for (const [argv, env] of openers) {
     try {
-      await $.process.run(['xdg-open', target], { timeoutMs: 10_000 })
+      const r = await $.process.run(argv, env ? { timeoutMs: 10_000, env } : { timeoutMs: 10_000 })
+      if (r.exitCode === 0) return
     } catch {
-      $.ui.toast(`Could not open ${target}`)
+      continue
     }
   }
+  $.ui.toast(`Could not open ${target}`)
 }
 
 async function openUrl($: EngineInterface, href: string): Promise<void> {
@@ -404,20 +391,17 @@ function refreshGitSoon($: EngineInterface): void {
   })
 }
 
-const PANELS: readonly IndexPanel[] = ['harness', 'effort', 'model', 'session']
 const AGENT_TABS = 'plugin:ide-agent-tabs:ide-agent-tabs'
-// Must match GAP in row.tsx, which lays the row out.
-const ROW_GAP = 2
 const ULTRACODE = /\bultracode\b/i
-const TITLE_WIDTH = 10
-const MIDDLE_WIDTH = 60
 const PIN_ON = '■'
 const PIN_OFF = '□'
 const PIN_SPACE = ' '
 
-function withPanel(list: readonly IndexPanel[], panel: IndexPanel, isOpen: boolean): IndexPanel[] {
-  const rest = list.filter(p => p !== panel)
-  return isOpen ? [panel, ...rest] : rest
+function setPinned($: EngineInterface, panel: IndexPanel, isPinned: boolean): Promise<unknown> {
+  return update($, pinned, list => {
+    const rest = list.filter(p => p !== panel)
+    return isPinned ? [...rest, panel] : rest
+  })
 }
 
 const HOVER_OPEN_MS = 100
@@ -444,18 +428,18 @@ function dropSlot($: EngineInterface, panel: IndexPanel): Promise<unknown> {
 function hoverOpenSoon($: EngineInterface, panel: IndexPanel): void {
   hoverTimer?.cancel()
   hoverTimer = $.clock.after(HOVER_OPEN_MS, () => {
-    void placeSlot($, panel).then(() => Promise.all([update($, hover, () => panel), update($, fading, () => false)]))
+    void placeSlot($, panel).then(() => update($, hover, () => ({ panel, closing: false })))
   })
 }
 
 function hoverKeep($: EngineInterface): void {
   hoverTimer?.cancel()
-  void update($, fading, () => false)
+  void update($, hover, h => (h?.closing ? { ...h, closing: false } : h))
 }
 
 function hoverCloseSoon($: EngineInterface): void {
   hoverTimer?.cancel()
-  void update($, fading, () => true)
+  void update($, hover, h => (h && !h.closing ? { ...h, closing: true } : h))
   hoverTimer = $.clock.after(FADE_OUT_FALLBACK_MS, () => {
     void hoverClose($)
   })
@@ -464,18 +448,18 @@ function hoverCloseSoon($: EngineInterface): void {
 async function hoverClose($: EngineInterface): Promise<void> {
   hoverTimer?.cancel()
   const [closing, pinnedList] = await Promise.all([read($, hover), read($, pinned)])
-  await Promise.all([update($, hover, () => null), update($, fading, () => false)])
-  if (closing && !pinnedList.includes(closing)) await dropSlot($, closing)
+  await update($, hover, () => null)
+  if (closing && !pinnedList.includes(closing.panel)) await dropSlot($, closing.panel)
 }
 
 async function togglePin($: EngineInterface, panel: IndexPanel): Promise<void> {
   hoverTimer?.cancel()
   const wasPinned = (await read($, pinned)).includes(panel)
-  await update($, pinned, list => withPanel(list, panel, !wasPinned))
+  await setPinned($, panel, !wasPinned)
   if (!wasPinned) {
     await placeSlot($, panel)
   } else if ([...pointerOver].some(key => key.startsWith(`${panel}-`))) {
-    await Promise.all([update($, hover, () => panel), update($, fading, () => false)])
+    await update($, hover, () => ({ panel, closing: false }))
   } else {
     await dropSlot($, panel)
   }
@@ -534,7 +518,7 @@ async function applyPick($: EngineInterface, panel: IndexPanel, target: string, 
     if (!level && pick !== 'default') return
     if (target === MAIN) await switchMainEffort($, level ?? 'auto')
     else {
-      await update($, efforts, prev => {
+      await update($, agentEfforts, prev => {
         const rest = Object.fromEntries(Object.entries(prev).filter(([k]) => k !== target))
         return level ? { ...rest, [target]: level } : rest
       })
@@ -544,7 +528,7 @@ async function applyPick($: EngineInterface, panel: IndexPanel, target: string, 
     if (!choice && pick !== 'default') return
     if (target === MAIN) await switchMainModel($, choice?.alias ?? 'default', choice?.id)
     else {
-      await update($, models, prev => {
+      await update($, agentModels, prev => {
         const rest = Object.fromEntries(Object.entries(prev).filter(([k]) => k !== target))
         return choice ? { ...rest, [target]: choice.id } : rest
       })
@@ -554,13 +538,8 @@ async function applyPick($: EngineInterface, panel: IndexPanel, target: string, 
   }
   hoverTimer?.cancel()
   forgetPointer(panel)
-  await update($, pinned, list => withPanel(list, panel, false))
-  await Promise.all([update($, hover, () => null), update($, fading, () => false), dropSlot($, panel)])
-}
-
-function clockTime(ms: number): string {
-  const d = new Date(ms)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
+  await setPinned($, panel, false)
+  await Promise.all([update($, hover, () => null), dropSlot($, panel)])
 }
 
 export const register: Register = (on, options) => {
@@ -568,7 +547,6 @@ export const register: Register = (on, options) => {
   on('session.start', async ($, e, next) => {
     const result = await next(e)
     await $.command.register({ name: 'index-effort', description: "Open the band's effort row" })
-    await $.command.register({ name: 'index-debug', description: 'Show what the band holds next to what Claude Code reports' })
     const cwd = await $.session.cwd()
     gitDir = (await runGit($, cwd, ['rev-parse', '--absolute-git-dir'])).replace(/\\/g, '/')
     await Promise.allSettled([
@@ -608,7 +586,7 @@ export const register: Register = (on, options) => {
     const isName = e.element === `${panel}-chip`
     if (data['hover'] === true) {
       pointerOver.add(e.element)
-      if (isName && (await read($, hover)) !== panel) hoverOpenSoon($, panel)
+      if (isName && (await read($, hover))?.panel !== panel) hoverOpenSoon($, panel)
       else hoverKeep($)
     } else if (data['hover'] === false) {
       pointerOver.delete(e.element)
@@ -616,37 +594,16 @@ export const register: Register = (on, options) => {
     } else if (data['press'] === true && (isName || e.element === `${panel}-pin`)) {
       await togglePin($, panel)
     } else if (data['faded'] === true && e.element === `${panel}-row`) {
-      if (await read($, fading)) await hoverClose($)
+      const h = await read($, hover)
+      if (h?.closing && h.panel === panel) await hoverClose($)
     } else if (typeof data['pick'] === 'string' && e.element === `${panel}-row`) {
       await applyPick($, panel, typeof data['target'] === 'string' ? data['target'] : MAIN, data['pick'])
     }
     return {}
   })
 
-  on('command.run', { command: 'index-debug' }, async $ => {
-    const [liveModel, settings, steps, chosen, overrides, hostInfo] = await Promise.all([
-      $.session.model(),
-      $.settings.read(),
-      read($, agents),
-      read($, efforts),
-      read($, models),
-      read($, host),
-    ])
-    const report = {
-      sessionModel: liveModel,
-      settingsModel: settings['model'],
-      savedEffortForSessionModel: await savedEffort($, liveModel),
-      bandMain: steps[MAIN] ?? null,
-      bandSubagents: Object.fromEntries(Object.entries(steps).filter(([k]) => k !== MAIN)),
-      subagentEffortPicks: chosen,
-      subagentModelPicks: overrides,
-      hostModel: hostInfo?.model ?? null,
-    }
-    return { text: ['```json', JSON.stringify(report, null, 2), '```'].join('\n') }
-  })
-
   on('command.run', { command: 'index-effort' }, async $ => {
-    await update($, pinned, list => withPanel(list, 'effort', true))
+    await setPinned($, 'effort', true)
     await placeSlot($, 'effort')
     return { text: 'The effort row is open above the band. To set a level directly, run /effort.' }
   })
@@ -699,9 +656,8 @@ export const register: Register = (on, options) => {
 
   on('turn.step', async function* ($, e, next) {
     const key = e.agentId ?? MAIN
-    const [chosenEfforts, chosenModels] = await Promise.all([read($, efforts), read($, models)])
-    const picked = chosenEfforts[key]
-    const chosen = picked === 'auto' ? undefined : picked
+    const [chosenEfforts, chosenModels] = await Promise.all([read($, agentEfforts), read($, agentModels)])
+    const chosen = chosenEfforts[key]
     const chosenModel = chosenModels[key]
     const effort = chosen ?? e.effort
     const model = chosenModel ?? e.model
@@ -712,7 +668,7 @@ export const register: Register = (on, options) => {
     const answeredBy = result.usage?.model
     if (answeredBy) await update($, agents, prev => ({ ...prev, [key]: { model: answeredBy, effort } }))
     if (chosenModel !== undefined && result.stopReason === null && !result.usage) {
-      await update($, models, prev => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key)))
+      await update($, agentModels, prev => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key)))
       await update($, agents, prev => ({ ...prev, [key]: { model: e.model, effort } }))
       $.ui.toast(`${modelLabel(chosenModel)} did not answer, so the band went back to the session's model.`)
     }
@@ -778,31 +734,31 @@ export const register: Register = (on, options) => {
 
   on('ui.render', { component: 'AbovePrompt' }, async ($, e, next) => {
     if (e.props.hasSurvey) return next(e)
+    const table = $.ui.resolve(e)
+    const Client = 'Client' in table ? table.Client : undefined
+    if (!Client) return next(e)
+    const { Box, Text } = table
 
-    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, chosen, openPanels, modelList, hovered, isFading, harnessList, ultracodeOn, slotOrder] =
+    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn] =
       await Promise.all([
-      read($, agents),
-      read($, call),
-      read($, totals),
-      read($, usage),
-      read($, git),
-      read($, host),
-      read($, tick),
-      read($, clients),
-      read($, efforts),
-      read($, pinned),
-      read($, models),
-      read($, hover),
-      read($, fading),
-      read($, harnesses),
-      read($, ultracode),
-      read($, slots),
-    ])
-    const now = await $.clock.now()
-    const [liveModel, settings] = await Promise.all([$.session.model(), $.settings.read()])
-    const mainSteps = liveModel
-      ? { ...agentSteps, [MAIN]: { model: liveModel, effort: agentSteps[MAIN]?.effort } }
-      : agentSteps
+        read($, agents),
+        read($, call),
+        read($, totals),
+        read($, usage),
+        read($, git),
+        read($, host),
+        read($, tick),
+        read($, clients),
+        read($, agentEfforts),
+        read($, agentModels),
+        read($, pinned),
+        read($, slots),
+        read($, hover),
+        read($, harnesses),
+        read($, ultracode),
+      ])
+    const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
+    const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
 
     let viewed: ViewedAgent | undefined
     const agentId = e.props.view.agentId
@@ -817,181 +773,80 @@ export const register: Register = (on, options) => {
       }
     }
 
+    const attached = Object.keys(remotes).length
     const lines = buildLines(
       {
         now,
-        agents: mainSteps,
+        agents: steps,
         call: lastCall,
         totals: sums,
         usage: measured,
         git: repo,
         host: hostInfo,
-        clients: Object.keys(remotes).length,
-        efforts: chosen,
-        models: modelList,
+        clients: attached,
+        agentEfforts: efforts,
+        agentModels: models,
       },
       cfg,
       viewed,
     )
     if (lines.length === 0) return next(e)
 
-    const table = $.ui.resolve(e)
-    const { Box, Text, Link, Button } = table
-    const Client = 'Client' in table ? table.Client : undefined
-    const sep: Seg = { text: ' | ', color: cfg.colors.icons }
-    const recache = measured?.contextTokens ? `about ${fmtNum(measured.contextTokens)} tokens` : 'the conversation'
-
-    const isOpen = (panel: IndexPanel) => openPanels.includes(panel)
-    const togglePanel = (panel: IndexPanel) => update($, pinned, list => withPanel(list, panel, !list.includes(panel)))
-    const menuControl = (s: Seg) => {
-      const panel = s.menu as IndexPanel
-      if (panel === 'harness' && !harnessList) return <Text color={s.color}>{s.text}</Text>
-      return Client ? (
-        <Client
-          key={`${panel}-chip`}
-          module="./chip.tsx"
-          props={{ text: s.text, color: s.color, isActive: isOpen(panel) }}
-        />
-      ) : (
-        <Button
-          key={`${panel}-button`}
-          plain
-          label={s.text}
-          hover={{ color: s.color }}
-          onPress={() => togglePanel(panel)}
-        />
-      )
-    }
-
-    type RowItem = { text: string; color: string; pick?: string; pad?: number }
-    const note = (text: string): RowItem => ({ text, color: cfg.colors.icons })
-
     const target = viewed?.id ?? MAIN
-    const currentEffort = chosen[target] ?? mainSteps[target]?.effort ?? (target === MAIN ? hostInfo?.effort : undefined)
-    const currentModel = (
-      modelList[target] ??
-      mainSteps[target]?.model ??
-      (target === MAIN ? hostInfo?.model : undefined) ??
-      ''
-    ).replace(/\[1m\]$/, '')
-    const choice = (text: string, pick: string, isCurrent: boolean): RowItem =>
-      isCurrent ? { text, color: cfg.colors.model } : { text, color: cfg.colors.icons, pick }
-
-    const savedModel = typeof settings['model'] === 'string' ? settings['model'] : ''
-    const perModel = isRecord(settings['modelSettings']) ? settings['modelSettings'][currentModel] : undefined
-    const savedLevel = isRecord(perModel) ? perModel['effortLevel'] : settings['effortLevel']
-    const modelIsDefault = target === MAIN ? savedModel === '' || savedModel === 'default' : modelList[target] === undefined
-    const effortIsDefault =
-      target === MAIN
-        ? chosen[MAIN] === 'auto' || mainSteps[MAIN]?.effort === 'auto' || savedLevel === undefined || savedLevel === 'auto'
-        : chosen[target] === undefined
-    const attached = Object.keys(remotes).length
-    const harnessChoices = (harnessList ?? []).map(h => choice(h.label, h.name, false))
-    const effortChoices = [
-      ...EFFORTS.map(level => choice(level, level, level === currentEffort)),
-      note('·'),
-      { text: 'ultracode', color: ultracodeOn ? cfg.colors.model : cfg.colors.icons, pick: 'ultracode' },
-    ]
-    const modelChoices = MODEL_CHOICES.map(c => choice(modelLabel(c.id), c.alias, c.id === currentModel))
-    const sectionWidth = (items: RowItem[]) =>
-      items.reduce((sum, item) => sum + item.text.length + (item.pad ?? 0), 0) + ROW_GAP * Math.max(0, items.length - 1)
-    const padTo = (items: RowItem[], width: number): RowItem[] => {
-      const last = items[items.length - 1]
-      if (!last) return items
-      return [...items.slice(0, -1), { ...last, pad: (last.pad ?? 0) + Math.max(0, width - sectionWidth(items)) }]
+    const view = {
+      cfg,
+      choices: currentChoices(target, steps[target], { model: models[target], effort: efforts[target] }, settings),
+      harnesses: harnessList,
+      ultracode: ultracodeOn,
+      contextTokens: measured?.contextTokens ?? null,
+      host: hostInfo,
+      startedAt: measured?.startedAt ?? null,
+      attached,
     }
-    const middle = (items: RowItem[]) => padTo(items, MIDDLE_WIDTH)
-    const middleEndingWith = (items: RowItem[], end: RowItem) => [
-      ...padTo(items, MIDDLE_WIDTH - ROW_GAP - end.text.length),
-      end,
-    ]
-    const title = (text: string): RowItem => ({ ...note(text), pad: Math.max(0, TITLE_WIDTH - text.length) })
+    const isPinned = (panel: IndexPanel) => pinnedList.includes(panel)
 
-    const sessionTable = (): RowItem[][] => {
-      if (!hostInfo) return []
-      const value = (text: string, color = cfg.colors.session): RowItem => ({ text, color })
-      const rows: [string, RowItem[], RowItem | null][] = [
-        [
-          'Session',
-          [value(hostInfo.sessionName || 'unnamed'), note('·'), value(hostInfo.sessionId ?? '')],
-          measured ? note(`started ${clockTime(measured.startedAt)}`) : null,
-        ],
-        ...(hostInfo.bridgeId
-          ? ([
-              [
-                'Remote',
-                [value(hostInfo.bridgeId, attached ? cfg.colors.good : cfg.colors.session)],
-                note(attached ? `${attached} attached` : 'none attached'),
-              ],
-            ] as [string, RowItem[], RowItem | null][])
-          : []),
-        ['Folder', [value(hostInfo.cwd ?? '')], note(`Claude Code ${hostInfo.version ?? ''}`)],
-      ]
-      return rows.map(([label, values, extra]) => [title(label), ...middle(values), ...(extra ? [extra] : [])])
-    }
-
-    const linesFor = (panel: IndexPanel, pinnedRow: boolean): RowItem[][] => {
-      if (panel === 'harness') {
-        return harnessList ? [[title('Open'), ...middle(harnessChoices), note('in a new tab')]] : []
-      }
-      if (panel === 'effort') {
-        return [
-          [
-            title('Effort'),
-            ...middleEndingWith(effortChoices, choice('default', 'default', effortIsDefault)),
-            note(`may re-cache ${recache}`),
-          ],
-        ]
-      }
-      if (panel === 'model') {
-        return [
-          [
-            title('Model'),
-            ...middleEndingWith(modelChoices, choice('default', 'default', modelIsDefault)),
-            note(`may re-cache ${recache}`),
-          ],
-        ]
-      }
-      return sessionTable()
-    }
-
-    const panelBlock = (panel: IndexPanel, pinnedRow: boolean) => {
-      const panelLines = linesFor(panel, pinnedRow)
-      if (!Client || panelLines.length === 0) return null
+    const panelBlock = (panel: IndexPanel) => {
+      const rows = panelLines(panel, view)
+      if (rows.length === 0) return null
+      const isPinnedRow = isPinned(panel)
       return (
         <Box key={`${panel}-block`} flexDirection="row" gap={1}>
           <Box flexDirection="column">
             <Client
               key={`${panel}-pin`}
               module="./chip.tsx"
-              props={{ text: pinnedRow ? PIN_ON : PIN_OFF, color: cfg.colors.model }}
+              props={{ text: isPinnedRow ? PIN_ON : PIN_OFF, color: cfg.colors.model }}
             />
-            {panelLines.slice(1).map((_, i) => (
+            {rows.slice(1).map((_, i) => (
               <Text key={`${panel}-pin-space${i}`}>{PIN_SPACE}</Text>
             ))}
           </Box>
           <Client
             key={`${panel}-row`}
             module="./row.tsx"
-            props={{ lines: panelLines, hoverColor: cfg.colors.model, fade: !pinnedRow, closing: !pinnedRow && isFading, target }}
+            props={{
+              lines: rows,
+              gap: ROW_GAP,
+              hoverColor: cfg.colors.model,
+              fade: !isPinnedRow,
+              closing: !isPinnedRow && hovering?.panel === panel && hovering.closing,
+              target,
+            }}
           />
         </Box>
       )
     }
 
-    const shown = new Set(lines.flat(2).map(s => s.menu))
-    const panels = PANELS.filter(p => shown.has(p))
-
-    const order = [...slotOrder, ...[...openPanels].reverse(), ...(hovered ? [hovered] : [])]
-    const panelArea = order
-      .filter((p, i) => order.indexOf(p) === i && panels.includes(p) && (isOpen(p) || p === hovered))
-      .map(p => panelBlock(p, isOpen(p)))
+    const shown = PANELS.filter(p => lines.flat(2).some(s => s.menu === p))
+    const panelArea = rowOrder(slotOrder, pinnedList, hovering?.panel ?? null, shown)
+      .map(panelBlock)
       .filter(block => block !== null)
     const rule = (key: string) => (
       <Text key={key} color={cfg.colors.rules}>
         {'─'.repeat(Math.max(1, e.props.bodyColumns))}
       </Text>
     )
+    const sep: Seg = { text: ' | ', color: cfg.colors.icons }
 
     return (
       <Box flexDirection="column">
@@ -1014,10 +869,19 @@ export const register: Register = (on, options) => {
             <Box key={`line${index}`} flexDirection="row" flexWrap="wrap">
               {runs.map(run => {
                 const first = run[0]
-                if (first?.menu === 'harness' || first?.menu === 'effort' || first?.menu === 'model' || first?.menu === 'session') {
-                  return menuControl(first)
+                if (!first) return null
+                const panel = PANELS.find(p => p === first.menu)
+                if (panel === 'harness' && !harnessList) return <Text color={first.color}>{first.text}</Text>
+                if (panel) {
+                  return (
+                    <Client
+                      key={`${panel}-chip`}
+                      module="./chip.tsx"
+                      props={{ text: first.text, color: first.color, isActive: isPinned(panel) }}
+                    />
+                  )
                 }
-                if (first?.menu === 'project' && Client) {
+                if (first.menu === 'project') {
                   return (
                     <Client
                       key="project-chip"
@@ -1026,8 +890,7 @@ export const register: Register = (on, options) => {
                     />
                   )
                 }
-                const texts = run.map(s => <Text color={s.color}>{s.text}</Text>)
-                if (first?.href && Client) {
+                if (first.href) {
                   return (
                     <Client
                       key={`link-${index}-${first.text}`}
@@ -1036,7 +899,7 @@ export const register: Register = (on, options) => {
                     />
                   )
                 }
-                return first?.href ? <Link href={first.href}>{texts}</Link> : texts
+                return run.map(s => <Text color={s.color}>{s.text}</Text>)
               })}
             </Box>
           )
