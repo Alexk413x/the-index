@@ -17,14 +17,18 @@ function fadeColor(hex: string, amount: number): string {
   return `#${[16, 8, 0].map(shift => Math.round(((n >> shift) & 255) * scale).toString(16).padStart(2, '0')).join('')}`
 }
 
-function pickAt(lines: RowItem[][], gap: number, x: number, y: number): string | null {
+function itemAt(lines: RowItem[][], gap: number, x: number, y: number): RowItem | null {
   let col = 0
   for (const [i, item] of (lines[y] ?? []).entries()) {
     if (i > 0 && !item.tight) col += gap
-    if (x >= col && x < col + item.text.length) return item.pick ?? null
+    if (x >= col && x < col + item.text.length) return item
     col += item.text.length + (item.pad ?? 0)
   }
   return null
+}
+
+function hoverKey(item: RowItem | null): string | null {
+  return item?.pick ?? item?.hoverId ?? null
 }
 
 const Row: ClientModule<RowProps, RowState> = (props, surface) => {
@@ -56,10 +60,10 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
         surface.setState({ ...state, hovered: null })
         surface.post({ hover: false })
       } else if (e.type === 'move') {
-        const hovered = pickAt(props.lines, props.gap, e.x, e.y)
+        const hovered = hoverKey(itemAt(props.lines, props.gap, e.x, e.y))
         if (hovered !== state.hovered) surface.setState({ ...state, hovered })
       } else if (e.type === 'up' && e.button === 'left') {
-        const pick = pickAt(props.lines, props.gap, e.x, e.y)
+        const pick = itemAt(props.lines, props.gap, e.x, e.y)?.pick
         if (pick) surface.post({ pick, target: props.target })
       }
     })
@@ -82,6 +86,7 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
     surface.setState(goal === FADE_STEPS ? { ...state, goal, step: FADE_STEPS } : { ...state, goal })
   }
   const amount = state.step / FADE_STEPS
+  const detail = state.hovered === null ? undefined : props.lines.flat().find(item => hoverKey(item) === state.hovered && item.detail)?.detail
   return (
     <Box flexDirection="column">
       {props.lines.map((line, y) => (
@@ -89,10 +94,10 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
           {line.map((item, i) => (
             <Text
               key={`item${y}-${i}`}
-              color={fadeColor(item.pick !== undefined && item.pick === state.hovered ? props.hoverColor : item.color, amount)}
+              color={fadeColor(hoverKey(item) !== null && hoverKey(item) === state.hovered ? props.hoverColor : item.color, amount)}
             >
               {i > 0 && !item.tight ? ' '.repeat(props.gap) : ''}
-              {item.text}
+              {item.footer && detail !== undefined ? detail : item.text}
               {' '.repeat(item.pad ?? 0)}
             </Text>
           ))}

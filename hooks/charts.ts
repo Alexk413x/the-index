@@ -41,15 +41,66 @@ function plot(values: readonly number[], width: number, height: number, ceiling?
   return grid
 }
 
-function cellsToItems(cells: readonly { char: string; color: string }[], blank: string): RowItem[] {
+type Cell = { char: string; color: string; hoverId?: string; detail?: string }
+
+function cellsToItems(cells: readonly Cell[], blank: string): RowItem[] {
   const items: RowItem[] = []
   for (const cell of cells) {
-    const color = cell.char === ' ' ? blank : cell.color
+    const color = cell.char === ' ' && !cell.hoverId ? blank : cell.color
     const last = items[items.length - 1]
-    if (last && last.color === color) last.text += cell.char
-    else items.push({ text: cell.char, color, ...(items.length > 0 ? { tight: true } : {}) })
+    if (last && last.color === color && last.hoverId === cell.hoverId) {
+      last.text += cell.char
+    } else {
+      items.push({
+        text: cell.char,
+        color,
+        ...(items.length > 0 ? { tight: true } : {}),
+        ...(cell.hoverId ? { hoverId: cell.hoverId } : {}),
+        ...(cell.detail ? { detail: cell.detail } : {}),
+      })
+    }
   }
   return items
+}
+
+export type Bar = { value: number | null; id: string; detail: string }
+
+export function divergingBars(
+  bars: readonly Bar[],
+  average: number,
+  slots: number,
+  barWidth: number,
+  half: number,
+  colors: { above: string; below: string; axis: string; blank: string },
+): RowItem[][] {
+  const deviation = (bar: Bar) => (bar.value === null ? 0 : bar.value - average)
+  const scale = Math.max(0, ...bars.map(b => Math.abs(deviation(b))))
+  const halves = (bar: Bar) => (scale > 0 ? Math.round((Math.abs(deviation(bar)) / scale) * half * 2) : 0)
+  const shown = bars.slice(-slots)
+  const rows: RowItem[][] = []
+  for (let row = 0; row < half * 2 + 1; row += 1) {
+    const cells: Cell[] = []
+    for (let slot = 0; slot < slots; slot += 1) {
+      const bar = shown[slot]
+      let char = row === half ? '─' : ' '
+      let color = row === half ? colors.axis : colors.blank
+      if (bar && row !== half) {
+        const above = deviation(bar) > 0
+        const step = above ? half - 1 - row : row - half - 1
+        const fill = Math.min(2, Math.max(0, halves(bar) - step * 2))
+        const onSide = above === row < half
+        if (onSide && fill > 0) {
+          char = fill === 2 ? '█' : above ? '▄' : '▀'
+          color = above ? colors.above : colors.below
+        }
+      }
+      const tag = bar ? { hoverId: bar.id, detail: bar.detail } : {}
+      for (let w = 0; w < barWidth; w += 1) cells.push({ char, color, ...tag })
+      cells.push({ char: row === half ? '─' : ' ', color: row === half ? colors.axis : colors.blank })
+    }
+    rows.push(cellsToItems(cells, colors.blank))
+  }
+  return rows
 }
 
 export function lineChart(series: readonly Series[], width: number, height: number, blank: string): RowItem[][] {
@@ -57,7 +108,7 @@ export function lineChart(series: readonly Series[], width: number, height: numb
   const cols = width * 2
   const lines: RowItem[][] = []
   for (let row = 0; row < height; row += 1) {
-    const cells: { char: string; color: string }[] = []
+    const cells: Cell[] = []
     for (let cell = 0; cell < width; cell += 1) {
       let bits = 0
       let color = blank
@@ -92,7 +143,7 @@ export function barChart(values: readonly (number | null)[], barWidth: number, h
   const lines: RowItem[][] = []
   for (let row = 0; row < height; row += 1) {
     const fromBottom = height - 1 - row
-    const cells: { char: string; color: string }[] = []
+    const cells: Cell[] = []
     for (const v of values) {
       const eighths = max > 0 && v ? Math.max(1, Math.round((v / max) * height * 8)) : 0
       const fill = Math.min(8, Math.max(0, eighths - fromBottom * 8))

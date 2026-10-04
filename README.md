@@ -20,7 +20,9 @@ type and status instead of the main session's.
 
 - **Line 1:** Remote Control status (`●` connected, `○` not connected), session name,
   harness, agent, model and effort, IDE, prompt-cache timer, compaction tally, context fill, uptime, and the 5-hour and 7-day rate limits.
-- **Line 2:** the last main-loop API call (Δ) and session totals (Σ).
+- **Line 2:** the last main-loop API call (Δ) and the session totals (Σ), each with
+  tokens sent, cache writes, cache reads, output, tokens per second, cache hit, lines,
+  API time and cost. Σ's tokens per second is the session average.
 - **Line 3:** the folder, then two sections:
   - **The checked-out branch:** what the next commit would hold, the working tree against
     `HEAD` (files added, changed and deleted, and lines).
@@ -100,8 +102,10 @@ Hover a section of the band for a chart in a row above it:
   against the full window, a dashed line where auto-compaction starts (Claude Code's own
   threshold, when auto-compaction is on), `▲` under each compaction, and how long the
   prompt cache stays warm.
-- **Δ (the last call):** the last 10 main-loop calls, with one line for each call's
-  tokens and one for its cost, and the peak of each.
+- **Δ (the last call):** cost per token for each turn, the last 20 turns, against the
+  session's average in the middle. A red bar above it cost more per token than average;
+  a green bar below it cost less. Hover a bar for that turn's tokens, cost, cost per
+  million tokens, cache hit, output and tokens per second.
 - **Σ (the session totals):** the running total of tokens and cost across every call this
   session, so the steep steps show where the big calls were.
 - **The rate limits:** tokens per day for the last 30 days as bars, with today's tokens,
@@ -201,6 +205,8 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
 
 ## Differences from statusline.py
 
+- **Session totals.** The script's Σ shows cache writes and hit rates. The band's Σ also
+  shows tokens sent, cache reads, output and the average tokens per second, as Δ does.
 - **Cache glyph.** The script shows `☼` while warm and `❅` when cold. The band
   steps through `☀ ☼ ❅` as the cache ages, then shows `❄` when cold.
 - **Remote Control.** The registry field is the CLI's own file, not mod API, and can

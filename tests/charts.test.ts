@@ -1,10 +1,21 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { barChart, lineChart, markerRow } from '../hooks/charts'
+import { barChart, divergingBars, lineChart, markerRow } from '../hooks/charts'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type Ledger } from '../hooks/ledger'
 import { parseCommitLog } from '../hooks/git'
 import { readConfig } from '../hooks/format'
-import { CHART_HEIGHT, MIDDLE_WIDTH, ROW_GAP, TITLE_WIDTH, panelLines, type PanelView, type RowItem } from '../hooks/panels'
+import {
+  CHART_HEIGHT,
+  MIDDLE_WIDTH,
+  ROW_GAP,
+  TITLE_WIDTH,
+  TURN_HALF,
+  groupTurns,
+  panelLines,
+  turnDetail,
+  type PanelView,
+  type RowItem,
+} from '../hooks/panels'
 
 const text = (line: readonly RowItem[]) => line.map(i => i.text).join('')
 const BLANK = '#808080'
@@ -88,6 +99,48 @@ describe('commit log', () => {
   })
 })
 
+describe('turns and diverging bars', () => {
+  const call = (turnId: string, tokens: number, costUsd: number | null) => ({
+    at: 0,
+    turnId,
+    tokens,
+    input: tokens,
+    cacheRead: 0,
+    output: 0,
+    apiMs: 0,
+    costUsd,
+  })
+
+  test('calls group into turns in order, and an unknown cost makes the turn unknown', () => {
+    const turns = groupTurns([call('a', 10, 0.1), call('a', 5, 0.2), call('b', 7, null), call('b', 1, 0.1)])
+    expect(turns.map(t => [t.id, t.number, t.tokens, t.costUsd])).toEqual([
+      ['a', 1, 15, 0.30000000000000004],
+      ['b', 2, 8, null],
+    ])
+    expect(turnDetail(turns[1]!)).toBe('turn 2 · 8 tokens · 0% cache · ↓0')
+  })
+
+  test('a bar above the average rises in the above colour, one below falls in the below colour', () => {
+    const colors = { above: '#ff0000', below: '#00ff00', axis: '#888888', blank: '#000000' }
+    const rows = divergingBars(
+      [
+        { id: 'hi', value: 3, detail: 'hi' },
+        { id: 'lo', value: 1, detail: 'lo' },
+        { id: 'mid', value: 2, detail: 'mid' },
+      ],
+      2,
+      3,
+      1,
+      1,
+      colors,
+    )
+    expect(rows.map(r => r.map(i => i.text).join(''))).toEqual(['█     ', '──────', '  █   '])
+    expect(rows[0]?.find(i => i.hoverId === 'hi')?.color).toBe('#ff0000')
+    expect(rows[2]?.find(i => i.hoverId === 'lo')?.color).toBe('#00ff00')
+    expect(rows[1]?.find(i => i.hoverId === 'mid')?.detail).toBe('mid')
+  })
+})
+
 describe('bar chart', () => {
   test('bars scale to the tallest day in eighths, and a day with no data shows a dot', () => {
     const lines = barChart([8, 4, null, 0], 2, 1, '#ff0000', BLANK)
@@ -168,13 +221,23 @@ describe('chart rows', () => {
     })
     return starts
   }
-  const calls = Array.from({ length: 12 }, (_, i) => ({ at: i, tokens: (i + 1) * 1000, costUsd: (i + 1) / 100 }))
+  const calls = Array.from({ length: 12 }, (_, i) => ({
+    at: i,
+    turnId: `t${Math.floor(i / 2)}`,
+    tokens: (i + 1) * 1000,
+    input: (i + 1) * 900,
+    cacheRead: (i + 1) * 450,
+    output: (i + 1) * 100,
+    apiMs: 1000,
+    costUsd: ((i % 3) + 1) / 100,
+  }))
 
   test('calls, totals and usage draw a chart in the middle column with notes after it', () => {
     for (const panel of ['calls', 'totals', 'usage'] as const) {
       const lines = panelLines(panel, view({ callLog: calls }))
-      expect(lines).toHaveLength(CHART_HEIGHT)
-      for (const line of lines) {
+      const chartLines = panel === 'calls' ? lines.slice(0, TURN_HALF * 2 + 1) : lines
+      expect(chartLines).toHaveLength(panel === 'calls' ? TURN_HALF * 2 + 1 : CHART_HEIGHT)
+      for (const line of chartLines) {
         expect(columns(line)[1]).toBe(TITLE_WIDTH + ROW_GAP)
         const chartWidth = line.filter((item, i) => i > 0 && (i === 1 || item.tight)).reduce((sum, item) => sum + item.text.length, 0)
         expect(chartWidth).toBe(MIDDLE_WIDTH)
@@ -182,18 +245,26 @@ describe('chart rows', () => {
     }
   })
 
-  test('the calls row shows the last ten calls and their peaks', () => {
+  test('the cost per token row bars each turn against the session average, with a footer for the hovered turn', () => {
     const lines = panelLines('calls', view({ callLog: calls }))
-    expect(lines[0]?.[0]?.text).toBe('Calls')
-    expect(lines[0]?.at(-1)?.text).toBe('▲ 12k tokens')
-    expect(lines[1]?.at(-1)?.text).toBe('▲ $0.12')
-    expect(lines.at(-1)?.at(-1)?.text).toBe('last 10 calls')
+    const cfg = readConfig({})
+    expect(lines).toHaveLength(TURN_HALF * 2 + 2)
+    expect(lines[0]?.[0]?.text).toBe('Cost/tok')
+    expect(lines[0]?.at(-1)?.text).toBe('▲ dearer per token')
+    expect(lines[TURN_HALF]?.at(-1)?.text).toMatch(/^avg \$\d+\.\d\d\/M tokens$/)
+    expect(lines[TURN_HALF * 2]?.at(-1)?.text).toBe('▼ cheaper per token')
+    const footer = lines.at(-1)?.at(-1)
+    expect(footer).toMatchObject({ text: 'hover a bar for its turn · last 6 of 6', footer: true })
+    const cells = lines.slice(0, TURN_HALF * 2 + 1).flat()
+    expect(cells.some(i => i.color === cfg.colors.bad && i.hoverId)).toBe(true)
+    expect(cells.some(i => i.color === cfg.colors.good && i.hoverId)).toBe(true)
+    expect(cells.find(i => i.hoverId === 'turn-t0')?.detail).toMatch(/^turn 1 · 3\.0k tokens · \$0\.03 · \$10\.00\/M · 50% cache · ↓300 · 150 tok\/s$/)
   })
 
   test('the totals row sums the session', () => {
     const lines = panelLines('totals', view({ callLog: calls }))
     expect(lines[0]?.at(-1)?.text).toBe('78k tokens')
-    expect(lines[1]?.at(-1)?.text).toBe('$0.78')
+    expect(lines[1]?.at(-1)?.text).toBe('$0.24')
     expect(lines.at(-1)?.at(-1)?.text).toBe('12 calls this session')
   })
 
@@ -228,7 +299,8 @@ describe('chart rows', () => {
     expect(cold[4]?.at(-1)?.text).toBe('cache cold · next call re-reads it')
   })
 
-  test('with no calls yet the line charts say so', () => {
-    expect(panelLines('calls', view({})).at(-1)?.at(-1)?.text).toBe('no calls yet')
+  test('with no calls yet the charts say so', () => {
+    expect(panelLines('calls', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
+    expect(panelLines('totals', view({})).at(-1)?.at(-1)?.text).toBe('no calls yet')
   })
 })

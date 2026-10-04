@@ -832,6 +832,7 @@ export const register: Register = (on, options) => {
         ...prev,
         requests: prev.requests + 1,
         input: prev.input + u.input_tokens,
+        output: (prev.output ?? 0) + u.output_tokens,
         cacheWrite: prev.cacheWrite + u.cache_creation_input_tokens,
         cacheRead: prev.cacheRead + u.cache_read_input_tokens,
         apiMs: prev.apiMs + apiMs,
@@ -857,7 +858,12 @@ export const register: Register = (on, options) => {
       ...prev.slice(-(CALL_LOG_MAX - 1)),
       {
         at: endedAt,
-        tokens: u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens + u.output_tokens,
+        turnId: e.turnId,
+        tokens: totalIn + u.output_tokens,
+        input: totalIn,
+        cacheRead: u.cache_read_input_tokens,
+        output: u.output_tokens,
+        apiMs,
         costUsd: cost === null ? null : cost - (before.markCostUsd ?? cost),
       },
     ])

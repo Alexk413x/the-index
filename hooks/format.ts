@@ -436,7 +436,11 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     let bits: Seg[][]
     if (noData) {
       bits = [
+        [icon(SYM_IN), seg(SHADE.repeat(3), v)],
         [icon(SYM_CC), seg(SHADE.repeat(5), v)],
+        [icon(SYM_CR), seg(SHADE.repeat(5), v)],
+        [icon(SYM_OUT), seg(SHADE.repeat(4), v)],
+        [icon(SYM_TPS), seg(SHADE.repeat(2), v)],
         [icon(SYM_HIT), seg(`${SHADE.repeat(2)}%`, c.good)],
         [seg(`${SHADE.repeat(2)}%`, c.good)],
         [icon(SYM_LINES), seg(`+${SHADE.repeat(3)}`, c.good), sp, seg(`-${SHADE.repeat(3)}`, c.bad)],
@@ -450,7 +454,11 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
       const few = t.requests < 3
       const cost = usage?.costUsd
       bits = [
+        [icon(SYM_IN), seg(fmtNum(t.input), v)],
         [icon(SYM_CC), seg(fmtNum(t.cacheWrite), v)],
+        [icon(SYM_CR), seg(fmtNum(t.cacheRead), v)],
+        [icon(SYM_OUT), seg(fmtNum(t.output), v)],
+        [icon(SYM_TPS), seg(t.apiMs > 0 ? (t.output / (t.apiMs / 1000)).toFixed(0) : SHADE.repeat(2), v)],
         [icon(SYM_HIT), seg(`${over}%`, few ? c.icons : hitColor(over))],
         [seg(`${recent}%`, few ? c.icons : hitColor(recent))],
         [icon(SYM_LINES), seg(`+${t.linesAdded}`, c.good), sp, seg(`-${t.linesRemoved}`, c.bad)],
@@ -596,6 +604,7 @@ export function patchLineCounts(
 export const EMPTY_TOTALS: IndexTotals = {
   requests: 0,
   input: 0,
+  output: 0,
   cacheWrite: 0,
   cacheRead: 0,
   apiMs: 0,

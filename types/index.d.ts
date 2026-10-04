@@ -19,6 +19,7 @@ export type IndexCall = {
 export type IndexTotals = {
   requests: number
   input: number
+  output: number
   cacheWrite: number
   cacheRead: number
   apiMs: number
@@ -85,7 +86,16 @@ export type IndexPanel = 'harness' | 'effort' | 'model' | 'session' | 'context' 
 
 export type IndexHarness = { name: string; label: string }
 
-export type IndexCallPoint = { at: number; tokens: number; costUsd: number | null }
+export type IndexCallPoint = {
+  at: number
+  turnId: string
+  tokens: number
+  input: number
+  cacheRead: number
+  output: number
+  apiMs: number
+  costUsd: number | null
+}
 
 export type IndexContextPoint = { at: number; percent: number; tokens: number | null; compaction?: 'manual' | 'auto' | 'plugin' }
 

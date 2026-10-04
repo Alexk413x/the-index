@@ -736,7 +736,7 @@ test('a subagent transcript takes the colour its agent file gives its type', asy
   await sub.unmount()
 })
 
-test('hovering the call telemetry shows the last calls as a chart', async ($, on) => {
+test('hovering the call telemetry bars cost per token by turn, and a bar shows its turn', async ($, on) => {
   engine(on)
   await step($, 'claude-opus-5-5', 'high')
   await step($, 'claude-opus-5-5', 'high')
@@ -747,8 +747,10 @@ test('hovering the call telemetry shows the last calls as a chart', async ($, on
   await band.post({ hover: true }, { in: 'calls-chip' })
   await clock.advance(110)
   const lines = ((await band.find({ key: 'calls-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
-  expect(lines).toHaveLength(6)
-  expect(lines.at(-1)?.at(-1)?.text).toBe('last 2 calls')
+  expect(lines).toHaveLength(8)
+  expect(lines.at(-1)?.at(-1)?.text).toBe('hover a bar for its turn · last 1 of 1')
+  await band.pointer({ type: 'move', x: TITLE_WIDTH + ROW_GAP, y: 0, in: 'calls-row' })
+  expect(visible(await band.drawn({ in: 'calls-row' }))).toContain('turn 1 · 20k tokens')
   await band.post({ hover: false }, { in: 'calls-chip' })
   await band.post({ hover: true }, { in: 'totals-chip' })
   await clock.advance(110)

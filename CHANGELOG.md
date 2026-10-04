@@ -2,6 +2,15 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.5.0] - 2026-10-04
+
+### Changed
+
+- The Δ chart bars cost per token for each turn against the session average, red above
+  and green below; hovering a bar shows that turn's totals.
+- Σ shows tokens sent, cache writes, cache reads, output and the average tokens per
+  second, as Δ does.
+
 ## [0.4.0] - 2026-10-04
 
 ### Changed
