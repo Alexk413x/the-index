@@ -2,6 +2,20 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.0] - 2026-10-04
+
+### Added
+
+- A context chart on hover: the fill against the full window, the auto-compaction
+  threshold, and each compaction.
+- Git charts on hover: the working tree's lines and files since the last commit, and the
+  last 10 commits on the base branch.
+
+### Changed
+
+- The compaction tally counts Claude Code's compaction event instead of a large drop in
+  the context fill.
+
 ## [0.2.0] - 2026-10-04
 
 ### Added

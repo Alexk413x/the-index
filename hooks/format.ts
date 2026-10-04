@@ -256,7 +256,7 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   return Math.max(1000, Math.min(...candidates))
 }
 
-export type Menu = 'harness' | 'effort' | 'model' | 'session' | 'project' | 'calls' | 'totals' | 'usage'
+export type Menu = 'harness' | 'effort' | 'model' | 'session' | 'project' | 'context' | 'calls' | 'totals' | 'usage' | 'branch' | 'base'
 export type Seg = { text: string; color: string; href?: string; menu?: Menu }
 export type Part = readonly Seg[]
 export type Line = readonly Part[]
@@ -368,7 +368,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     if (ctx.length) ctx.push(sp)
     ctx.push(seg(fmtDur((snap.now - usage.startedAt) / 1000), c.uptime))
   }
-  if (ctx.length) gauges.push(ctx)
+  if (ctx.length) gauges.push(withMenu(ctx, 'context'))
 
   if (cfg.show.rate_limits) {
     const windows: [IndexRateLimit | null | undefined, string, string][] = [
@@ -469,7 +469,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     const branchUrl = encodeURIComponent(git.branch)
     const treeUrl = git.repoWeb && git.branchPushed ? `${git.repoWeb}/tree/${branchUrl}` : undefined
     if (cfg.show.commit_diff) {
-      line3.push([
+      line3.push(withMenu([
         icon(SYM_BR),
         sp,
         seg(git.branch, c.branch, treeUrl),
@@ -487,7 +487,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         seg(`+${git.linesAdded}`, c.good),
         sp,
         seg(`-${git.linesRemoved}`, c.bad),
-      ])
+      ], 'branch'))
     }
     if (cfg.show.pr_diff && git.prBaseRef) {
       const onBase = git.branch === git.prBaseName
@@ -498,7 +498,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
           : undefined
       const historyUrl = onBase && git.repoWeb ? `${git.repoWeb}/commits/${branchUrl}` : undefined
       const prUrl = git.prLink ?? compareUrl ?? historyUrl
-      line3.push([
+      line3.push(withMenu([
         icon(SYM_AHEAD),
         seg(String(git.prAhead), c.good),
         sp,
@@ -522,7 +522,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         seg(`+${git.prLinesAdded}`, c.good),
         sp,
         seg(`-${git.prLinesRemoved}`, c.bad),
-      ])
+      ], 'base'))
     }
   }
 

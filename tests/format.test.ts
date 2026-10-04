@@ -162,7 +162,6 @@ describe('band lines', () => {
         fiveHour: { usedPercentage: 23.5, resetsAt: NOW + 2 * 3600_000 },
         sevenDay: { usedPercentage: 61, resetsAt: NOW - 1 },
         compactions: 2,
-        lastPercent: 45,
       },
       git: {
         ...emptyGit('git@github.com:acme/app.git'),

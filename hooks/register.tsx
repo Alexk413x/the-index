@@ -32,12 +32,14 @@ import {
 } from './panels'
 import {
   BASE_REFS,
+  COMMIT_FORMAT,
   applyBase,
   applyPr,
   applyStatus,
   emptyGit,
   isRecord,
   numstatTotals,
+  parseCommitLog,
   parseJson,
   parseSharedLimits,
   serializeSharedLimits,
@@ -63,9 +65,14 @@ const ultracode = atom({ plugin: 'the-index', key: 'ultracode' } as const, false
 const agentColors = atom({ plugin: 'the-index', key: 'agentColors' } as const, {})
 const callLog = atom({ plugin: 'the-index', key: 'callLog' } as const, [])
 const usageSummary = atom({ plugin: 'the-index', key: 'usageSummary' } as const, null)
+const contextLog = atom({ plugin: 'the-index', key: 'contextLog' } as const, [])
+const contextLimit = atom({ plugin: 'the-index', key: 'contextLimit' } as const, null)
+const baseCommits = atom({ plugin: 'the-index', key: 'baseCommits' } as const, [])
+const worktreeLog = atom({ plugin: 'the-index', key: 'worktreeLog' } as const, null)
 
 const EWMA_ALPHA = 0.3
-const COMPACTION_DROP = 30
+const CONTEXT_LOG_MAX = 500
+const WORKTREE_LOG_MAX = 500
 const GIT_STAT_EVERY_MS = 30_000
 const GIT_FULL_EVERY_MS = 300_000
 const GIT_DEBOUNCE_MS = 2000
@@ -215,8 +222,29 @@ async function openPr($: EngineInterface, cwd: string, branch: string): Promise<
 }
 
 async function refreshGit($: EngineInterface): Promise<void> {
-  const snap = await gitSnapshot($, await $.session.cwd())
+  const cwd = await $.session.cwd()
+  const snap = await gitSnapshot($, cwd)
   await update($, git, () => snap)
+  const [headLine, baseLog, now] = await Promise.all([
+    runGit($, cwd, ['log', '-1', '--format=%H%x09%ct']),
+    snap?.prBaseRef ? runGit($, cwd, ['log', snap.prBaseRef, '-10', '--numstat', `--format=${COMMIT_FORMAT}`]) : Promise.resolve(''),
+    $.clock.now(),
+  ])
+  await update($, baseCommits, () => parseCommitLog(baseLog))
+  const [head = '', committedAt = ''] = headLine.split('\t')
+  if (!snap || !head) return
+  const point = {
+    at: now,
+    added: snap.linesAdded,
+    removed: snap.linesRemoved,
+    files: snap.filesAdded + snap.filesModified + snap.filesDeleted,
+  }
+  await update($, worktreeLog, prev => {
+    if (!prev || prev.head !== head) return { head, since: (parseInt(committedAt, 10) || 0) * 1000 || now, points: [point] }
+    const last = prev.points[prev.points.length - 1]
+    if (last && last.added === point.added && last.removed === point.removed && last.files === point.files) return prev
+    return { ...prev, points: [...prev.points.slice(-(WORKTREE_LOG_MAX - 1)), point] }
+  })
 }
 
 async function gitStamp($: EngineInterface, gitDir: string): Promise<string> {
@@ -358,22 +386,42 @@ async function recordUsage($: EngineInterface, m: Measured): Promise<void> {
     await $.fs.write(sharedPath, text).catch(() => undefined)
   }
 
-  const { startedAt } = await $.session.usage()
-  await update($, usage, (prev): IndexUsage => {
-    const pct = m.context.percent ?? null
-    const last = prev?.lastPercent ?? null
-    const dropped = pct !== null && last !== null && last - pct >= COMPACTION_DROP
-    return {
-      startedAt,
-      contextPercent: pct,
-      contextTokens: m.context.tokens ?? null,
-      costUsd: m.cost?.usd ?? null,
-      fiveHour,
-      sevenDay,
-      compactions: (prev?.compactions ?? 0) + (dropped ? 1 : 0),
-      lastPercent: pct ?? last,
-    }
+  const [{ startedAt }, now] = await Promise.all([$.session.usage(), $.clock.now()])
+  const pct = m.context.percent ?? null
+  await update($, usage, (prev): IndexUsage => ({
+    startedAt,
+    contextPercent: pct,
+    contextTokens: m.context.tokens ?? null,
+    costUsd: m.cost?.usd ?? null,
+    fiveHour,
+    sevenDay,
+    compactions: prev?.compactions ?? 0,
+  }))
+  await update($, contextLimit, prev =>
+    prev?.window === m.context.window ? prev : { window: m.context.window, threshold: prev?.threshold ?? null },
+  )
+  if (pct === null) return
+  const compaction = pendingCompaction
+  pendingCompaction = undefined
+  await update($, contextLog, prev => {
+    const last = prev[prev.length - 1]
+    if (last && last.percent === pct && !compaction) return prev
+    const point = { at: now, percent: pct, tokens: m.context.tokens ?? null, ...(compaction ? { compaction } : {}) }
+    return [...prev.slice(-(CONTEXT_LOG_MAX - 1)), point]
   })
+}
+
+let pendingCompaction: 'manual' | 'auto' | 'plugin' | undefined
+
+async function refreshCompactThreshold($: EngineInterface): Promise<void> {
+  try {
+    const measured = await $.session.usage({ breakdown: 'summary' })
+    const breakdown = measured.context.breakdown
+    const threshold = breakdown?.isAutoCompactEnabled ? (breakdown.autoCompactThreshold ?? null) : null
+    await update($, contextLimit, () => ({ window: measured.context.window, threshold }))
+  } catch {
+    // Without a bound session the breakdown rejects; the chart then draws no threshold line.
+  }
 }
 
 async function recordEdit($: EngineInterface, result: unknown): Promise<void> {
@@ -625,6 +673,7 @@ export const register: Register = (on, options) => {
         ledgerCost = u.cost?.usd ?? null
       }),
       syncLedger($),
+      refreshCompactThreshold($),
       $.session.usage().then(u => recordUsage($, u)),
     ])
     hostAt = await $.clock.now()
@@ -641,6 +690,7 @@ export const register: Register = (on, options) => {
     $.clock.every(GIT_FULL_EVERY_MS, () => {
       refreshGitSoon($)
       void syncLedger($)
+      void refreshCompactThreshold($)
     })
     return result
   })
@@ -651,14 +701,14 @@ export const register: Register = (on, options) => {
       if (data['press'] === true) await openFolder($)
       return {}
     }
-    if (e.element.startsWith('link-')) {
-      const href = data['href']
-      if (data['press'] === true && typeof href === 'string' && /^https:\/\//.test(href)) await openUrl($, href)
+    const href = data['href']
+    if (data['press'] === true && typeof href === 'string') {
+      if (/^https:\/\//.test(href)) await openUrl($, href)
       return {}
     }
     const panel = PANELS.find(p => e.element.startsWith(`${p}-`))
     if (!panel) return {}
-    const isName = e.element === `${panel}-chip`
+    const isName = e.element.startsWith(`${panel}-chip`) || e.element.startsWith(`${panel}-link`)
     if (data['hover'] === true) {
       pointerOver.add(e.element)
       if (isName && (await read($, hover))?.panel !== panel) hoverOpenSoon($, panel)
@@ -683,8 +733,19 @@ export const register: Register = (on, options) => {
     return { text: 'The effort row is open above the band. To set a level directly, run /effort.' }
   })
 
+  on('session.compact', async ($, e, next) => {
+    const result = await next(e)
+    if (e.agentId === undefined && e.trigger !== 'precompute' && result.messages !== undefined) {
+      pendingCompaction = e.trigger
+      await update($, usage, prev => (prev ? { ...prev, compactions: prev.compactions + 1 } : prev))
+      void refreshCompactThreshold($)
+    }
+    return result
+  })
+
   on('classic.PostModelSwitch', async ($, e, next) => {
     const result = await next(e)
+    void refreshCompactThreshold($)
     const ttlMs = e.cache_ttl === '5m' ? 300_000 : 3_600_000
     await followModel($, e.to_model)
     await update($, totals, prev => ({ ...prev, cacheTtlMs: ttlMs }))
@@ -829,7 +890,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary] =
+    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary, contextPoints, limit, commits, worktree] =
       await Promise.all([
         read($, agents),
         read($, call),
@@ -849,6 +910,10 @@ export const register: Register = (on, options) => {
         read($, agentColors),
         read($, callLog),
         read($, usageSummary),
+        read($, contextLog),
+        read($, contextLimit),
+        read($, baseCommits),
+        read($, worktreeLog),
       ])
     const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
     const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
@@ -900,6 +965,12 @@ export const register: Register = (on, options) => {
       attached,
       callLog: calls,
       usage: summary,
+      contextLog: contextPoints,
+      contextLimit: limit,
+      baseCommits: commits,
+      baseRef: repo?.prBaseRef ?? '',
+      worktree,
+      now,
     }
     const isPinned = (panel: IndexPanel) => pinnedList.includes(panel)
 
@@ -952,6 +1023,12 @@ export const register: Register = (on, options) => {
         {panelArea}
         {panelArea.length > 0 ? rule('rule-bottom') : null}
         {lines.map((line, index) => {
+          const chipCount = new Map<string, number>()
+          const chipKey = (prefix: string) => {
+            const n = chipCount.get(prefix) ?? 0
+            chipCount.set(prefix, n + 1)
+            return n === 0 ? prefix : `${prefix}-${n}`
+          }
           const segs: Seg[] = []
           line.forEach((part, i) => {
             if (i > 0) segs.push(sep)
@@ -961,7 +1038,8 @@ export const register: Register = (on, options) => {
           for (const s of segs) {
             const last = runs[runs.length - 1]
             const head = last?.[0]
-            if (last && head && (s.menu ? head.menu === s.menu : !head.menu && head.href === s.href)) last.push(s)
+            const joins = s.menu ? head?.menu === s.menu && !head.href && !s.href : !head?.menu && head?.href === s.href
+            if (last && joins) last.push(s)
             else runs.push([s])
           }
           return (
@@ -969,12 +1047,21 @@ export const register: Register = (on, options) => {
               {runs.map(run => {
                 const first = run[0]
                 if (!first) return null
+                if (first.href) {
+                  return (
+                    <Client
+                      key={first.menu ? chipKey(`${first.menu}-link`) : `link-${index}-${first.text}`}
+                      module="./chip.tsx"
+                      props={{ text: first.text, color: first.color, look: 'link', href: first.href }}
+                    />
+                  )
+                }
                 const panel = PANELS.find(p => p === first.menu)
                 if (panel === 'harness' && !harnessList) return <Text color={first.color}>{first.text}</Text>
                 if (panel) {
                   return (
                     <Client
-                      key={`${panel}-chip`}
+                      key={chipKey(`${panel}-chip`)}
                       module="./chip.tsx"
                       props={{
                         text: run.map(s => s.text).join(''),
@@ -991,15 +1078,6 @@ export const register: Register = (on, options) => {
                       key="project-chip"
                       module="./chip.tsx"
                       props={{ text: first.text, color: first.color, look: 'link' }}
-                    />
-                  )
-                }
-                if (first.href) {
-                  return (
-                    <Client
-                      key={`link-${index}-${first.text}`}
-                      module="./chip.tsx"
-                      props={{ text: first.text, color: first.color, look: 'link', href: first.href }}
                     />
                   )
                 }

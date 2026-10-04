@@ -1,6 +1,6 @@
 import type { RowItem } from './panels'
 
-export type Series = { values: readonly number[]; color: string }
+export type Series = { values: readonly number[]; color: string; max?: number; xs?: readonly number[] }
 
 const BRAILLE_BASE = 0x2800
 // Braille dot bits by [column][row from the top] of a 2×4 cell.
@@ -10,15 +10,20 @@ const DOT = [
 ] as const
 const EIGHTHS = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const
 
-function plot(values: readonly number[], width: number, height: number): Uint8Array {
+export function dotColumn(index: number, count: number, width: number): number {
+  const cols = width * 2
+  return count <= 1 ? Math.floor((cols - 1) / 2) : Math.round((index * (cols - 1)) / (count - 1))
+}
+
+function plot(values: readonly number[], width: number, height: number, ceiling?: number, xs?: readonly number[]): Uint8Array {
   const cols = width * 2
   const rows = height * 4
   const grid = new Uint8Array(cols * rows)
-  const max = Math.max(0, ...values)
+  const max = ceiling ?? Math.max(0, ...values)
   if (values.length === 0 || max <= 0) return grid
   const point = (i: number): [number, number] => [
-    values.length === 1 ? Math.floor((cols - 1) / 2) : Math.round((i * (cols - 1)) / (values.length - 1)),
-    rows - 1 - Math.round((Math.max(0, values[i] ?? 0) / max) * (rows - 1)),
+    xs ? Math.round(Math.min(1, Math.max(0, xs[i] ?? 0)) * (cols - 1)) : dotColumn(i, values.length, width),
+    rows - 1 - Math.round((Math.min(max, Math.max(0, values[i] ?? 0)) / max) * (rows - 1)),
   ]
   let [x0, y0] = point(0)
   grid[y0 * cols + x0] = 1
@@ -48,7 +53,7 @@ function cellsToItems(cells: readonly { char: string; color: string }[], blank: 
 }
 
 export function lineChart(series: readonly Series[], width: number, height: number, blank: string): RowItem[][] {
-  const grids = series.map(s => plot(s.values, width, height))
+  const grids = series.map(s => plot(s.values, width, height, s.max, s.xs))
   const cols = width * 2
   const lines: RowItem[][] = []
   for (let row = 0; row < height; row += 1) {
@@ -71,6 +76,15 @@ export function lineChart(series: readonly Series[], width: number, height: numb
     lines.push(cellsToItems(cells, blank))
   }
   return lines
+}
+
+export function markerRow(count: number, marked: readonly number[], width: number, mark: string, color: string, blank: string): RowItem[] {
+  const cells = Array.from({ length: width }, () => ({ char: ' ', color: blank }))
+  for (const i of marked) {
+    const cell = cells[Math.floor(dotColumn(i, count, width) / 2)]
+    if (cell) Object.assign(cell, { char: mark, color })
+  }
+  return cellsToItems(cells, blank)
 }
 
 export function barChart(values: readonly (number | null)[], barWidth: number, height: number, color: string, blank: string): RowItem[][] {

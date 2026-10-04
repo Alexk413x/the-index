@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { barChart, lineChart } from '../hooks/charts'
+import { barChart, lineChart, markerRow } from '../hooks/charts'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type Ledger } from '../hooks/ledger'
+import { parseCommitLog } from '../hooks/git'
 import { readConfig } from '../hooks/format'
 import { CHART_HEIGHT, MIDDLE_WIDTH, ROW_GAP, TITLE_WIDTH, panelLines, type PanelView, type RowItem } from '../hooks/panels'
 
@@ -40,6 +41,50 @@ describe('line chart', () => {
       BLANK,
     )
     expect(lines[0]?.every(i => i.color === '#ff0000')).toBe(true)
+  })
+})
+
+describe('fixed scale and markers', () => {
+  test('a ceiling scales a series to it instead of its own peak', () => {
+    const half = lineChart([{ values: [20, 20], color: '#ff0000', max: 100 }], 2, 2, BLANK)
+    expect(text(half[0] ?? []).trim()).toBe('')
+    expect(text(half[1] ?? []).trim()).not.toBe('')
+  })
+
+  test('markers sit under the points they mark', () => {
+    expect(text(markerRow(3, [0, 2], 5, '▲', '#ff0000', BLANK))).toBe('▲   ▲')
+    expect(text(markerRow(0, [], 3, '▲', '#ff0000', BLANK))).toBe('   ')
+  })
+})
+
+describe('commit log', () => {
+  test('numstat rows add up per commit, binary files count as files with no lines', () => {
+    const text = ['@aaa\t1700000000\tAdd charts', '10\t2\ta.ts', '-\t-\timg.png', '', '@bbb\t1690000000\tFix\ttabs', '1\t1\tb.ts'].join('\n')
+    expect(parseCommitLog(text)).toEqual([
+      { sha: 'aaa', at: 1_700_000_000_000, subject: 'Add charts', added: 10, removed: 2, files: 2 },
+      { sha: 'bbb', at: 1_690_000_000_000, subject: 'Fix\ttabs', added: 1, removed: 1, files: 1 },
+    ])
+    expect(parseCommitLog('')).toEqual([])
+  })
+
+  test('the commits row plots oldest to newest and names the base branch', () => {
+    const baseCommits = parseCommitLog(['@b\t2\tSecond', '30\t5\ta.ts', '1\t0\tb.ts', '@a\t1\tFirst', '4\t1\ta.ts'].join('\n'))
+    const lines = panelLines('base', view({ baseCommits }))
+    expect(lines.map(l => l.at(-1)?.text)).toEqual(['▲ +31 lines', '▲ -5 lines', '▲ 2 files', 'Second', expect.any(String), 'last 2 commits to origin/main'])
+  })
+
+  test('the changes row plots the working tree since the last commit, with its rate', () => {
+    const worktree = {
+      head: 'abc',
+      since: 0,
+      points: [
+        { at: 1_800_000, added: 40, removed: 10, files: 2 },
+        { at: 3_600_000, added: 120, removed: 30, files: 5 },
+      ],
+    }
+    const lines = panelLines('branch', view({ worktree, now: 7_200_000 }))
+    expect(lines.map(l => l.at(-1)?.text)).toEqual(['+120 lines', '-30 lines', '5 files', '75 lines an hour', expect.any(String), '2h0m since the last commit'])
+    expect(panelLines('branch', view({})).at(-1)?.at(-1)?.text).toBe('no commit yet')
   })
 })
 
@@ -90,8 +135,7 @@ describe('usage ledger', () => {
   })
 })
 
-describe('chart rows', () => {
-  const view = (over: Partial<PanelView>): PanelView => ({
+const view = (over: Partial<PanelView>): PanelView => ({
     cfg: readConfig({}),
     choices: { model: '', effort: undefined, modelIsDefault: true, effortIsDefault: true },
     harnesses: null,
@@ -102,8 +146,16 @@ describe('chart rows', () => {
     attached: 0,
     callLog: [],
     usage: null,
+    contextLog: [],
+    contextLimit: null,
+    baseCommits: [],
+    baseRef: 'origin/main',
+    worktree: null,
+    now: 0,
     ...over,
   })
+
+describe('chart rows', () => {
   const columns = (line: readonly RowItem[]) => {
     const starts: number[] = []
     let col = 0
@@ -149,6 +201,25 @@ describe('chart rows', () => {
     const lines = panelLines('usage', view({ usage }))
     expect(lines.map(l => l.at(-1)?.text)).toContain('all time 2.0M · $3.00')
     expect(lines.at(-1)?.at(-1)?.text).toBe('since 2026-10-04')
+  })
+
+  test('the context row draws the threshold, the fill and the compactions', () => {
+    const contextLog = [
+      { at: 1, percent: 40, tokens: 80_000 },
+      { at: 2, percent: 85, tokens: 170_000 },
+      { at: 3, percent: 10, tokens: 20_000, compaction: 'auto' as const },
+    ]
+    const lines = panelLines('context', view({ contextLog, contextLimit: { window: 200_000, threshold: 167_000 } }))
+    expect(lines).toHaveLength(CHART_HEIGHT)
+    expect(lines.map(l => l.at(-1)?.text)).toEqual([
+      '100% · 200k window',
+      'compacts at 84%',
+      'now 10% · 20k',
+      'peak 85%',
+      expect.any(String),
+      '▲ 1 compaction',
+    ])
+    expect(panelLines('context', view({})).at(-1)?.at(-1)?.text).toBe('no readings yet')
   })
 
   test('with no calls yet the line charts say so', () => {

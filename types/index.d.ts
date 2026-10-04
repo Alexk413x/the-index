@@ -45,7 +45,6 @@ export type IndexUsage = {
   fiveHour: IndexRateLimit | null
   sevenDay: IndexRateLimit | null
   compactions: number
-  lastPercent: number | null
 }
 
 export type IndexGit = {
@@ -82,11 +81,21 @@ export type IndexHost = {
   project: string
 }
 
-export type IndexPanel = 'harness' | 'effort' | 'model' | 'session' | 'calls' | 'totals' | 'usage'
+export type IndexPanel = 'harness' | 'effort' | 'model' | 'session' | 'context' | 'calls' | 'totals' | 'usage' | 'branch' | 'base'
 
 export type IndexHarness = { name: string; label: string }
 
 export type IndexCallPoint = { at: number; tokens: number; costUsd: number | null }
+
+export type IndexContextPoint = { at: number; percent: number; tokens: number | null; compaction?: 'manual' | 'auto' | 'plugin' }
+
+export type IndexContextLimit = { window: number; threshold: number | null }
+
+export type IndexCommit = { sha: string; at: number; subject: string; added: number; removed: number; files: number }
+
+export type IndexWorktreePoint = { at: number; added: number; removed: number; files: number }
+
+export type IndexWorktreeLog = { head: string; since: number; points: readonly IndexWorktreePoint[] }
 
 export type IndexDayTotal = { date: string; tokens: number; costUsd: number | null }
 
@@ -114,6 +123,10 @@ declare module 'claude-code' {
       ultracode: boolean
       agentColors: Readonly<Record<string, string>>
       callLog: readonly IndexCallPoint[]
+      contextLog: readonly IndexContextPoint[]
+      contextLimit: IndexContextLimit | null
+      baseCommits: readonly IndexCommit[]
+      worktreeLog: IndexWorktreeLog | null
       usageSummary: IndexUsageSummary | null
     }
   }

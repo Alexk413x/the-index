@@ -98,6 +98,9 @@ linked, and the folder with the Claude Code version.
 
 Hover a section of the band for a chart in a row above it:
 
+- **The context fill:** the context window's fill across the session against the full
+  window, a dashed line where auto-compaction starts (Claude Code's own threshold, when
+  auto-compaction is on), and `▲` under each compaction.
 - **Δ (the last call):** the last 10 main-loop calls, with one line for each call's
   tokens and one for its cost, and the peak of each.
 - **Σ (the session totals):** the running total of tokens and cost across every call this
@@ -105,7 +108,13 @@ Hover a section of the band for a chart in a row above it:
 - **The rate limits:** tokens per day for the last 30 days as bars, with today's tokens,
   the 30-day and all-time totals, and their cost.
 
-Tokens count input, cache writes, cache reads and output. Click a section to pin its
+- **The checked-out branch:** lines added and removed and files changed in the working
+  tree, plotted over the time since the last commit, with the rate in lines an hour.
+- **`origin/main`:** lines added and removed and files changed in each of the last 10
+  commits on the base branch, with the latest commit's subject.
+
+The branch name and the base label stay links. Tokens count input, cache writes, cache
+reads and output. Click a section to pin its
 chart, as with the other rows.
 
 The daily chart reads `the-index-usage.json` in your Claude config folder. Every session
@@ -212,6 +221,10 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
 - **Agent colour.** The band reads agent files in your user and project `agents`
   folders. A plugin's agents, agents passed with `--agents`, and a `/color` override
   aren't in the API, so they keep the primary colour.
+- **Compactions.** The `💥` tally counts Claude Code's compaction event, not a 30-point
+  drop in the context fill, so a `/clear` no longer counts.
+- **Working-tree chart.** The band samples the working tree when it refreshes git, so
+  the chart starts at the first sample after the last commit, or after the band loaded.
 - **Daily usage.** Claude Code keeps no daily history a mod can read. The band counts
   usage from the day it was installed, in sessions where it runs, and shows days before
   that as `·`.

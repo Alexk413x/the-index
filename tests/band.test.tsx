@@ -49,9 +49,21 @@ function engine(on: On) {
     const { Text } = $.ui.resolve(e)
     return <Text>engine</Text>
   })
-  on('session.usage', () => ({
-    value: { startedAt: START, context: { window: 200_000, percent: 12, tokens: 24_000 }, rateLimits: [], cost: { usd: 0.25 } },
+  on('session.usage', ($, e) => ({
+    value: {
+      startedAt: START,
+      context: {
+        window: 200_000,
+        percent: 12,
+        tokens: 24_000,
+        ...((e as { breakdown?: string }).breakdown ? { breakdown: { isAutoCompactEnabled: true, autoCompactThreshold: 160_000 } } : {}),
+      },
+      rateLimits: [],
+      cost: { usd: 0.25 },
+    } as never,
   }))
+  on('session.compact', ($, e) => ({ messages: e.messages }))
+  on('session.measure', () => ({ changed: [] }))
   on('agent.list', () => ({
     value: [{ id: 'a1', description: 'Scan the repo', type: 'Explore', status: 'running' }],
   }))
@@ -671,7 +683,7 @@ test('git links open over https only', async ($, on) => {
     },
   })
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  const link = (await band.findAll({ type: 'Client' })).find(c => String(c.props['key']).startsWith('link-'))
+  const link = (await band.findAll({ type: 'Client' })).find(c => (c.props['props'] as { href?: string }).href !== undefined)
   const key = String(link?.props['key'])
   const href = (link?.props['props'] as { href?: string } | undefined)?.href
   expect(href).toBe('https://github.com/acme/app/tree/feat%2Fx')
@@ -764,5 +776,58 @@ test('each step adds to the shared usage file, and hovering the rate limits char
   const lines = ((await band.find({ key: 'usage-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
   expect(lines.map(l => l.at(-1)?.text)).toContain('today 1.0M')
   expect(lines.at(-1)?.at(-1)?.text).toBe(`since ${day}`)
+  await band.unmount()
+})
+
+test('hovering the context shows its fill over time, the compaction threshold and each compaction', async ($, on) => {
+  engine(on)
+  await startSession($, on)
+  const measure = (percent: number) =>
+    $.session.measure({ context: { window: 200_000, percent, tokens: percent * 2000 }, rateLimits: [] } as never)
+  await measure(20)
+  await measure(55)
+  await measure(81)
+  await $.session.compact({ trigger: 'auto', messages: [{ role: 'user', text: 'summary', toolUses: [] }] } as never)
+  await measure(9)
+  await measure(30)
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  expect(await bandText(band)).toContain('💥')
+  await band.post({ hover: true }, { in: 'context-chip' })
+  await clock.advance(110)
+  const lines = ((await band.find({ key: 'context-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
+  const notes = lines.map(l => l.at(-1)?.text)
+  expect(notes).toContain('100% · 200k window')
+  expect(notes).toContain('compacts at 80%')
+  expect(notes).toContain('now 30% · 60k')
+  expect(notes).toContain('peak 81%')
+  expect(notes.at(-1)).toBe('▲ 1 compaction')
+  expect(lines.at(-1)?.map(i => i.text).join('')).toContain('▲')
+  await band.unmount()
+})
+
+test('hovering the branch and base sections charts the working tree and the base branch commits', async ($, on) => {
+  engine(on)
+  const committed = Math.floor((START + 60_000 - 3_600_000) / 1000)
+  await startSession($, on, {
+    run: argv => {
+      if (argv.includes('status')) return { exitCode: 0, stdout: '# branch.oid abc\n# branch.head feat/x\n1 .M N... 100644 100644 100644 a a a.ts' }
+      if (argv.includes('diff') && argv.includes('HEAD')) return { exitCode: 0, stdout: '12\t3\ta.ts' }
+      if (argv.includes('for-each-ref')) return { exitCode: 0, stdout: 'refs/remotes/origin/main\t' }
+      if (argv.includes('-1')) return { exitCode: 0, stdout: `abc\t${committed}` }
+      if (argv.includes('-10')) return { exitCode: 0, stdout: '@m2\t200\tSecond\n5\t1\tx.ts\n@m1\t100\tFirst\n2\t0\ty.ts' }
+      return { exitCode: argv[0] === 'git' ? 0 : 1 }
+    },
+  })
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ hover: true }, { in: 'base-chip' })
+  await clock.advance(110)
+  const base = ((await band.find({ key: 'base-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
+  expect(base.at(-1)?.at(-1)?.text).toBe('last 2 commits to origin/main')
+  await band.post({ hover: false }, { in: 'base-chip' })
+  await band.post({ hover: true }, { in: 'branch-chip' })
+  await clock.advance(110)
+  const branch = ((await band.find({ key: 'branch-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
+  expect(branch.map(l => l.at(-1)?.text)).toContain('+12 lines')
+  expect(branch.at(-1)?.at(-1)?.text).toBe('1h0m since the last commit')
   await band.unmount()
 })

@@ -1,12 +1,23 @@
-import type { IndexAgentStep, IndexCallPoint, IndexEffort, IndexHarness, IndexHost, IndexPanel } from '../types'
-import { barChart, lineChart } from './charts'
-import { MAIN, MODEL_CHOICES, fmtCost, fmtNum, modelLabel, type Config } from './format'
+import type {
+  IndexAgentStep,
+  IndexCallPoint,
+  IndexCommit,
+  IndexContextLimit,
+  IndexContextPoint,
+  IndexEffort,
+  IndexHarness,
+  IndexHost,
+  IndexPanel,
+  IndexWorktreeLog,
+} from '../types'
+import { barChart, lineChart, markerRow } from './charts'
+import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config } from './format'
 import { isRecord } from './git'
 import type { UsageSummary } from './ledger'
 
 export type RowItem = { text: string; color: string; pick?: string; pad?: number; tight?: boolean }
 
-export const PANELS: readonly IndexPanel[] = ['harness', 'effort', 'model', 'session', 'calls', 'totals', 'usage']
+export const PANELS: readonly IndexPanel[] = ['harness', 'effort', 'model', 'session', 'context', 'calls', 'totals', 'usage', 'branch', 'base']
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export const ROW_GAP = 2
 export const TITLE_WIDTH = 10
@@ -72,6 +83,12 @@ export type PanelView = {
   attached: number
   callLog: readonly IndexCallPoint[]
   usage: UsageSummary | null
+  contextLog: readonly IndexContextPoint[]
+  contextLimit: IndexContextLimit | null
+  baseCommits: readonly IndexCommit[]
+  baseRef: string
+  worktree: IndexWorktreeLog | null
+  now: number
 }
 
 export function sectionWidth(items: readonly RowItem[]): number {
@@ -104,6 +121,91 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   const tokensColor = cfg.colors.model
   const costColor = cfg.colors.cold
   const colored = (text: string, color: string): RowItem => ({ text, color })
+
+  if (panel === 'base') {
+    const commits = [...view.baseCommits].reverse()
+    const chart = lineChart(
+      [
+        { values: commits.map(c => c.added), color: cfg.colors.good },
+        { values: commits.map(c => c.removed), color: cfg.colors.bad },
+        { values: commits.map(c => c.files), color: cfg.colors.warn },
+      ],
+      MIDDLE_WIDTH,
+      CHART_HEIGHT,
+      cfg.colors.icons,
+    )
+    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
+    const latest = commits[commits.length - 1]
+    if (!latest) {
+      notes[CHART_HEIGHT - 1] = note(`no commits on ${view.baseRef || 'the base branch'}`)
+    } else {
+      notes[0] = colored(`▲ +${fmtNum(Math.max(...commits.map(c => c.added)))} lines`, cfg.colors.good)
+      notes[1] = colored(`▲ -${fmtNum(Math.max(...commits.map(c => c.removed)))} lines`, cfg.colors.bad)
+      notes[2] = colored(`▲ ${Math.max(...commits.map(c => c.files))} files`, cfg.colors.warn)
+      notes[3] = note(latest.subject.length > 34 ? `${latest.subject.slice(0, 33)}…` : latest.subject)
+      notes[CHART_HEIGHT - 1] = note(`last ${commits.length} ${commits.length === 1 ? 'commit' : 'commits'} to ${view.baseRef}`)
+    }
+    return chartRows('Commits', chart, notes)
+  }
+
+  if (panel === 'branch') {
+    const log = view.worktree
+    const points = log?.points ?? []
+    const span = log ? Math.max(1, view.now - log.since) : 1
+    const xs = points.map(p => (p.at - (log?.since ?? 0)) / span)
+    const chart = lineChart(
+      [
+        { values: points.map(p => p.added), color: cfg.colors.good, xs },
+        { values: points.map(p => p.removed), color: cfg.colors.bad, xs },
+        { values: points.map(p => p.files), color: cfg.colors.warn, xs },
+      ],
+      MIDDLE_WIDTH,
+      CHART_HEIGHT,
+      cfg.colors.icons,
+    )
+    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
+    const latest = points[points.length - 1]
+    if (!log) {
+      notes[CHART_HEIGHT - 1] = note('no commit yet')
+    } else {
+      const hours = Math.max(1 / 60, (view.now - log.since) / 3_600_000)
+      if (latest) {
+        notes[0] = colored(`+${fmtNum(latest.added)} lines`, cfg.colors.good)
+        notes[1] = colored(`-${fmtNum(latest.removed)} lines`, cfg.colors.bad)
+        notes[2] = colored(`${latest.files} ${latest.files === 1 ? 'file' : 'files'}`, cfg.colors.warn)
+        notes[3] = note(`${fmtNum(Math.round((latest.added + latest.removed) / hours))} lines an hour`)
+      }
+      notes[CHART_HEIGHT - 1] = note(`${fmtDur((view.now - log.since) / 1000)} since the last commit`)
+    }
+    return chartRows('Changes', chart, notes)
+  }
+
+  if (panel === 'context') {
+    const log = view.contextLog
+    const limit = view.contextLimit
+    const thresholdPct = limit?.threshold ? Math.min(100, (limit.threshold / limit.window) * 100) : null
+    const series = [{ values: log.map(p => p.percent), color: tokensColor, max: 100 }]
+    if (thresholdPct !== null) series.push({ values: [thresholdPct, thresholdPct], color: cfg.colors.warn, max: 100 })
+    const marked = log.flatMap((p, i) => (p.compaction ? [i] : []))
+    const chart = [
+      ...lineChart(series, MIDDLE_WIDTH, CHART_HEIGHT - 1, cfg.colors.icons),
+      markerRow(log.length, marked, MIDDLE_WIDTH, '▲', cfg.colors.high, cfg.colors.icons),
+    ]
+    const now = log[log.length - 1]
+    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
+    if (limit) notes[0] = note(`100% · ${fmtNum(limit.window)} window`)
+    if (thresholdPct !== null) notes[1] = colored(`compacts at ${Math.round(thresholdPct)}%`, cfg.colors.warn)
+    if (now) {
+      notes[2] = colored(`now ${now.percent}%${now.tokens === null ? '' : ` · ${fmtNum(now.tokens)}`}`, tokensColor)
+      notes[3] = note(`peak ${Math.max(...log.map(p => p.percent))}%`)
+      notes[CHART_HEIGHT - 1] = marked.length
+        ? colored(`▲ ${marked.length} ${marked.length === 1 ? 'compaction' : 'compactions'}`, cfg.colors.high)
+        : note('no compactions')
+    } else {
+      notes[CHART_HEIGHT - 1] = note('no readings yet')
+    }
+    return chartRows('Context', chart, notes)
+  }
 
   if (panel === 'calls' || panel === 'totals') {
     const log = panel === 'calls' ? view.callLog.slice(-RECENT_CALLS) : view.callLog

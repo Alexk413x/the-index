@@ -34,6 +34,12 @@ function view(over: Partial<PanelView> = {}): PanelView {
     attached: 0,
     callLog: [],
     usage: null,
+    contextLog: [],
+    contextLimit: null,
+    baseCommits: [],
+    baseRef: 'origin/main',
+    worktree: null,
+    now: 0,
     ...over,
   }
 }
