@@ -2,6 +2,12 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.3] - 2026-10-04
+
+### Changed
+
+- The working-tree chart gives its rate in lines per minute, not lines an hour.
+
 ## [0.6.2] - 2026-10-04
 
 ### Changed

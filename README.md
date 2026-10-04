@@ -118,7 +118,7 @@ Hover a section of the band for a chart in a row above it:
 - **The rate limits:** tokens per day for the last 30 days as bars, with today's tokens,
   the 30-day and all-time totals, and their cost.
 - **The checked-out branch:** lines added and removed and files changed in the working
-  tree, plotted over the time since the last commit, with the rate in lines an hour. Its
+  tree, plotted over the time since the last commit, with the rate in lines per minute. Its
   `View branch ↗` button opens the branch on GitHub once it's pushed.
 - **`origin/main`:** lines added and removed and files changed in each of the last 10
   commits on the base branch, with the latest commit's subject. Its button opens the open

@@ -94,7 +94,7 @@ describe('commit log', () => {
       ],
     }
     const lines = panelLines('branch', view({ worktree, now: 7_200_000 }))
-    expect(lines.map(l => l.at(-1)?.text)).toEqual(['+120 lines', '-30 lines', '5 files', '75 lines an hour', expect.any(String), '2h0m since the last commit'])
+    expect(lines.map(l => l.at(-1)?.text)).toEqual(['+120 lines', '-30 lines', '5 files', '1.3 lines/min', expect.any(String), '2h0m since the last commit'])
     expect(panelLines('branch', view({})).at(-1)?.at(-1)?.text).toBe('no commit yet')
   })
 })

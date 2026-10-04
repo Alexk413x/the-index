@@ -286,12 +286,13 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     if (!log) {
       notes[CHART_HEIGHT - 1] = note('no commit yet')
     } else {
-      const hours = Math.max(1 / 60, (view.now - log.since) / 3_600_000)
+      const minutes = Math.max(1, (view.now - log.since) / 60_000)
       if (latest) {
         notes[0] = colored(`+${fmtNum(latest.added)} lines`, cfg.colors.good)
         notes[1] = colored(`-${fmtNum(latest.removed)} lines`, cfg.colors.bad)
         notes[2] = colored(`${latest.files} ${latest.files === 1 ? 'file' : 'files'}`, cfg.colors.warn)
-        notes[3] = note(`${fmtNum(Math.round((latest.added + latest.removed) / hours))} lines an hour`)
+        const rate = (latest.added + latest.removed) / minutes
+        notes[3] = note(`${rate < 10 ? rate.toFixed(1) : fmtNum(Math.round(rate))} lines/min`)
       }
       notes[CHART_HEIGHT - 1] = note(`${fmtDur((view.now - log.since) / 1000)} since the last commit`)
     }
