@@ -429,8 +429,12 @@ function forgetPointer(panel: IndexPanel): void {
   for (const key of [...pointerOver]) if (key.startsWith(`${panel}-`)) pointerOver.delete(key)
 }
 
-function placeSlot($: EngineInterface, panel: IndexPanel): Promise<unknown> {
-  return update($, slots, list => (list.includes(panel) ? list : [...list, panel]))
+async function placeSlot($: EngineInterface, panel: IndexPanel): Promise<void> {
+  const pinnedList = await read($, pinned)
+  await update($, slots, list => {
+    const live = list.filter(p => p === panel || pinnedList.includes(p))
+    return live.includes(panel) ? live : [...live, panel]
+  })
 }
 
 function dropSlot($: EngineInterface, panel: IndexPanel): Promise<unknown> {
@@ -440,7 +444,7 @@ function dropSlot($: EngineInterface, panel: IndexPanel): Promise<unknown> {
 function hoverOpenSoon($: EngineInterface, panel: IndexPanel): void {
   hoverTimer?.cancel()
   hoverTimer = $.clock.after(HOVER_OPEN_MS, () => {
-    void Promise.all([update($, hover, () => panel), update($, fading, () => false), placeSlot($, panel)])
+    void placeSlot($, panel).then(() => Promise.all([update($, hover, () => panel), update($, fading, () => false)]))
   })
 }
 

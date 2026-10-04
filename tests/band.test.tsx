@@ -534,3 +534,33 @@ test('the session row is a three-column table with no separators', async ($, on)
   expect(new Set(lines.map(thirdColumn)).size).toBe(1)
   await band.unmount()
 })
+
+test('a row opened again after moving straight to another name goes back in at the bottom', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  const order = async () => {
+    const keys: string[] = []
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== 'object') return
+      if (Array.isArray(node)) return node.forEach(walk)
+      const n = node as { props?: { key?: string }; children?: unknown[] }
+      if (n.props?.key?.endsWith('-block')) keys.push(n.props.key.replace('-block', ''))
+      ;(n.children ?? []).forEach(walk)
+    }
+    walk(await band.drawn())
+    return keys
+  }
+  await band.post({ hover: true }, { in: 'effort-chip' })
+  await clock.advance(110)
+  await band.post({ hover: false }, { in: 'effort-chip' })
+  await band.post({ hover: true }, { in: 'model-chip' })
+  await clock.advance(110)
+  expect(await order()).toEqual(['model'])
+  await band.post({ press: true }, { in: 'model-chip' })
+  await band.post({ hover: false }, { in: 'model-chip' })
+  await band.post({ hover: true }, { in: 'effort-chip' })
+  await clock.advance(110)
+  expect(await order()).toEqual(['model', 'effort'])
+  await band.unmount()
+})
