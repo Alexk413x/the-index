@@ -49,6 +49,8 @@ export type Turn = {
 export function groupTurns(log: readonly IndexCallPoint[]): Turn[] {
   const turns: Turn[] = []
   for (const call of log) {
+    // Calls logged by a build before turns were recorded carry no turn id or token split.
+    if (typeof call.turnId !== 'string') continue
     let turn = turns[turns.length - 1]
     if (!turn || turn.id !== call.turnId) {
       turn = { id: call.turnId, number: turns.length + 1, tokens: 0, input: 0, cacheRead: 0, output: 0, apiMs: 0, costUsd: 0 }

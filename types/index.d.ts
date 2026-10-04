@@ -19,7 +19,7 @@ export type IndexCall = {
 export type IndexTotals = {
   requests: number
   input: number
-  output: number
+  output?: number
   cacheWrite: number
   cacheRead: number
   apiMs: number

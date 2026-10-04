@@ -197,6 +197,14 @@ describe('band lines', () => {
     })
   })
 
+  test('totals kept from a build without an output count show placeholders, not NaN', () => {
+    const totals = { ...EMPTY_TOTALS, requests: 2, input: 10, cacheRead: 90, apiMs: 2000 }
+    delete (totals as { output?: number }).output
+    const line = lineText(buildLines(snapshot({ totals }), readConfig({}))[1] ?? [])
+    expect(line).toContain('↓░░░░ ↯░░')
+    expect(line).not.toContain('NaN')
+  })
+
   test('toggled-off segments leave the band', () => {
     const cfg = readConfig({
       show_model: false,

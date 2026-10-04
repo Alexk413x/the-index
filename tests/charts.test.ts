@@ -118,6 +118,8 @@ describe('turns and diverging bars', () => {
       ['b', 2, 8, null],
     ])
     expect(turnDetail(turns[1]!)).toBe('turn 2 · 8 tokens · 0% cache · ↓0')
+    const old = { at: 0, tokens: 5, costUsd: 0.1 } as unknown as Parameters<typeof groupTurns>[0][number]
+    expect(groupTurns([old, call('c', 3, 0.1)]).map(t => [t.id, t.number, t.tokens])).toEqual([['c', 1, 3]])
   })
 
   test('a bar above the average rises in the above colour, one below falls in the below colour', () => {

@@ -215,6 +215,8 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
   Until then the timer counts down `cache_ttl` from the last main-loop response.
 - **Cache hit rates.** The script reads the harness's `prompt_cache` stats. The band
   sums main-loop responses since the session started in this process.
+- **Totals after an update.** A session that started before an update keeps its earlier
+  totals; a figure the earlier build didn't count shows `░` until a new session.
 - **Totals after a restart.** Σ tokens, API time and lines restart when the process
   restarts or resumes a session. Cost, context and rate limits don't.
 - **API time.** The band measures each request's wall time, retries included. The
