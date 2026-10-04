@@ -285,6 +285,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     return [
       ...(actions.length ? [...head, [blankTitle(), note(header)]] : head),
       ...block('Lines', linesChart, lineNotes),
+      [blankTitle()],
       ...block('Files', stackedBars(fileBars, barWidth, GIT_FILES_HEIGHT, cfg.colors.icons), fileNotes),
       [blankTitle(), { text: hint, color: cfg.colors.icons, footer: true }],
     ]

@@ -2,6 +2,12 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.1] - 2026-10-04
+
+### Changed
+
+- A blank row separates the lines and files charts in the git rows.
+
 ## [0.7.0] - 2026-10-04
 
 ### Added
