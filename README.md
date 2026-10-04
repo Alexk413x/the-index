@@ -23,13 +23,11 @@ type and status instead of the main session's.
 - **Line 2:** the last main-loop API call (Δ) and session totals (Σ).
 - **Line 3:** the folder, then two sections:
   - **The checked-out branch:** what the next commit would hold, the working tree against
-    `HEAD` (files added, changed and deleted, and lines). The branch name links to the
-    branch on GitHub once it's pushed.
+    `HEAD` (files added, changed and deleted, and lines).
   - **`origin/main`:** what a PR would look like now, everything since the branch started
     against the remote base (commits ahead and behind, files and lines). It shows the open
-    PR's number first (`#42 origin/main`), found with the `gh` CLI, and links to that PR,
-    or to GitHub's create-PR page when there's none. On `main` itself it links to the
-    commit history.
+    PR's number first (`#42 origin/main`), found with the `gh` CLI.
+  Each section opens its chart row, which holds the GitHub buttons (see Charts).
   Click the folder name to open it in Explorer, Finder or, on Linux, the app `xdg-open` picks.
 
 With a subagent transcript open, line 1's model segment reads
@@ -98,23 +96,25 @@ linked, and the folder with the Claude Code version.
 
 Hover a section of the band for a chart in a row above it:
 
-- **The context fill:** the context window's fill across the session against the full
-  window, a dashed line where auto-compaction starts (Claude Code's own threshold, when
-  auto-compaction is on), and `▲` under each compaction.
+- **The cache timer and context fill:** the context window's fill across the session
+  against the full window, a dashed line where auto-compaction starts (Claude Code's own
+  threshold, when auto-compaction is on), `▲` under each compaction, and how long the
+  prompt cache stays warm.
 - **Δ (the last call):** the last 10 main-loop calls, with one line for each call's
   tokens and one for its cost, and the peak of each.
 - **Σ (the session totals):** the running total of tokens and cost across every call this
   session, so the steep steps show where the big calls were.
 - **The rate limits:** tokens per day for the last 30 days as bars, with today's tokens,
   the 30-day and all-time totals, and their cost.
-
 - **The checked-out branch:** lines added and removed and files changed in the working
-  tree, plotted over the time since the last commit, with the rate in lines an hour.
+  tree, plotted over the time since the last commit, with the rate in lines an hour. Its
+  `View branch ↗` button opens the branch on GitHub once it's pushed.
 - **`origin/main`:** lines added and removed and files changed in each of the last 10
-  commits on the base branch, with the latest commit's subject.
+  commits on the base branch, with the latest commit's subject. Its button opens the open
+  PR (`View PR #42 ↗`), GitHub's create-PR page when there's none (`Create PR ↗`), or on
+  `main` itself the commit history (`View commits ↗`).
 
-The branch name and the base label stay links. Tokens count input, cache writes, cache
-reads and output. Click a section to pin its
+Tokens count input, cache writes, cache reads and output. Click a section to pin its
 chart, as with the other rows.
 
 The daily chart reads `the-index-usage.json` in your Claude config folder. Every session

@@ -151,6 +151,8 @@ const view = (over: Partial<PanelView>): PanelView => ({
     baseCommits: [],
     baseRef: 'origin/main',
     worktree: null,
+    links: {},
+    cacheLeftMs: null,
     now: 0,
     ...over,
   })
@@ -220,6 +222,10 @@ describe('chart rows', () => {
       '▲ 1 compaction',
     ])
     expect(panelLines('context', view({})).at(-1)?.at(-1)?.text).toBe('no readings yet')
+    const warm = panelLines('context', view({ contextLog, cacheLeftMs: 42 * 60_000 }))
+    expect(warm[4]?.at(-1)?.text).toBe('cache warm · 42m0s left')
+    const cold = panelLines('context', view({ contextLog, cacheLeftMs: 0 }))
+    expect(cold[4]?.at(-1)?.text).toBe('cache cold · next call re-reads it')
   })
 
   test('with no calls yet the line charts say so', () => {

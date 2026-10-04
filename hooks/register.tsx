@@ -13,6 +13,8 @@ import {
   normPath,
   patchLineCounts,
   projectName,
+  cacheLeftMs,
+  gitLinks,
   readConfig,
   tint,
   type Config,
@@ -623,6 +625,10 @@ async function toggleUltracode($: EngineInterface): Promise<void> {
 }
 
 async function applyPick($: EngineInterface, panel: IndexPanel, target: string, pick: string): Promise<void> {
+  if (panel === 'branch' || panel === 'base') {
+    await openUrl($, pick)
+    return
+  }
   if (panel === 'effort' && pick === 'ultracode') {
     await toggleUltracode($)
     return
@@ -701,14 +707,9 @@ export const register: Register = (on, options) => {
       if (data['press'] === true) await openFolder($)
       return {}
     }
-    const href = data['href']
-    if (data['press'] === true && typeof href === 'string') {
-      if (/^https:\/\//.test(href)) await openUrl($, href)
-      return {}
-    }
     const panel = PANELS.find(p => e.element.startsWith(`${p}-`))
     if (!panel) return {}
-    const isName = e.element.startsWith(`${panel}-chip`) || e.element.startsWith(`${panel}-link`)
+    const isName = e.element === `${panel}-chip`
     if (data['hover'] === true) {
       pointerOver.add(e.element)
       if (isName && (await read($, hover))?.panel !== panel) hoverOpenSoon($, panel)
@@ -970,6 +971,8 @@ export const register: Register = (on, options) => {
       baseCommits: commits,
       baseRef: repo?.prBaseRef ?? '',
       worktree,
+      links: gitLinks(repo),
+      cacheLeftMs: cfg.show.cache ? cacheLeftMs(sums, cfg, now) : null,
       now,
     }
     const isPinned = (panel: IndexPanel) => pinnedList.includes(panel)
@@ -1023,12 +1026,6 @@ export const register: Register = (on, options) => {
         {panelArea}
         {panelArea.length > 0 ? rule('rule-bottom') : null}
         {lines.map((line, index) => {
-          const chipCount = new Map<string, number>()
-          const chipKey = (prefix: string) => {
-            const n = chipCount.get(prefix) ?? 0
-            chipCount.set(prefix, n + 1)
-            return n === 0 ? prefix : `${prefix}-${n}`
-          }
           const segs: Seg[] = []
           line.forEach((part, i) => {
             if (i > 0) segs.push(sep)
@@ -1038,7 +1035,7 @@ export const register: Register = (on, options) => {
           for (const s of segs) {
             const last = runs[runs.length - 1]
             const head = last?.[0]
-            const joins = s.menu ? head?.menu === s.menu && !head.href && !s.href : !head?.menu && head?.href === s.href
+            const joins = s.menu ? head?.menu === s.menu : !head?.menu
             if (last && joins) last.push(s)
             else runs.push([s])
           }
@@ -1047,21 +1044,12 @@ export const register: Register = (on, options) => {
               {runs.map(run => {
                 const first = run[0]
                 if (!first) return null
-                if (first.href) {
-                  return (
-                    <Client
-                      key={first.menu ? chipKey(`${first.menu}-link`) : `link-${index}-${first.text}`}
-                      module="./chip.tsx"
-                      props={{ text: first.text, color: first.color, look: 'link', href: first.href }}
-                    />
-                  )
-                }
                 const panel = PANELS.find(p => p === first.menu)
                 if (panel === 'harness' && !harnessList) return <Text color={first.color}>{first.text}</Text>
                 if (panel) {
                   return (
                     <Client
-                      key={chipKey(`${panel}-chip`)}
+                      key={`${panel}-chip`}
                       module="./chip.tsx"
                       props={{
                         text: run.map(s => s.text).join(''),

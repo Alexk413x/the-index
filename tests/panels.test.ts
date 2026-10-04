@@ -39,6 +39,8 @@ function view(over: Partial<PanelView> = {}): PanelView {
     baseCommits: [],
     baseRef: 'origin/main',
     worktree: null,
+    links: {},
+    cacheLeftMs: null,
     now: 0,
     ...over,
   }

@@ -2,6 +2,15 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.4.0] - 2026-10-04
+
+### Changed
+
+- The git sections are one button each that opens or pins their chart row; the GitHub
+  links are buttons in that row: `View branch`, `View PR #N`, `Create PR` or
+  `View commits`.
+- The cache timer opens the context chart, which shows how long the cache stays warm.
+
 ## [0.3.0] - 2026-10-04
 
 ### Added

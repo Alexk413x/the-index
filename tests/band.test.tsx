@@ -664,7 +664,7 @@ test('off Windows the folder opens with open, then xdg-open, and a failure says 
   await band.unmount()
 })
 
-test('git links open over https only', async ($, on) => {
+test('the git rows hold the GitHub links as buttons, which open over https only', async ($, on) => {
   engine(on)
   const opened: unknown[] = []
   await startSession($, on, {
@@ -683,15 +683,23 @@ test('git links open over https only', async ($, on) => {
     },
   })
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  const link = (await band.findAll({ type: 'Client' })).find(c => (c.props['props'] as { href?: string }).href !== undefined)
-  const key = String(link?.props['key'])
-  const href = (link?.props['props'] as { href?: string } | undefined)?.href
-  expect(href).toBe('https://github.com/acme/app/tree/feat%2Fx')
-  await band.post({ press: true, href: 'http://example.com/x' }, { in: key })
-  await band.post({ press: true, href: 'file:///C:/Windows' }, { in: key })
+  expect(await band.findAll({ type: 'Client' })).not.toContainEqual(expect.objectContaining({ props: expect.objectContaining({ key: expect.stringMatching(/link/) }) }))
+  await band.post({ press: true }, { in: 'branch-chip' })
+  await band.post({ press: true }, { in: 'base-chip' })
+  const firstLine = async (key: string) =>
+    ((await band.find({ key }))?.props['props'] as { lines: { text: string; pick?: string }[][] }).lines[0] ?? []
+  const view = (await firstLine('branch-row')).find(i => i.pick)
+  expect(view).toMatchObject({ text: 'View branch ↗', pick: 'https://github.com/acme/app/tree/feat%2Fx' })
+  expect((await firstLine('base-row')).find(i => i.pick)).toMatchObject({
+    text: 'Create PR ↗',
+    pick: 'https://github.com/acme/app/compare/main...feat%2Fx?expand=1',
+  })
+  await band.post({ pick: 'http://example.com/x', target: 'main' }, { in: 'branch-row' })
+  await band.post({ pick: 'file:///C:/Windows', target: 'main' }, { in: 'branch-row' })
   expect(opened).toEqual([])
-  await band.post({ press: true, href: href ?? '' }, { in: key })
-  expect(opened).toEqual([{ THE_INDEX_OPEN: href }])
+  await band.post({ pick: view?.pick ?? '', target: 'main' }, { in: 'branch-row' })
+  expect(opened).toEqual([{ THE_INDEX_OPEN: view?.pick }])
+  expect(await pinnedOf(band, 'branch')).toBe(true)
   await band.unmount()
 })
 
@@ -792,6 +800,7 @@ test('hovering the context shows its fill over time, the compaction threshold an
   await measure(30)
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   expect(await bandText(band)).toContain('💥')
+  expect(((await band.find({ key: 'context-chip' }))?.props['props'] as { text: string }).text).toMatch(/^☀ ░░m 💥/)
   await band.post({ hover: true }, { in: 'context-chip' })
   await clock.advance(110)
   const lines = ((await band.find({ key: 'context-row' }))?.props['props'] as { lines: { text: string }[][] }).lines

@@ -5,7 +5,6 @@ type ChipProps = {
   color: string
   look?: 'button' | 'link'
   isActive?: boolean
-  href?: string
   parts?: { text: string; color: string }[]
 }
 type ChipState = { isHovered: boolean }
@@ -22,10 +21,10 @@ const Chip: ClientModule<ChipProps, ChipState> = (props, surface) => {
         surface.setState({ isHovered: false })
         surface.post({ hover: false })
       }
-      else if (e.type === 'up' && e.button === 'left') surface.post(props.href ? { press: true, href: props.href } : { press: true })
+      else if (e.type === 'up' && e.button === 'left') surface.post({ press: true })
     })
     surface.onKey(k => {
-      if (k.key === 'return' || k.key === ' ') surface.post(props.href ? { press: true, href: props.href } : { press: true })
+      if (k.key === 'return' || k.key === ' ') surface.post({ press: true })
     })
   }
   const isHovered = surface.state?.isHovered === true

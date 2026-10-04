@@ -257,7 +257,7 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
 }
 
 export type Menu = 'harness' | 'effort' | 'model' | 'session' | 'project' | 'context' | 'calls' | 'totals' | 'usage' | 'branch' | 'base'
-export type Seg = { text: string; color: string; href?: string; menu?: Menu }
+export type Seg = { text: string; color: string; menu?: Menu }
 export type Part = readonly Seg[]
 export type Line = readonly Part[]
 
@@ -283,8 +283,7 @@ export type ViewedAgent = {
 
 export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): Line[] {
   const c = cfg.colors
-  const seg = (text: string, color: string, href?: string): Seg =>
-    href ? { text, color, href } : { text, color }
+  const seg = (text: string, color: string): Seg => ({ text, color })
   const icon = (text: string) => seg(text, c.icons)
   const sp = seg(' ', c.icons)
 
@@ -331,10 +330,11 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   if (cfg.show.ide && host?.ide) line1.push([seg(host.ide, c.ide)])
 
   const gauges: Seg[][] = []
+  const cache: Seg[] = []
   if (cfg.show.cache) {
     const last = snap.totals.lastResponseAt
     if (last === null) {
-      gauges.push([icon(SYM_CACHE[0]), sp, seg(`${SHADE.repeat(2)}m`, c.good)])
+      cache.push(icon(SYM_CACHE[0]), sp, seg(`${SHADE.repeat(2)}m`, c.good))
     } else {
       const ttlMs = snap.totals.cacheTtlMs ?? cfg.cacheTtlMs
       const left = Math.floor((last + ttlMs - snap.now) / 1000)
@@ -343,9 +343,9 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         const col = frac > 0.5 ? c.good : frac > 0.25 ? c.warn : frac > 0.1 ? c.high : c.bad
         const txt =
           left >= 60 ? `${String(Math.floor(left / 60)).padStart(2, '0')}m` : `${String(left).padStart(2, '0')}s`
-        gauges.push([icon(cacheGlyph(frac)), sp, seg(txt, col)])
+        cache.push(icon(cacheGlyph(frac)), sp, seg(txt, col))
       } else {
-        gauges.push([icon(SYM_COLD), sp, seg('00m', c.cold)])
+        cache.push(icon(SYM_COLD), sp, seg('00m', c.cold))
       }
     }
   }
@@ -368,7 +368,8 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     if (ctx.length) ctx.push(sp)
     ctx.push(seg(fmtDur((snap.now - usage.startedAt) / 1000), c.uptime))
   }
-  if (ctx.length) gauges.push(withMenu(ctx, 'context'))
+  const window = cache.length && ctx.length ? [...cache, sp, ...ctx] : [...cache, ...ctx]
+  if (window.length) gauges.push(withMenu(window, 'context'))
 
   if (cfg.show.rate_limits) {
     const windows: [IndexRateLimit | null | undefined, string, string][] = [
@@ -466,13 +467,11 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   }
   const git = snap.git
   if (git?.branch) {
-    const branchUrl = encodeURIComponent(git.branch)
-    const treeUrl = git.repoWeb && git.branchPushed ? `${git.repoWeb}/tree/${branchUrl}` : undefined
     if (cfg.show.commit_diff) {
       line3.push(withMenu([
         icon(SYM_BR),
         sp,
-        seg(git.branch, c.branch, treeUrl),
+        seg(git.branch, c.branch),
         sp,
         icon(SYM_FILES),
         sp,
@@ -490,14 +489,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
       ], 'branch'))
     }
     if (cfg.show.pr_diff && git.prBaseRef) {
-      const onBase = git.branch === git.prBaseName
       const label = git.prBaseRef
-      const compareUrl =
-        !onBase && git.repoWeb && git.branchPushed
-          ? `${git.repoWeb}/compare/${encodeURIComponent(git.prBaseName)}...${branchUrl}?expand=1`
-          : undefined
-      const historyUrl = onBase && git.repoWeb ? `${git.repoWeb}/commits/${branchUrl}` : undefined
-      const prUrl = git.prLink ?? compareUrl ?? historyUrl
       line3.push(withMenu([
         icon(SYM_AHEAD),
         seg(String(git.prAhead), c.good),
@@ -507,7 +499,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         sp,
         icon(SYM_BR),
         sp,
-        seg(git.prNumber ? `#${git.prNumber} ${label}` : label, c.branch, prUrl),
+        seg(git.prNumber ? `#${git.prNumber} ${label}` : label, c.branch),
         sp,
         icon(SYM_FILES),
         sp,
@@ -527,6 +519,25 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   }
 
   return [line1, line2, line3].filter(l => l.length > 0)
+}
+
+export type GitLinks = { branch?: string; base?: { label: string; url: string } }
+
+export function cacheLeftMs(totals: IndexTotals, cfg: Config, now: number): number | null {
+  if (totals.lastResponseAt === null) return null
+  return Math.max(0, totals.lastResponseAt + (totals.cacheTtlMs ?? cfg.cacheTtlMs) - now)
+}
+
+export function gitLinks(git: IndexGit | null): GitLinks {
+  if (!git?.branch || !git.repoWeb) return {}
+  const branchUrl = encodeURIComponent(git.branch)
+  const links: GitLinks = git.branchPushed ? { branch: `${git.repoWeb}/tree/${branchUrl}` } : {}
+  if (!git.prBaseRef) return links
+  if (git.prLink && git.prNumber) return { ...links, base: { label: `View PR #${git.prNumber}`, url: git.prLink } }
+  if (git.branch === git.prBaseName) return { ...links, base: { label: 'View commits', url: `${git.repoWeb}/commits/${branchUrl}` } }
+  if (!git.branchPushed) return links
+  const compare = `${git.repoWeb}/compare/${encodeURIComponent(git.prBaseName)}...${branchUrl}?expand=1`
+  return { ...links, base: { label: 'Create PR', url: compare } }
 }
 
 function withMenu(segs: readonly Seg[], menu: Menu): Seg[] {

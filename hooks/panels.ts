@@ -11,7 +11,7 @@ import type {
   IndexWorktreeLog,
 } from '../types'
 import { barChart, lineChart, markerRow } from './charts'
-import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config } from './format'
+import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
 import { isRecord } from './git'
 import type { UsageSummary } from './ledger'
 
@@ -88,6 +88,8 @@ export type PanelView = {
   baseCommits: readonly IndexCommit[]
   baseRef: string
   worktree: IndexWorktreeLog | null
+  links: GitLinks
+  cacheLeftMs: number | null
   now: number
 }
 
@@ -116,8 +118,15 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   const middleEndingWith = (items: RowItem[], end: RowItem) => [...padTo(items, MIDDLE_WIDTH - ROW_GAP - end.text.length), end]
   const recache = note(`may re-cache ${view.contextTokens ? `about ${fmtNum(view.contextTokens)} tokens` : 'the conversation'}`)
 
-  const chartRows = (label: string, chart: RowItem[][], notes: readonly (RowItem | null)[]): RowItem[][] =>
-    chart.map((row, r) => [r === 0 ? title(label) : { ...note(''), pad: TITLE_WIDTH }, ...row, ...(notes[r] ? [notes[r]] : [])])
+  const chartRows = (label: string, chart: RowItem[][], notes: readonly (RowItem | null)[], actions: RowItem[] = []): RowItem[][] => {
+    const rows = chart.map((row, r) => [
+      r === 0 && actions.length === 0 ? title(label) : { ...note(''), pad: TITLE_WIDTH },
+      ...row,
+      ...(notes[r] ? [notes[r]] : []),
+    ])
+    return actions.length ? [[title(label), ...actions], ...rows] : rows
+  }
+  const action = (text: string, url: string): RowItem => ({ text: `${text} ↗`, color: cfg.colors.branch, pick: url })
   const tokensColor = cfg.colors.model
   const costColor = cfg.colors.cold
   const colored = (text: string, color: string): RowItem => ({ text, color })
@@ -145,7 +154,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       notes[3] = note(latest.subject.length > 34 ? `${latest.subject.slice(0, 33)}…` : latest.subject)
       notes[CHART_HEIGHT - 1] = note(`last ${commits.length} ${commits.length === 1 ? 'commit' : 'commits'} to ${view.baseRef}`)
     }
-    return chartRows('Commits', chart, notes)
+    return chartRows('Commits', chart, notes, view.links.base ? [action(view.links.base.label, view.links.base.url)] : [])
   }
 
   if (panel === 'branch') {
@@ -177,7 +186,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       }
       notes[CHART_HEIGHT - 1] = note(`${fmtDur((view.now - log.since) / 1000)} since the last commit`)
     }
-    return chartRows('Changes', chart, notes)
+    return chartRows('Changes', chart, notes, view.links.branch ? [action('View branch', view.links.branch)] : [])
   }
 
   if (panel === 'context') {
@@ -195,6 +204,11 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
     if (limit) notes[0] = note(`100% · ${fmtNum(limit.window)} window`)
     if (thresholdPct !== null) notes[1] = colored(`compacts at ${Math.round(thresholdPct)}%`, cfg.colors.warn)
+    if (view.cacheLeftMs !== null) {
+      notes[4] = view.cacheLeftMs > 0
+        ? colored(`cache warm · ${fmtDur(view.cacheLeftMs / 1000)} left`, cfg.colors.good)
+        : colored('cache cold · next call re-reads it', cfg.colors.cold)
+    }
     if (now) {
       notes[2] = colored(`now ${now.percent}%${now.tokens === null ? '' : ` · ${fmtNum(now.tokens)}`}`, tokensColor)
       notes[3] = note(`peak ${Math.max(...log.map(p => p.percent))}%`)
