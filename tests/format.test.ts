@@ -23,7 +23,7 @@ import {
   repoWebFromRemote,
   type Snapshot,
 } from '../hooks/format'
-import { applyBase, applyPr, applyStatus, emptyGit, parseSharedLimits, serializeSharedLimits } from '../hooks/git'
+import { applyBase, applyPr, applyStatus, emptyGit, parsePullRequests, parseSharedLimits, serializeSharedLimits } from '../hooks/git'
 
 const NOW = 1_800_000_000_000
 
@@ -250,6 +250,19 @@ describe('git links', () => {
 
   test('a remote that is not a web host has no links', () => {
     expect(gitLinks({ ...emptyGit(''), branch: 'feat/x', branchPushed: true })).toEqual({})
+  })
+})
+
+describe('pull requests', () => {
+  test('gh pr list JSON reads as pull requests, skipping malformed entries', () => {
+    expect(
+      parsePullRequests([
+        { number: 7, title: 'Fix', url: 'https://github.com/a/b/pull/7', headRefName: 'fix/x' },
+        { number: 'x', url: 'u' },
+        'nope',
+      ]),
+    ).toEqual([{ number: 7, title: 'Fix', url: 'https://github.com/a/b/pull/7', branch: 'fix/x' }])
+    expect(parsePullRequests(undefined)).toEqual([])
   })
 })
 

@@ -95,6 +95,7 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
             <Text
               key={`item${y}-${i}`}
               color={fadeColor(hoverKey(item) !== null && hoverKey(item) === state.hovered ? props.hoverColor : item.color, amount)}
+              underline={item.pick !== undefined && item.pick === state.hovered}
             >
               {i > 0 && !item.tight ? ' '.repeat(props.gap) : ''}
               {item.footer && detail !== undefined ? detail : item.text}

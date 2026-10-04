@@ -138,6 +138,79 @@ export function markerRow(count: number, marked: readonly number[], width: numbe
   return cellsToItems(cells, blank)
 }
 
+export type SplitBar = { up: number; down: number; id: string; detail: string }
+
+export function splitBars(
+  bars: readonly (SplitBar | null)[],
+  barWidth: number,
+  half: number,
+  colors: { up: string; down: string; axis: string; blank: string },
+): RowItem[][] {
+  const max = Math.max(0, ...bars.map(b => Math.max(b?.up ?? 0, b?.down ?? 0)))
+  const eighths = (value: number) => (max > 0 && value > 0 ? Math.max(1, Math.round((value / max) * half * 8)) : 0)
+  const UPPER = [' ', '▔', '▔', '▀', '▀', '▀', '▀', '█', '█'] as const
+  const rows: RowItem[][] = []
+  for (let row = 0; row < half * 2 + 1; row += 1) {
+    const cells: Cell[] = []
+    for (const bar of bars) {
+      let char = row === half ? '─' : ' '
+      let color = row === half ? colors.axis : colors.blank
+      if (bar && row < half) {
+        const fill = Math.min(8, Math.max(0, eighths(bar.up) - (half - 1 - row) * 8))
+        if (fill > 0) {
+          char = EIGHTHS[fill] ?? ' '
+          color = colors.up
+        }
+      } else if (bar && row > half) {
+        const fill = Math.min(8, Math.max(0, eighths(bar.down) - (row - half - 1) * 8))
+        if (fill > 0) {
+          char = UPPER[fill] ?? ' '
+          color = colors.down
+        }
+      }
+      const tag = bar ? { hoverId: bar.id, detail: bar.detail } : {}
+      for (let w = 0; w < barWidth; w += 1) cells.push({ char, color, ...tag })
+      cells.push({ char: row === half ? '─' : ' ', color: row === half ? colors.axis : colors.blank })
+    }
+    rows.push(cellsToItems(cells, colors.blank))
+  }
+  return rows
+}
+
+export type StackedBar = { parts: readonly { value: number; color: string }[]; id: string; detail: string }
+
+export function stackedBars(bars: readonly (StackedBar | null)[], barWidth: number, height: number, blank: string): RowItem[][] {
+  const total = (bar: StackedBar | null) => bar?.parts.reduce((sum, p) => sum + p.value, 0) ?? 0
+  const max = Math.max(0, ...bars.map(total))
+  const columns = bars.map(bar => {
+    const cells: string[] = []
+    if (!bar || max === 0) return cells
+    const tall = Math.max(1, Math.round((total(bar) / max) * height))
+    const shares = bar.parts.map(p => (p.value > 0 ? Math.max(1, Math.round((p.value / total(bar)) * tall)) : 0))
+    while (shares.reduce((a, b) => a + b, 0) > tall) {
+      const biggest = shares.indexOf(Math.max(...shares))
+      shares[biggest] = (shares[biggest] ?? 1) - 1
+    }
+    bar.parts.forEach((p, i) => {
+      for (let n = 0; n < (shares[i] ?? 0); n += 1) cells.push(p.color)
+    })
+    return cells
+  })
+  const rows: RowItem[][] = []
+  for (let row = 0; row < height; row += 1) {
+    const fromBottom = height - 1 - row
+    const cells: Cell[] = []
+    bars.forEach((bar, i) => {
+      const color = columns[i]?.[fromBottom]
+      const tag = bar ? { hoverId: bar.id, detail: bar.detail } : {}
+      for (let w = 0; w < barWidth; w += 1) cells.push({ char: color ? '█' : ' ', color: color ?? blank, ...tag })
+      cells.push({ char: ' ', color: blank })
+    })
+    rows.push(cellsToItems(cells, blank))
+  }
+  return rows
+}
+
 export type ColumnBar = { value: number; color: string; id: string; detail: string }
 
 export function columnBars(bars: readonly ColumnBar[], slots: number, barWidth: number, height: number, blank: string): RowItem[][] {

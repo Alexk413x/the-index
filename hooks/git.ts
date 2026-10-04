@@ -1,4 +1,4 @@
-import type { IndexCommit, IndexGit, IndexRateLimit } from '../types'
+import type { IndexCommit, IndexGit, IndexPullRequest, IndexRateLimit } from '../types'
 import { repoWebFromRemote } from './format'
 
 export const BASE_REFS = [
@@ -22,6 +22,22 @@ export function numstatTotals(text: string): { added: number; removed: number } 
   return { added, removed }
 }
 
+export function parsePullRequests(data: unknown): IndexPullRequest[] {
+  if (!Array.isArray(data)) return []
+  return data.flatMap(pr =>
+    isRecord(pr) && typeof pr['number'] === 'number' && typeof pr['url'] === 'string'
+      ? [
+          {
+            number: pr['number'],
+            title: typeof pr['title'] === 'string' ? pr['title'] : '',
+            url: pr['url'],
+            branch: typeof pr['headRefName'] === 'string' ? pr['headRefName'] : '',
+          },
+        ]
+      : [],
+  )
+}
+
 export const COMMIT_FORMAT = '@%H%x09%ct%x09%s'
 
 export function parseCommitLog(text: string): IndexCommit[] {
@@ -29,10 +45,27 @@ export function parseCommitLog(text: string): IndexCommit[] {
   for (const row of text.split('\n')) {
     if (row.startsWith('@')) {
       const [sha = '', at = '', ...subject] = row.slice(1).split('\t')
-      commits.push({ sha, at: (parseInt(at, 10) || 0) * 1000, subject: subject.join('\t'), added: 0, removed: 0, files: 0 })
+      commits.push({
+        sha,
+        at: (parseInt(at, 10) || 0) * 1000,
+        subject: subject.join('\t'),
+        added: 0,
+        removed: 0,
+        files: 0,
+        filesAdded: 0,
+        filesDeleted: 0,
+      })
       continue
     }
     const current = commits[commits.length - 1]
+    if (current && row.startsWith(' create mode ')) {
+      current.filesAdded = (current.filesAdded ?? 0) + 1
+      continue
+    }
+    if (current && row.startsWith(' delete mode ')) {
+      current.filesDeleted = (current.filesDeleted ?? 0) + 1
+      continue
+    }
     const cols = row.split('\t')
     if (!current || cols.length < 3) continue
     current.added += parseInt(cols[0] ?? '', 10) || 0

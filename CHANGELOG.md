@@ -2,6 +2,20 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.0] - 2026-10-04
+
+### Added
+
+- The `origin/main` row lists every open PR into the base branch as a button.
+- Buttons and choices in a row underline under the pointer.
+
+### Changed
+
+- Each git chart splits into a lines chart (added up, removed down) and a files chart
+  (added, modified and deleted stacked), with each column's details on hover.
+- Chart notes read as plain text ("peak 55 lines", "more per token") without `▲`, `▼` or
+  `■` marks.
+
 ## [0.6.3] - 2026-10-04
 
 ### Changed

@@ -40,6 +40,7 @@ function view(over: Partial<PanelView> = {}): PanelView {
     baseRef: 'origin/main',
     worktree: null,
     links: {},
+    basePrs: [],
     cacheLeftMs: null,
     now: 0,
     ...over,

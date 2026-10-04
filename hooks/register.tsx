@@ -1,7 +1,16 @@
 import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Register, RenderChildren, Timer, SessionContextUsage, SessionCost, SessionRateLimit } from 'claude-code'
 
-import type { IndexAgentStep, IndexEffort, IndexHarness, IndexPanel, IndexGit, IndexRateLimit, IndexUsage } from '../types'
+import type {
+  IndexAgentStep,
+  IndexEffort,
+  IndexHarness,
+  IndexPanel,
+  IndexGit,
+  IndexPullRequest,
+  IndexRateLimit,
+  IndexUsage,
+} from '../types'
 import {
   EMPTY_TOTALS,
   MAIN,
@@ -43,6 +52,7 @@ import {
   numstatTotals,
   parseCommitLog,
   parseJson,
+  parsePullRequests,
   parseSharedLimits,
   serializeSharedLimits,
 } from './git'
@@ -71,10 +81,12 @@ const contextLog = atom({ plugin: 'the-index', key: 'contextLog' } as const, [])
 const contextLimit = atom({ plugin: 'the-index', key: 'contextLimit' } as const, null)
 const baseCommits = atom({ plugin: 'the-index', key: 'baseCommits' } as const, [])
 const worktreeLog = atom({ plugin: 'the-index', key: 'worktreeLog' } as const, null)
+const basePrs = atom({ plugin: 'the-index', key: 'basePrs' } as const, [])
 
 const EWMA_ALPHA = 0.3
 const CONTEXT_LOG_MAX = 500
 const WORKTREE_LOG_MAX = 500
+const BASE_PR_LIMIT = 10
 const GIT_STAT_EVERY_MS = 30_000
 const GIT_FULL_EVERY_MS = 300_000
 const GIT_DEBOUNCE_MS = 2000
@@ -223,16 +235,40 @@ async function openPr($: EngineInterface, cwd: string, branch: string): Promise<
   return pr
 }
 
+const basePrCache = new Map<string, { at: number; prs: IndexPullRequest[] }>()
+
+async function openBasePrs($: EngineInterface, cwd: string, base: string): Promise<IndexPullRequest[]> {
+  const now = await $.clock.now()
+  const cached = basePrCache.get(base)
+  if (cached && now - cached.at < PR_CACHE_MS) return cached.prs
+  let prs: IndexPullRequest[] = []
+  try {
+    const r = await $.process.run(
+      ['gh', 'pr', 'list', '--base', base, '--state', 'open', '--limit', String(BASE_PR_LIMIT), '--json', 'number,title,url,headRefName'],
+      { cwd, timeoutMs: 10_000 },
+    )
+    prs = r.exitCode === 0 ? parsePullRequests(parseJson(r.stdout)) : []
+  } catch {
+    prs = []
+  }
+  basePrCache.set(base, { at: now, prs })
+  return prs
+}
+
 async function refreshGit($: EngineInterface): Promise<void> {
   const cwd = await $.session.cwd()
   const snap = await gitSnapshot($, cwd)
   await update($, git, () => snap)
   const [headLine, baseLog, now] = await Promise.all([
     runGit($, cwd, ['log', '-1', '--format=%H%x09%ct']),
-    snap?.prBaseRef ? runGit($, cwd, ['log', snap.prBaseRef, '-10', '--numstat', `--format=${COMMIT_FORMAT}`]) : Promise.resolve(''),
+    snap?.prBaseRef
+      ? runGit($, cwd, ['log', snap.prBaseRef, '-10', '--numstat', '--summary', `--format=${COMMIT_FORMAT}`])
+      : Promise.resolve(''),
     $.clock.now(),
   ])
   await update($, baseCommits, () => parseCommitLog(baseLog))
+  const prs = snap?.prBaseName && snap.repoWeb.includes('github') ? await openBasePrs($, cwd, snap.prBaseName) : []
+  await update($, basePrs, () => prs)
   const [head = '', committedAt = ''] = headLine.split('\t')
   if (!snap || !head) return
   const point = {
@@ -240,11 +276,21 @@ async function refreshGit($: EngineInterface): Promise<void> {
     added: snap.linesAdded,
     removed: snap.linesRemoved,
     files: snap.filesAdded + snap.filesModified + snap.filesDeleted,
+    filesAdded: snap.filesAdded,
+    filesModified: snap.filesModified,
+    filesDeleted: snap.filesDeleted,
   }
   await update($, worktreeLog, prev => {
     if (!prev || prev.head !== head) return { head, since: (parseInt(committedAt, 10) || 0) * 1000 || now, points: [point] }
     const last = prev.points[prev.points.length - 1]
-    if (last && last.added === point.added && last.removed === point.removed && last.files === point.files) return prev
+    const same =
+      last &&
+      last.added === point.added &&
+      last.removed === point.removed &&
+      last.filesAdded === point.filesAdded &&
+      last.filesModified === point.filesModified &&
+      last.filesDeleted === point.filesDeleted
+    if (same) return prev
     return { ...prev, points: [...prev.points.slice(-(WORKTREE_LOG_MAX - 1)), point] }
   })
 }
@@ -906,7 +952,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary, contextPoints, limit, commits, worktree] =
+    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary, contextPoints, limit, commits, worktree, prs] =
       await Promise.all([
         read($, agents),
         read($, call),
@@ -930,6 +976,7 @@ export const register: Register = (on, options) => {
         read($, contextLimit),
         read($, baseCommits),
         read($, worktreeLog),
+        read($, basePrs),
       ])
     const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
     const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
@@ -987,6 +1034,7 @@ export const register: Register = (on, options) => {
       baseRef: repo?.prBaseRef ?? '',
       worktree,
       links: gitLinks(repo),
+      basePrs: prs,
       cacheLeftMs: cfg.show.cache ? cacheLeftMs(sums, cfg, now) : null,
       now,
     }

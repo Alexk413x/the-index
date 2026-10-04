@@ -10,6 +10,7 @@ import {
   ROW_GAP,
   TITLE_WIDTH,
   TURN_HALF,
+  GIT_LINES_HALF,
   groupTurns,
   panelLines,
   turnDetail,
@@ -70,10 +71,20 @@ describe('fixed scale and markers', () => {
 
 describe('commit log', () => {
   test('numstat rows add up per commit, binary files count as files with no lines', () => {
-    const text = ['@aaa\t1700000000\tAdd charts', '10\t2\ta.ts', '-\t-\timg.png', '', '@bbb\t1690000000\tFix\ttabs', '1\t1\tb.ts'].join('\n')
+    const text = [
+      '@aaa\t1700000000\tAdd charts',
+      '10\t2\ta.ts',
+      '-\t-\timg.png',
+      ' create mode 100644 img.png',
+      '',
+      '@bbb\t1690000000\tFix\ttabs',
+      '1\t1\tb.ts',
+      '0\t9\told.ts',
+      ' delete mode 100644 old.ts',
+    ].join('\n')
     expect(parseCommitLog(text)).toEqual([
-      { sha: 'aaa', at: 1_700_000_000_000, subject: 'Add charts', added: 10, removed: 2, files: 2 },
-      { sha: 'bbb', at: 1_690_000_000_000, subject: 'Fix\ttabs', added: 1, removed: 1, files: 1 },
+      { sha: 'aaa', at: 1_700_000_000_000, subject: 'Add charts', added: 10, removed: 2, files: 2, filesAdded: 1, filesDeleted: 0 },
+      { sha: 'bbb', at: 1_690_000_000_000, subject: 'Fix\ttabs', added: 1, removed: 10, files: 2, filesAdded: 0, filesDeleted: 1 },
     ])
     expect(parseCommitLog('')).toEqual([])
   })
@@ -81,7 +92,36 @@ describe('commit log', () => {
   test('the commits row plots oldest to newest and names the base branch', () => {
     const baseCommits = parseCommitLog(['@b\t2\tSecond', '30\t5\ta.ts', '1\t0\tb.ts', '@a\t1\tFirst', '4\t1\ta.ts'].join('\n'))
     const lines = panelLines('base', view({ baseCommits }))
-    expect(lines.map(l => l.at(-1)?.text)).toEqual(['▲ +31 lines', '▲ -5 lines', '▲ 2 files', 'Second', expect.any(String), 'last 2 commits to origin/main'])
+    const labelled = (title: string) => lines.findIndex(l => l[0]?.text.trim() === title)
+    expect(lines[0]?.map(i => i.text.trim())).toEqual(['Commits', 'last 2 commits to origin/main'])
+    expect(labelled('Lines')).toBe(1)
+    expect(labelled('Files')).toBe(1 + GIT_LINES_HALF * 2 + 1)
+    const notes = lines.map(l => l.at(-1)?.text)
+    expect(notes).toContain('+35 lines added')
+    expect(notes).toContain('-6 lines removed')
+    expect(notes).toContain('~3 files modified')
+    expect(lines.at(-1)?.at(-1)).toMatchObject({ text: 'hover a bar for its commit', footer: true })
+    expect(lines.flat().find(i => i.hoverId === 'commit-b')?.detail).toBe('Second · +31 -5 · files +0 ~2 -0')
+    const cfg = readConfig({})
+    expect(lines.flat().some(i => i.hoverId === 'commit-b' && i.color === cfg.colors.bad && i.text.trim())).toBe(true)
+    expect(lines.flat().some(i => i.hoverId === 'commit-b' && i.color === cfg.colors.warn)).toBe(true)
+  })
+
+  test('the commits row lists the open PRs into the base as buttons after the branch link', () => {
+    const basePrs = [
+      { number: 42, title: 'Add charts', url: 'https://github.com/acme/app/pull/42', branch: 'feat/x' },
+      { number: 43, title: 'A very long pull request title that runs on', url: 'https://github.com/acme/app/pull/43', branch: 'feat/y' },
+    ]
+    const links = { base: { label: 'View PR #42', url: 'https://github.com/acme/app/pull/42' } }
+    const actions = panelLines('base', view({ basePrs, links }))[0]?.filter(i => i.pick) ?? []
+    expect(actions.map(i => [i.text, i.pick])).toEqual([
+      ['View PR #42 ↗', 'https://github.com/acme/app/pull/42'],
+      ['#43 A very long pull reques… ↗', 'https://github.com/acme/app/pull/43'],
+    ])
+    const many = Array.from({ length: 8 }, (_, i) => ({ number: i, title: 'Fix the thing', url: `https://github.com/acme/app/pull/${i}`, branch: `b${i}` }))
+    const lines = panelLines('base', view({ basePrs: many }))
+    expect(lines.length).toBeGreaterThan(CHART_HEIGHT + 1)
+    expect(lines.slice(0, lines.length - CHART_HEIGHT).flat().filter(i => i.pick)).toHaveLength(8)
   })
 
   test('the changes row plots the working tree since the last commit, with its rate', () => {
@@ -94,8 +134,13 @@ describe('commit log', () => {
       ],
     }
     const lines = panelLines('branch', view({ worktree, now: 7_200_000 }))
-    expect(lines.map(l => l.at(-1)?.text)).toEqual(['+120 lines', '-30 lines', '5 files', '1.3 lines/min', expect.any(String), '2h0m since the last commit'])
-    expect(panelLines('branch', view({})).at(-1)?.at(-1)?.text).toBe('no commit yet')
+    const notes = lines.map(l => l.at(-1)?.text)
+    expect(lines[0]?.map(i => i.text.trim())).toEqual(['Changes', '2h0m since the last commit'])
+    expect(notes).toEqual(expect.arrayContaining(['+120 lines added', '1.3 lines/min', '-30 lines removed', '~5 files modified']))
+    expect(lines.flat().filter(i => i.hoverId === 'slot-0')).toEqual([])
+    expect(lines.flat().find(i => i.hoverId === 'slot-4')?.detail).toBe('30m0s after the commit · +40 -10 · files +0 ~2 -0')
+    expect(lines.flat().find(i => i.hoverId === 'slot-19')?.detail).toBe('2h0m after the commit · +120 -30 · files +0 ~5 -0')
+    expect(panelLines('branch', view({})).flat().some(i => i.text === 'no commit yet')).toBe(true)
   })
 })
 
@@ -207,6 +252,7 @@ const view = (over: Partial<PanelView>): PanelView => ({
     baseRef: 'origin/main',
     worktree: null,
     links: {},
+    basePrs: [],
     cacheLeftMs: null,
     now: 0,
     ...over,
@@ -256,9 +302,9 @@ describe('chart rows', () => {
     const cfg = readConfig({})
     expect(lines).toHaveLength(TURN_HALF * 2 + 2)
     expect(lines[0]?.[0]?.text).toBe('Cost/tok')
-    expect(lines[0]?.at(-1)?.text).toBe('▲ more per token')
+    expect(lines[0]?.at(-1)?.text).toBe('more per token')
     expect(lines[TURN_HALF]?.at(-1)?.text).toMatch(/^avg \$\d+\.\d\d\/M tokens$/)
-    expect(lines[TURN_HALF * 2]?.at(-1)?.text).toBe('▼ less per token')
+    expect(lines[TURN_HALF * 2]?.at(-1)?.text).toBe('less per token')
     const footer = lines.at(-1)?.at(-1)
     expect(footer).toMatchObject({ text: 'hover a bar for its turn · last 6 of 6', footer: true })
     const cells = lines.slice(0, TURN_HALF * 2 + 1).flat()
@@ -285,7 +331,7 @@ describe('chart rows', () => {
     const lines = panelLines('callLines', view({ callLog: calls }))
     const cfg = readConfig({})
     expect(lines).toHaveLength(CHART_HEIGHT + 1)
-    expect(lines[0]?.at(-1)?.text).toBe('▲ 55 lines')
+    expect(lines[0]?.at(-1)?.text).toBe('peak 55 lines')
     expect(lines[2]?.at(-1)?.text).toBe('avg $0.0011/line')
     const cells = lines.slice(0, CHART_HEIGHT).flat()
     expect(cells.find(i => i.hoverId === 'lines-t0' && i.text.trim())?.color).toBe(cfg.colors.bad)

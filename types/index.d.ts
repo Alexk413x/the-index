@@ -118,9 +118,28 @@ export type IndexContextPoint = { at: number; percent: number; tokens: number | 
 
 export type IndexContextLimit = { window: number; threshold: number | null }
 
-export type IndexCommit = { sha: string; at: number; subject: string; added: number; removed: number; files: number }
+export type IndexCommit = {
+  sha: string
+  at: number
+  subject: string
+  added: number
+  removed: number
+  files: number
+  filesAdded?: number
+  filesDeleted?: number
+}
 
-export type IndexWorktreePoint = { at: number; added: number; removed: number; files: number }
+export type IndexWorktreePoint = {
+  at: number
+  added: number
+  removed: number
+  files: number
+  filesAdded?: number
+  filesModified?: number
+  filesDeleted?: number
+}
+
+export type IndexPullRequest = { number: number; title: string; url: string; branch: string }
 
 export type IndexWorktreeLog = { head: string; since: number; points: readonly IndexWorktreePoint[] }
 
@@ -154,6 +173,7 @@ declare module 'claude-code' {
       contextLimit: IndexContextLimit | null
       baseCommits: readonly IndexCommit[]
       worktreeLog: IndexWorktreeLog | null
+      basePrs: readonly IndexPullRequest[]
       usageSummary: IndexUsageSummary | null
     }
   }

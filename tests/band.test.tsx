@@ -694,6 +694,9 @@ test('the git rows hold the GitHub links as buttons, which open over https only'
     text: 'Create PR ↗',
     pick: 'https://github.com/acme/app/compare/main...feat%2Fx?expand=1',
   })
+  await band.pointer({ type: 'move', x: TITLE_WIDTH + ROW_GAP, y: 0, in: 'branch-row' })
+  const underlined = await band.find({ in: 'branch-row', type: 'Text', text: /View branch/ })
+  expect(underlined?.props['underline']).toBe(true)
   await band.post({ pick: 'http://example.com/x', target: 'main' }, { in: 'branch-row' })
   await band.post({ pick: 'file:///C:/Windows', target: 'main' }, { in: 'branch-row' })
   expect(opened).toEqual([])
@@ -834,19 +837,24 @@ test('hovering the branch and base sections charts the working tree and the base
       if (argv.includes('for-each-ref')) return { exitCode: 0, stdout: 'refs/remotes/origin/main\t' }
       if (argv.includes('-1')) return { exitCode: 0, stdout: `abc\t${committed}` }
       if (argv.includes('-10')) return { exitCode: 0, stdout: '@m2\t200\tSecond\n5\t1\tx.ts\n@m1\t100\tFirst\n2\t0\ty.ts' }
+      if (argv.includes('config')) return { exitCode: 0, stdout: 'git@github.com:acme/app.git' }
+      if (argv[0] === 'gh' && argv.includes('list')) {
+        return { exitCode: 0, stdout: JSON.stringify([{ number: 9, title: 'Other work', url: 'https://github.com/acme/app/pull/9', headRefName: 'other' }]) }
+      }
       return { exitCode: argv[0] === 'git' ? 0 : 1 }
     },
   })
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   await band.post({ hover: true }, { in: 'base-chip' })
   await clock.advance(110)
-  const base = ((await band.find({ key: 'base-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
-  expect(base.at(-1)?.at(-1)?.text).toBe('last 2 commits to origin/main')
+  const base = ((await band.find({ key: 'base-row' }))?.props['props'] as { lines: { text: string; pick?: string }[][] }).lines
+  expect(base.flat().some(i => i.text === 'last 2 commits to origin/main')).toBe(true)
+  expect(base[0]?.filter(i => i.pick).map(i => i.text)).toEqual(['#9 Other work ↗'])
   await band.post({ hover: false }, { in: 'base-chip' })
   await band.post({ hover: true }, { in: 'branch-chip' })
   await clock.advance(110)
   const branch = ((await band.find({ key: 'branch-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
-  expect(branch.map(l => l.at(-1)?.text)).toContain('+12 lines')
-  expect(branch.at(-1)?.at(-1)?.text).toBe('1h0m since the last commit')
+  expect(branch.map(l => l.at(-1)?.text)).toContain('+12 lines added')
+  expect(branch.flat().some(i => i.text === '1h0m since the last commit')).toBe(true)
   await band.unmount()
 })

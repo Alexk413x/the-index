@@ -8,9 +8,11 @@ import type {
   IndexHarness,
   IndexHost,
   IndexPanel,
+  IndexPullRequest,
   IndexWorktreeLog,
+  IndexWorktreePoint,
 } from '../types'
-import { barChart, columnBars, divergingBars, lineChart, markerRow } from './charts'
+import { barChart, columnBars, divergingBars, lineChart, markerRow, splitBars, stackedBars, type SplitBar, type StackedBar } from './charts'
 import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
 import { isRecord } from './git'
 import type { UsageSummary } from './ledger'
@@ -45,6 +47,12 @@ export const ROW_GAP = 2
 export const TITLE_WIDTH = 10
 export const MIDDLE_WIDTH = 60
 export const CHART_HEIGHT = 6
+export const GIT_LINES_HALF = 2
+export const GIT_FILES_HEIGHT = 3
+export const COMMIT_SLOTS = 10
+export const CHANGE_SLOTS = 20
+export const ACTION_WIDTH = 90
+export const PR_TITLE_MAX = 24
 export const TURN_SLOTS = 20
 export const TURN_HALF = 3
 
@@ -198,6 +206,7 @@ export type PanelView = {
   baseRef: string
   worktree: IndexWorktreeLog | null
   links: GitLinks
+  basePrs: readonly IndexPullRequest[]
   cacheLeftMs: number | null
   now: number
 }
@@ -227,76 +236,162 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   const middleEndingWith = (items: RowItem[], end: RowItem) => [...padTo(items, MIDDLE_WIDTH - ROW_GAP - end.text.length), end]
   const recache = note(`may re-cache ${view.contextTokens ? `about ${fmtNum(view.contextTokens)} tokens` : 'the conversation'}`)
 
+  const blankTitle = (): RowItem => ({ ...note(''), pad: TITLE_WIDTH })
   const chartRows = (label: string, chart: RowItem[][], notes: readonly (RowItem | null)[], actions: RowItem[] = []): RowItem[][] => {
-    const rows = chart.map((row, r) => [
-      r === 0 && actions.length === 0 ? title(label) : { ...note(''), pad: TITLE_WIDTH },
-      ...row,
-      ...(notes[r] ? [notes[r]] : []),
-    ])
-    return actions.length ? [[title(label), ...actions], ...rows] : rows
+    const rows = chart.map((row, r) => [r === 0 && actions.length === 0 ? title(label) : blankTitle(), ...row, ...(notes[r] ? [notes[r]] : [])])
+    const actionLines: RowItem[][] = []
+    for (const item of actions) {
+      const line = actionLines[actionLines.length - 1]
+      if (line && sectionWidth([...line.slice(1), item]) <= ACTION_WIDTH) line.push(item)
+      else actionLines.push([actionLines.length === 0 ? title(label) : blankTitle(), item])
+    }
+    return [...actionLines, ...rows]
   }
   const action = (text: string, url: string): RowItem => ({ text: `${text} ↗`, color: cfg.colors.branch, pick: url })
   const tokensColor = cfg.colors.model
   const costColor = cfg.colors.cold
   const colored = (text: string, color: string): RowItem => ({ text, color })
 
-  if (panel === 'base') {
-    const commits = [...view.baseCommits].reverse()
-    const chart = lineChart(
-      [
-        { values: commits.map(c => c.added), color: cfg.colors.good },
-        { values: commits.map(c => c.removed), color: cfg.colors.bad },
-        { values: commits.map(c => c.files), color: cfg.colors.warn },
-      ],
-      MIDDLE_WIDTH,
-      CHART_HEIGHT,
-      cfg.colors.icons,
-    )
-    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
-    const latest = commits[commits.length - 1]
-    if (!latest) {
-      notes[CHART_HEIGHT - 1] = note(`no commits on ${view.baseRef || 'the base branch'}`)
-    } else {
-      notes[0] = colored(`▲ +${fmtNum(Math.max(...commits.map(c => c.added)))} lines`, cfg.colors.good)
-      notes[1] = colored(`▲ -${fmtNum(Math.max(...commits.map(c => c.removed)))} lines`, cfg.colors.bad)
-      notes[2] = colored(`▲ ${Math.max(...commits.map(c => c.files))} files`, cfg.colors.warn)
-      notes[3] = note(latest.subject.length > 34 ? `${latest.subject.slice(0, 33)}…` : latest.subject)
-      notes[CHART_HEIGHT - 1] = note(`last ${commits.length} ${commits.length === 1 ? 'commit' : 'commits'} to ${view.baseRef}`)
+  const gitRows = (
+    label: string,
+    actions: RowItem[],
+    header: string,
+    lineBars: (SplitBar | null)[],
+    fileBars: (StackedBar | null)[],
+    barWidth: number,
+    totals: { added: number; removed: number; filesAdded: number; filesModified: number; filesDeleted: number } | null,
+    lineNote: RowItem | null,
+    hint: string,
+  ): RowItem[][] => {
+    const head = chartRows(label, [], [], actions.length ? actions : [note(header)])
+    const linesChart = splitBars(lineBars, barWidth, GIT_LINES_HALF, {
+      up: cfg.colors.good,
+      down: cfg.colors.bad,
+      axis: cfg.colors.icons,
+      blank: cfg.colors.icons,
+    })
+    const lineNotes: (RowItem | null)[] = Array.from({ length: GIT_LINES_HALF * 2 + 1 }, () => null)
+    const fileNotes: (RowItem | null)[] = Array.from({ length: GIT_FILES_HEIGHT }, () => null)
+    if (totals) {
+      lineNotes[0] = colored(`+${fmtNum(totals.added)} lines added`, cfg.colors.good)
+      lineNotes[GIT_LINES_HALF] = lineNote
+      lineNotes[GIT_LINES_HALF * 2] = colored(`-${fmtNum(totals.removed)} lines removed`, cfg.colors.bad)
+      fileNotes[0] = colored(`+${totals.filesAdded} files added`, cfg.colors.good)
+      fileNotes[1] = colored(`~${totals.filesModified} files modified`, cfg.colors.warn)
+      fileNotes[2] = colored(`-${totals.filesDeleted} files deleted`, cfg.colors.bad)
     }
-    return chartRows('Commits', chart, notes, view.links.base ? [action(view.links.base.label, view.links.base.url)] : [])
+    const block = (title_: string, chart: RowItem[][], notes: readonly (RowItem | null)[]) =>
+      chart.map((row, r) => [r === 0 ? title(title_) : blankTitle(), ...row, ...(notes[r] ? [notes[r]] : [])])
+    return [
+      ...(actions.length ? [...head, [blankTitle(), note(header)]] : head),
+      ...block('Lines', linesChart, lineNotes),
+      ...block('Files', stackedBars(fileBars, barWidth, GIT_FILES_HEIGHT, cfg.colors.icons), fileNotes),
+      [blankTitle(), { text: hint, color: cfg.colors.icons, footer: true }],
+    ]
+  }
+  const fileParts = (added: number, modified: number, deleted: number) => [
+    { value: added, color: cfg.colors.good },
+    { value: modified, color: cfg.colors.warn },
+    { value: deleted, color: cfg.colors.bad },
+  ]
+  const fileText = (added: number, modified: number, deleted: number) => `files +${added} ~${modified} -${deleted}`
+
+  if (panel === 'base') {
+    const commits = [...view.baseCommits].reverse().slice(-COMMIT_SLOTS)
+    const split = (c: IndexCommit) => {
+      const added = c.filesAdded ?? 0
+      const deleted = c.filesDeleted ?? 0
+      return { added, deleted, modified: Math.max(0, c.files - added - deleted) }
+    }
+    const pad = <T,>(list: T[]) => [...list, ...Array<null>(Math.max(0, COMMIT_SLOTS - list.length)).fill(null)]
+    const lineBars = pad(
+      commits.map(c => {
+        const f = split(c)
+        const subject = c.subject.length > 40 ? `${c.subject.slice(0, 39)}…` : c.subject
+        return { up: c.added, down: c.removed, id: `commit-${c.sha}`, detail: `${subject} · +${c.added} -${c.removed} · ${fileText(f.added, f.modified, f.deleted)}` }
+      }),
+    )
+    const fileBars = pad(
+      commits.map((c, i) => {
+        const f = split(c)
+        return { parts: fileParts(f.added, f.modified, f.deleted), id: `commit-${c.sha}`, detail: lineBars[i]?.detail ?? '' }
+      }),
+    )
+    const sum = (pick: (c: IndexCommit) => number) => commits.reduce((total, c) => total + pick(c), 0)
+    const base = view.links.base
+    const actions = [
+      ...(base ? [action(base.label, base.url)] : []),
+      ...view.basePrs
+        .filter(pr => pr.url !== base?.url)
+        .map(pr => action(`#${pr.number} ${pr.title.length > PR_TITLE_MAX ? `${pr.title.slice(0, PR_TITLE_MAX - 1)}…` : pr.title}`, pr.url)),
+    ]
+    const header = commits.length
+      ? `last ${commits.length} ${commits.length === 1 ? 'commit' : 'commits'} to ${view.baseRef}`
+      : `no commits on ${view.baseRef || 'the base branch'}`
+    const totals = commits.length
+      ? {
+          added: sum(c => c.added),
+          removed: sum(c => c.removed),
+          filesAdded: sum(c => split(c).added),
+          filesModified: sum(c => split(c).modified),
+          filesDeleted: sum(c => split(c).deleted),
+        }
+      : null
+    const barWidth = Math.floor(MIDDLE_WIDTH / COMMIT_SLOTS) - 1
+    return gitRows('Commits', actions, header, lineBars, fileBars, barWidth, totals, null, commits.length ? 'hover a bar for its commit' : '')
   }
 
   if (panel === 'branch') {
     const log = view.worktree
-    const points = log?.points ?? []
-    const span = log ? Math.max(1, view.now - log.since) : 1
-    const xs = points.map(p => (p.at - (log?.since ?? 0)) / span)
-    const chart = lineChart(
-      [
-        { values: points.map(p => p.added), color: cfg.colors.good, xs },
-        { values: points.map(p => p.removed), color: cfg.colors.bad, xs },
-        { values: points.map(p => p.files), color: cfg.colors.warn, xs },
-      ],
-      MIDDLE_WIDTH,
-      CHART_HEIGHT,
-      cfg.colors.icons,
+    const actions = view.links.branch ? [action('View branch', view.links.branch)] : []
+    if (!log) return gitRows('Changes', actions, 'no commit yet', [], [], 2, null, null, '')
+    const span = Math.max(1, view.now - log.since)
+    const slotMs = span / CHANGE_SLOTS
+    const filesOf = (p: IndexWorktreePoint) => ({
+      added: p.filesAdded ?? 0,
+      modified: p.filesModified ?? p.files,
+      deleted: p.filesDeleted ?? 0,
+    })
+    const slots = Array.from({ length: CHANGE_SLOTS }, (_, i) => {
+      const end = log.since + (i + 1) * slotMs
+      const point = [...log.points].reverse().find(p => p.at <= end)
+      return point ?? null
+    })
+    const lineBars = slots.map((p, i) => {
+      if (!p) return null
+      const f = filesOf(p)
+      const detail = `${fmtDur(((i + 1) * slotMs) / 1000)} after the commit · +${p.added} -${p.removed} · ${fileText(f.added, f.modified, f.deleted)}`
+      return { up: p.added, down: p.removed, id: `slot-${i}`, detail }
+    })
+    const fileBars = slots.map((p, i) => {
+      if (!p) return null
+      const f = filesOf(p)
+      return { parts: fileParts(f.added, f.modified, f.deleted), id: `slot-${i}`, detail: lineBars[i]?.detail ?? '' }
+    })
+    const latest = log.points[log.points.length - 1]
+    const minutes = Math.max(1, span / 60_000)
+    const rate = latest ? (latest.added + latest.removed) / minutes : 0
+    const totals = latest
+      ? {
+          added: latest.added,
+          removed: latest.removed,
+          filesAdded: filesOf(latest).added,
+          filesModified: filesOf(latest).modified,
+          filesDeleted: filesOf(latest).deleted,
+        }
+      : null
+    const barWidth = Math.floor(MIDDLE_WIDTH / CHANGE_SLOTS) - 1
+    return gitRows(
+      'Changes',
+      actions,
+      `${fmtDur(span / 1000)} since the last commit`,
+      lineBars,
+      fileBars,
+      barWidth,
+      totals,
+      note(`${rate < 10 ? rate.toFixed(1) : fmtNum(Math.round(rate))} lines/min`),
+      latest ? 'hover a bar for the working tree then' : 'no changes since the last commit',
     )
-    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
-    const latest = points[points.length - 1]
-    if (!log) {
-      notes[CHART_HEIGHT - 1] = note('no commit yet')
-    } else {
-      const minutes = Math.max(1, (view.now - log.since) / 60_000)
-      if (latest) {
-        notes[0] = colored(`+${fmtNum(latest.added)} lines`, cfg.colors.good)
-        notes[1] = colored(`-${fmtNum(latest.removed)} lines`, cfg.colors.bad)
-        notes[2] = colored(`${latest.files} ${latest.files === 1 ? 'file' : 'files'}`, cfg.colors.warn)
-        const rate = (latest.added + latest.removed) / minutes
-        notes[3] = note(`${rate < 10 ? rate.toFixed(1) : fmtNum(Math.round(rate))} lines/min`)
-      }
-      notes[CHART_HEIGHT - 1] = note(`${fmtDur((view.now - log.since) / 1000)} since the last commit`)
-    }
-    return chartRows('Changes', chart, notes, view.links.branch ? [action('View branch', view.links.branch)] : [])
   }
 
   if (panel === 'context') {
@@ -350,9 +445,9 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     })
     const notes: (RowItem | null)[] = Array.from({ length: TURN_HALF * 2 + 1 }, () => null)
     if (known.length > 0) {
-      notes[0] = colored('▲ more per token', cfg.colors.bad)
+      notes[0] = colored('more per token', cfg.colors.bad)
       notes[TURN_HALF] = note(`avg ${perMillion(knownCost, knownTokens)} tokens`)
-      notes[TURN_HALF * 2] = colored('▼ less per token', cfg.colors.good)
+      notes[TURN_HALF * 2] = colored('less per token', cfg.colors.good)
     }
     const footer: RowItem = {
       text: turns.length ? `hover a bar for its turn · last ${Math.min(turns.length, TURN_SLOTS)} of ${turns.length}` : 'no turns yet',
@@ -379,11 +474,11 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const changed = turns.reduce((sum, t) => sum + turnLines(t), 0)
     if (changed > 0) {
       const activeMs = turns.reduce((sum, t) => sum + (t.end - t.start), 0)
-      notes[0] = colored(`▲ ${fmtNum(Math.max(...turns.map(turnLines)))} lines`, tokensColor)
+      notes[0] = colored(`peak ${fmtNum(Math.max(...turns.map(turnLines)))} lines`, tokensColor)
       notes[1] = note(`avg ${perMinute(changed, activeMs)}`)
       if (average !== null) notes[2] = note(`avg ${perLine(pricedCost, pricedLines)}`)
-      notes[3] = colored('■ less per line', cfg.colors.good)
-      notes[4] = colored('■ more per line', cfg.colors.bad)
+      notes[3] = colored('less per line', cfg.colors.good)
+      notes[4] = colored('more per line', cfg.colors.bad)
     }
     const footer: RowItem = {
       text: turns.length
@@ -491,7 +586,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       const known = days.filter(d => d.date >= (usage.since ?? ''))
       const monthTokens = known.reduce((sum, d) => sum + d.tokens, 0)
       const monthCost = known.reduce((sum, d) => sum + (d.costUsd ?? 0), 0)
-      notes[0] = colored(`▲ ${fmtNum(Math.max(0, ...known.map(d => d.tokens)))} a day`, tokensColor)
+      notes[0] = colored(`peak ${fmtNum(Math.max(0, ...known.map(d => d.tokens)))} a day`, tokensColor)
       notes[1] = colored(`today ${fmtNum(days[days.length - 1]?.tokens ?? 0)}`, tokensColor)
       notes[2] = note(`${days.length} days ${fmtNum(monthTokens)} · $${fmtCost(monthCost)}`)
       notes[3] = note(`all time ${fmtNum(usage.allTokens)} · $${fmtCost(usage.allCostUsd)}`)

@@ -117,13 +117,18 @@ Hover a section of the band for a chart in a row above it:
   session's turns. Lines per minute counts the time turns ran, not idle time.
 - **The rate limits:** tokens per day for the last 30 days as bars, with today's tokens,
   the 30-day and all-time totals, and their cost.
-- **The checked-out branch:** lines added and removed and files changed in the working
-  tree, plotted over the time since the last commit, with the rate in lines per minute. Its
+- **The checked-out branch:** the working tree over the time since the last commit, in 20
+  time slices. A lines chart grows added lines up in green and removed lines down in red,
+  with the rate in lines per minute; a files chart stacks files added, modified and
+  deleted in green, yellow and red. Hover a column for the working tree at that time. Its
   `View branch ↗` button opens the branch on GitHub once it's pushed.
-- **`origin/main`:** lines added and removed and files changed in each of the last 10
-  commits on the base branch, with the latest commit's subject. Its button opens the open
-  PR (`View PR #42 ↗`), GitHub's create-PR page when there's none (`Create PR ↗`), or on
-  `main` itself the commit history (`View commits ↗`).
+- **`origin/main`:** the same two charts for each of the last 10 commits on the base
+  branch; hover a column for the commit's subject and counts. Its first button opens your
+  branch's PR (`View PR #42 ↗`), GitHub's create-PR page when your branch differs and has
+  none (`Create PR ↗`), or on `main` itself the commit history (`View commits ↗`). The
+  other open PRs into the base branch follow as buttons, from the `gh` CLI.
+
+A button in a row underlines while the pointer is on it.
 
 A terminal cell takes one colour, so where two lines of a chart cross, the cell shows the
 first line's colour. Tokens count input, cache writes, cache reads and output. Click a section to pin its
