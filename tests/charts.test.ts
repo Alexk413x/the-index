@@ -317,7 +317,7 @@ describe('chart rows', () => {
   test('the totals row gives each session total its own line and current value', () => {
     const lines = panelLines('totals', view({ callLog: calls }))
     expect(lines.map(l => [l[0]?.text.trim(), l.at(-1)?.text])).toEqual([
-      ['↑ sent', '27k'],
+      ['↑ sent', '70k'],
       ['⤒ written', '7.8k'],
       ['⤓ read', '35k'],
       ['↓ output', '7.8k'],

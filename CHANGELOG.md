@@ -2,6 +2,19 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-10-04
+
+### Changed
+
+- ↑ shows everything a call sent: uncached input, cache writes and cache reads. The API's
+  uncached input alone is a few tokens a call with prompt caching on.
+
+### Fixed
+
+- A call's cost is the session cost's rise during that call; it had taken the rise since
+  the previous main call, which folded in subagent costs and showed $0.00 after a reload.
+- A call's lines are the edits it asked for; they had been credited to the next call.
+
 ## [0.7.1] - 2026-10-04
 
 ### Changed

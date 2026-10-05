@@ -434,7 +434,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
       const totalIn = call.input + call.cacheWrite + call.cacheRead
       const hit = hitPct(call.cacheRead, totalIn)
       bits = [
-        [icon(SYM_IN), seg(fmtNum(call.input), v)],
+        [icon(SYM_IN), seg(fmtNum(call.input + call.cacheWrite + call.cacheRead), v)],
         [icon(SYM_CC), seg(fmtNum(call.cacheWrite), v)],
         [icon(SYM_CR), seg(fmtNum(call.cacheRead), v)],
         [icon(SYM_OUT), seg(fmtNum(call.output), v)],
@@ -474,7 +474,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
       const few = t.requests < 3
       const cost = usage?.costUsd
       bits = [
-        [icon(SYM_IN), seg(fmtNum(t.input), v)],
+        [icon(SYM_IN), seg(fmtNum(t.input + t.cacheWrite + t.cacheRead), v)],
         [icon(SYM_CC), seg(fmtNum(t.cacheWrite), v)],
         [icon(SYM_CR), seg(fmtNum(t.cacheRead), v)],
         [icon(SYM_OUT), seg(t.output === undefined ? SHADE.repeat(4) : fmtNum(t.output), v)],

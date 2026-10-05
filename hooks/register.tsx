@@ -472,7 +472,7 @@ async function refreshCompactThreshold($: EngineInterface): Promise<void> {
   }
 }
 
-async function recordEdit($: EngineInterface, result: unknown): Promise<void> {
+async function recordEdit($: EngineInterface, result: unknown, isMainLoop: boolean): Promise<void> {
   if (!isRecord(result) || result['staged'] === true) return
   const patch = Array.isArray(result['structuredPatch']) ? (result['structuredPatch'] as { lines: string[] }[]) : []
   const { added, removed } = patchLineCounts(patch)
@@ -482,6 +482,14 @@ async function recordEdit($: EngineInterface, result: unknown): Promise<void> {
     linesAdded: prev.linesAdded + added,
     linesRemoved: prev.linesRemoved + removed,
   }))
+  if (!isMainLoop) return
+  await update($, call, prev => (prev ? { ...prev, linesAdded: prev.linesAdded + added, linesRemoved: prev.linesRemoved + removed } : prev))
+  await update($, callLog, prev => {
+    const last = prev[prev.length - 1]
+    if (!last) return prev
+    const credited = { ...last, linesAdded: (last.linesAdded ?? 0) + added, linesRemoved: (last.linesRemoved ?? 0) + removed }
+    return [...prev.slice(0, -1), credited]
+  })
 }
 
 const CALL_LOG_MAX = 500
@@ -845,6 +853,7 @@ export const register: Register = (on, options) => {
     const effort = chosen ?? e.effort
     const model = chosenModel ?? e.model
     await update($, agents, prev => ({ ...prev, [key]: { model, effort } }))
+    const costBefore = e.agentId === undefined ? ((await $.session.usage()).cost?.usd ?? null) : null
     const startedAt = await $.clock.now()
     const sent = chosen === undefined && chosenModel === undefined ? e : { ...e, model, effort }
     const result = yield* next(sent)
@@ -868,12 +877,11 @@ export const register: Register = (on, options) => {
     const u = result.usage
     const apiMs = endedAt - startedAt
     const cost = (await $.session.usage()).cost?.usd ?? null
+    const callCost = cost === null || costBefore === null ? null : Math.max(0, cost - costBefore)
     const totalIn = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens
     const hitFrac = totalIn > 0 ? u.cache_read_input_tokens / totalIn : 0
 
-    let before = EMPTY_TOTALS
     await update($, totals, prev => {
-      before = prev
       return {
         ...prev,
         requests: prev.requests + 1,
@@ -902,9 +910,9 @@ export const register: Register = (on, options) => {
       cacheRead: u.cache_read_input_tokens,
       output: u.output_tokens,
       apiMs,
-      costUsd: cost === null ? null : cost - (before.markCostUsd ?? cost),
-      linesAdded: before.linesAdded - before.markAdded,
-      linesRemoved: before.linesRemoved - before.markRemoved,
+      costUsd: callCost,
+      linesAdded: 0,
+      linesRemoved: 0,
     }))
     await update($, callLog, prev => [
       ...prev.slice(-(CALL_LOG_MAX - 1)),
@@ -915,11 +923,11 @@ export const register: Register = (on, options) => {
         input: totalIn,
         cacheWrite: u.cache_creation_input_tokens,
         cacheRead: u.cache_read_input_tokens,
-        linesAdded: before.linesAdded - before.markAdded,
-        linesRemoved: before.linesRemoved - before.markRemoved,
+        linesAdded: 0,
+        linesRemoved: 0,
         output: u.output_tokens,
         apiMs,
-        costUsd: cost === null ? null : cost - (before.markCostUsd ?? cost),
+        costUsd: callCost,
       },
     ])
     return result
@@ -928,7 +936,7 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const r = await next(e)
     if (r.deny !== undefined) return r
-    if ((e.tool === 'Edit' || e.tool === 'Write') && !r.isError) await recordEdit($, r.result)
+    if ((e.tool === 'Edit' || e.tool === 'Write') && !r.isError) await recordEdit($, r.result, e.agentId === undefined)
     if (e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'Bash') refreshGitSoon($)
     return r
   })

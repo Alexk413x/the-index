@@ -13,6 +13,7 @@ const toasts: string[] = []
 let stepsFail = false
 let sessionModel = 'claude-opus-5-5'
 let extraSettings: Record<string, unknown> = {}
+let sessionCost = 0.25
 let clock: MockClock
 
 function engine(on: On) {
@@ -23,6 +24,7 @@ function engine(on: On) {
   stepsFail = false
   sessionModel = 'claude-opus-5-5'
   extraSettings = {}
+  sessionCost = 0.25
   on('command.run', ($, e) => {
     commands.push(`${e.command} ${e.args}`)
     if (e.command === 'model') {
@@ -59,7 +61,7 @@ function engine(on: On) {
         ...((e as { breakdown?: string }).breakdown ? { breakdown: { isAutoCompactEnabled: true, autoCompactThreshold: 160_000 } } : {}),
       },
       rateLimits: [],
-      cost: { usd: 0.25 },
+      cost: { usd: sessionCost },
     } as never,
   }))
   on('session.compact', ($, e) => ({ messages: e.messages }))
@@ -70,6 +72,7 @@ function engine(on: On) {
   on('turn.step', async function* ($, e) {
     seenEfforts.push(e.effort)
     seenModels.push(e.model)
+    sessionCost += e.agentId ? 0.5 : 0.1
     if (stepsFail) return { turnId: e.turnId, index: e.index, answer: '', toolUses: [], stopReason: null, usage: null }
     return {
       turnId: e.turnId,
@@ -857,4 +860,33 @@ test('hovering the branch and base sections charts the working tree and the base
   expect(branch.map(l => l.at(-1)?.text)).toContain('+12 lines added')
   expect(branch.flat().some(i => i.text === '1h0m since the last commit')).toBe(true)
   await band.unmount()
+})
+
+test('a call costs what the session cost rose by during it, so subagents and a reload do not skew it', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  await step($, 'claude-sonnet-5-5', 'low', 'a1')
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  const text = await bandText(band)
+  expect(text).toContain('⏱ 0ms $0.10')
+  expect(text).toContain('Δ ↑10k')
+  await band.unmount()
+})
+
+test("an edit's lines go to the call that asked for it, and the next call starts at zero", async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: { structuredPatch: [{ lines: ['+a', '+b', '-c'] }] } }) as never)
+  await step($, 'claude-opus-5-5', 'high')
+  await $.tool.call({ tool: 'Edit', input: { file_path: 'a.ts', old_string: 'c', new_string: 'a\nb' } } as never)
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  expect(await bandText(band)).toContain('≡+2 -1 ⏱')
+  await band.unmount()
+  await step($, 'claude-opus-5-5', 'high')
+  const after = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  const text = await bandText(after)
+  expect(text).toContain('≡+0 -0 ⏱')
+  expect(text).toContain('Σ')
+  expect(text).toMatch(/Σ .*≡\+2 -1/)
+  await after.unmount()
 })

@@ -218,6 +218,12 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
 
 ## Differences from statusline.py
 
+- **Tokens sent (↑).** The script's ↑ is the API's uncached input, which with prompt
+  caching is a handful of tokens a call. The band's ↑ is everything sent: uncached input,
+  cache writes (⤒) and cache reads (⤓) together.
+- **Per-call cost and lines.** A call's cost is how much the session's cost rose while
+  that call ran, so a subagent's cost doesn't land on the next main call. A call's lines
+  are the `Edit` and `Write` changes it asked for.
 - **Session totals.** The script's Σ shows cache writes and hit rates. The band's Σ also
   shows tokens sent, cache reads, output and the average tokens per second, as Δ does.
 - **Cache glyph.** The script shows `☼` while warm and `❅` when cold. The band

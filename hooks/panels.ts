@@ -499,7 +499,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const running = <T,>(pick: (sums: Record<string, number>, call: IndexCallPoint) => T): T[] => {
       const sums: Record<string, number> = { sent: 0, write: 0, read: 0, input: 0, output: 0, cost: 0, tps: 0, tpsCalls: 0 }
       return log.map(call => {
-        sums['sent'] = (sums['sent'] ?? 0) + call.input - (call.cacheWrite ?? 0) - call.cacheRead
+        sums['sent'] = (sums['sent'] ?? 0) + call.input
         sums['write'] = (sums['write'] ?? 0) + (call.cacheWrite ?? 0)
         sums['read'] = (sums['read'] ?? 0) + call.cacheRead
         sums['input'] = (sums['input'] ?? 0) + call.input
