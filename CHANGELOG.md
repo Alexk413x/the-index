@@ -2,6 +2,15 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.12.0] - 2026-10-04
+
+### Fixed
+
+- In the desktop app, opening a row pushed the band down from under the pointer, which
+  closed the row again. There, rows open below the band's lines.
+- The lines around open rows ran past the panel's width in the desktop app; they are
+  clipped to it.
+
 ## [0.11.3] - 2026-10-04
 
 ### Changed

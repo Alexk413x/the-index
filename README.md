@@ -102,8 +102,8 @@ linked, and the folder with the Claude Code version.
 
 ## Charts and cards
 
-Hover a section of the band for a chart or a card in a row above it. Click the section to
-pin the row.
+Hover a section of the band for a chart or a card in a row above it (below it in the
+desktop app, which grows the band downward). Click the section to pin the row.
 
 **Line 1, quick usage**
 

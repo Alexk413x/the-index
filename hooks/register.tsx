@@ -1038,7 +1038,8 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (r.deny !== undefined) return r
     if ((e.tool === 'Edit' || e.tool === 'Write') && !r.isError) {
-      await recordEdit($, r.result, e.agentId === undefined, e.file_path)
+      const path: unknown = e.file_path
+      await recordEdit($, r.result, e.agentId === undefined, typeof path === 'string' ? path : undefined)
     }
     if (e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'Bash') refreshGitSoon($)
     return r
@@ -1193,66 +1194,75 @@ export const register: Register = (on, options) => {
       .map(panelBlock)
       .filter(block => block !== null)
     const rule = (key: string) => (
-      <Text key={key} color={look.colors.rules}>
-        {'─'.repeat(Math.max(1, e.props.bodyColumns))}
-      </Text>
+      <Box key={key} width="100%" overflow="hidden">
+        <Text color={look.colors.rules} wrap="truncate">
+          {'─'.repeat(Math.max(1, e.props.bodyColumns))}
+        </Text>
+      </Box>
     )
     const sep: Seg = { text: ' | ', color: look.colors.icons }
 
-    return (
+    const bandLines = lines.map((line, index) => {
+      const segs: Seg[] = []
+      line.forEach((part, i) => {
+        if (i > 0) segs.push(sep)
+        segs.push(...part)
+      })
+      const runs: Seg[][] = []
+      for (const s of segs) {
+        const last = runs[runs.length - 1]
+        const head = last?.[0]
+        const joins = s.menu ? head?.menu === s.menu : !head?.menu
+        if (last && joins) last.push(s)
+        else runs.push([s])
+      }
+      return (
+        <Box key={`line${index}`} flexDirection="row" flexWrap="wrap">
+          {runs.map(run => {
+            const first = run[0]
+            if (!first) return null
+            const panel = PANELS.find(p => p === first.menu)
+            if (panel === 'harness' && !harnessList) return <Text color={first.color}>{first.text}</Text>
+            if (panel) {
+              return (
+                <Client
+                  key={`${panel}-chip`}
+                  module="./chip.tsx"
+                  props={{
+                    text: run.map(s => s.text).join(''),
+                    color: first.color,
+                    isActive: isPinned(panel),
+                    ...(run.length > 1 ? { parts: run.map(s => ({ text: s.text, color: s.color })) } : {}),
+                  }}
+                />
+              )
+            }
+            if (first.menu === 'project') {
+              return (
+                <Client
+                  key="project-chip"
+                  module="./chip.tsx"
+                  props={{ text: first.text, color: first.color, look: 'link' }}
+                />
+              )
+            }
+            return run.map(s => <Text color={s.color}>{s.text}</Text>)
+          })}
+        </Box>
+      )
+    })
+    const rows = panelArea.length > 0 ? [rule('rule-top'), ...panelArea, rule('rule-bottom')] : []
+    // The desktop app grows the band downward, so rows opened above the lines would push the
+    // hovered name away from the pointer; there they open below the lines instead.
+    return e.surface === 'desktop' ? (
       <Box flexDirection="column">
-        {panelArea.length > 0 ? rule('rule-top') : <Text key="top-gap"> </Text>}
-        {panelArea}
-        {panelArea.length > 0 ? rule('rule-bottom') : null}
-        {lines.map((line, index) => {
-          const segs: Seg[] = []
-          line.forEach((part, i) => {
-            if (i > 0) segs.push(sep)
-            segs.push(...part)
-          })
-          const runs: Seg[][] = []
-          for (const s of segs) {
-            const last = runs[runs.length - 1]
-            const head = last?.[0]
-            const joins = s.menu ? head?.menu === s.menu : !head?.menu
-            if (last && joins) last.push(s)
-            else runs.push([s])
-          }
-          return (
-            <Box key={`line${index}`} flexDirection="row" flexWrap="wrap">
-              {runs.map(run => {
-                const first = run[0]
-                if (!first) return null
-                const panel = PANELS.find(p => p === first.menu)
-                if (panel === 'harness' && !harnessList) return <Text color={first.color}>{first.text}</Text>
-                if (panel) {
-                  return (
-                    <Client
-                      key={`${panel}-chip`}
-                      module="./chip.tsx"
-                      props={{
-                        text: run.map(s => s.text).join(''),
-                        color: first.color,
-                        isActive: isPinned(panel),
-                        ...(run.length > 1 ? { parts: run.map(s => ({ text: s.text, color: s.color })) } : {}),
-                      }}
-                    />
-                  )
-                }
-                if (first.menu === 'project') {
-                  return (
-                    <Client
-                      key="project-chip"
-                      module="./chip.tsx"
-                      props={{ text: first.text, color: first.color, look: 'link' }}
-                    />
-                  )
-                }
-                return run.map(s => <Text color={s.color}>{s.text}</Text>)
-              })}
-            </Box>
-          )
-        })}
+        {bandLines}
+        {rows}
+      </Box>
+    ) : (
+      <Box flexDirection="column">
+        {rows.length ? rows : <Text key="top-gap"> </Text>}
+        {bandLines}
       </Box>
     )
   })

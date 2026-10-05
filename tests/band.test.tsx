@@ -988,3 +988,30 @@ test('a hovered row fading out keeps fading while the pointer rests on a differe
   expect((await band.find({ key: 'effort-row' }))?.props['props']).toMatchObject({ closing: true })
   await band.unmount()
 })
+
+test('rows open above the lines in the terminal and below them in the desktop app, with clipped rules', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const order = async (surface: 'terminal' | 'desktop') => {
+    const band = await $.ui.mount({ plugin: 'the-index', surface, component: 'AbovePrompt', props: props() })
+    if (surface === 'terminal') await band.post({ press: true }, { in: 'effort-chip' })
+    const keys: string[] = []
+    const walk = (node: unknown) => {
+      if (!node || typeof node !== 'object') return
+      if (Array.isArray(node)) return node.forEach(walk)
+      const n = node as { key?: string; props?: { key?: string }; children?: unknown[] }
+      const key = n.props?.key ?? n.key
+      if (key) keys.push(key)
+      ;(n.children ?? []).forEach(walk)
+    }
+    walk(await band.drawn())
+    const rule = await band.find({ key: 'rule-top' })
+    await band.unmount()
+    return { keys, rule }
+  }
+  const terminal = await order('terminal')
+  expect(terminal.keys.indexOf('effort-block')).toBeLessThan(terminal.keys.indexOf('line0'))
+  const desktop = await order('desktop')
+  expect(desktop.keys.indexOf('line0')).toBeLessThan(desktop.keys.indexOf('effort-block'))
+  expect(desktop.rule?.props).toMatchObject({ width: '100%', overflow: 'hidden' })
+})
