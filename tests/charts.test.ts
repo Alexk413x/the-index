@@ -408,6 +408,7 @@ describe('chart rows', () => {
     expect(cellsOf(lines[0])).toEqual(['Last turn', 'this turn', 'session avg', '7-day avg'])
     expect(lines.map(l => l[0]?.text.trim())).toEqual(['Last turn', 'Calls', 'Cost', 'Cost per 1M tok', 'Cache hit', 'Tokens/s', 'Output', '7-day avg covers 3 turns in 2 sessions'])
     expect(cellsOf(lines[1])).toEqual(['Calls', '2.0', '2.0', '—'])
+    expect(lines[1]?.[1]?.color).toBe(cfg.colors.icons)
     expect(cellsOf(lines[2])).toEqual(['Cost', '$0.04', '$0.06', '$0.09'])
     expect(lines[2]?.[1]?.color).toBe(cfg.colors.good)
     expect(cellsOf(lines[4])).toEqual(['Cache hit', '91%', expect.any(String), '72%'])

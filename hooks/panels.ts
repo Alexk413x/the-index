@@ -410,7 +410,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const current = live ?? mine.at(-1)
     const sessionTurns = live && !mine.some(t => t.id === live.id) ? [...mine, live] : mine
     const icons = cfg.colors.icons
-    const neutral = cfg.colors.model
+    const neutral = cfg.colors.icons
     const cell = (text: string, color: string): RowItem => ({ text, color, pad: Math.max(0, CARD_COLUMN - text.length) })
     const label = (text: string): RowItem => ({ text, color: icons, pad: Math.max(0, CARD_LABEL - text.length) })
     const judge = (value: number | null, against: number | null, better: 'lower' | 'higher' | null) => {

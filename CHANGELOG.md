@@ -2,6 +2,13 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.2] - 2026-10-04
+
+### Changed
+
+- Scorecard figures that aren't better or worse than average are grey, not orange, so
+  green and red stand out.
+
 ## [0.11.1] - 2026-10-04
 
 ### Changed

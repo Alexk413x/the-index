@@ -114,7 +114,7 @@ pin the row.
   the 30-day and all-time totals, and their cost.
 
 **Line 2, how efficiently the model works.** Each card colours the current figure green
-when it beats your average and red when it's worse.
+when it beats your average and red when it's worse; everything else stays grey.
 
 - **Δ, its token half (↑ to ⌖):** the last turn against this session's average and the
   last 7 days: calls, cost, cost per 1M tokens, cache hit, tokens per second and output.
