@@ -289,18 +289,20 @@ async function refreshGit($: EngineInterface): Promise<void> {
   await update($, git, () => snap)
   const base = snap?.prBaseRef ?? ''
   const onBase = !snap || snap.branch === snap.prBaseName
-  const [baseLog, branchLog] = await Promise.all([
-    base ? runGit($, cwd, ['log', base, '-10', '--numstat', '--summary', `--format=${COMMIT_FORMAT}`]) : Promise.resolve(''),
+  const onGithub = Boolean(snap?.prBaseName && snap.repoWeb.includes('github'))
+  const [branchLog, prs, merged] = await Promise.all([
     base && !onBase
       ? runGit($, cwd, ['log', `${base}..HEAD`, `-${BRANCH_COMMIT_LIMIT}`, '--numstat', '--summary', `--format=${COMMIT_FORMAT}`])
       : Promise.resolve(''),
+    onGithub && snap ? openBasePrs($, cwd, snap.prBaseName) : Promise.resolve([]),
+    onGithub && snap ? mergedBasePrs($, cwd, snap.prBaseName) : Promise.resolve([]),
   ])
-  await update($, baseCommits, () => parseCommitLog(baseLog))
+  const baseLog =
+    base && merged.length === 0 ? await runGit($, cwd, ['log', base, '-10', '--numstat', '--summary', `--format=${COMMIT_FORMAT}`]) : ''
   await update($, branchCommits, () => parseCommitLog(branchLog))
-  const onGithub = Boolean(snap?.prBaseName && snap.repoWeb.includes('github'))
-  const [prs, merged] = onGithub && snap ? await Promise.all([openBasePrs($, cwd, snap.prBaseName), mergedBasePrs($, cwd, snap.prBaseName)]) : [[], []]
   await update($, basePrs, () => prs)
   await update($, mergedPrs, () => merged)
+  await update($, baseCommits, () => parseCommitLog(baseLog))
 }
 
 async function gitStamp($: EngineInterface, gitDir: string): Promise<string> {

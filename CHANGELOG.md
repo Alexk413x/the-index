@@ -2,6 +2,14 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.3] - 2026-10-04
+
+### Changed
+
+- The last 10 base commits are read from git only when no merged PRs replace their chart.
+- Internal clean-up: shared helpers for the git rows' buttons, padding and clipped
+  titles, fewer exports, and no duplicate section and usage types.
+
 ## [0.11.2] - 2026-10-04
 
 ### Changed

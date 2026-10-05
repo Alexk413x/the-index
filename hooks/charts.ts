@@ -10,7 +10,7 @@ const DOT = [
 ] as const
 const EIGHTHS = [' ', '▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'] as const
 
-export function dotColumn(index: number, count: number, width: number): number {
+function dotColumn(index: number, count: number, width: number): number {
   const cols = width * 2
   return count <= 1 ? Math.floor((cols - 1) / 2) : Math.round((index * (cols - 1)) / (count - 1))
 }

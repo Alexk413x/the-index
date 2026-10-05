@@ -3,8 +3,6 @@ import { isRecord } from './git'
 
 export type LedgerEntry = { tokens: number; costStart: number | null; costEnd: number | null }
 export type Ledger = Record<string, Record<string, LedgerEntry>>
-export type DayTotal = IndexDayTotal
-export type UsageSummary = IndexUsageSummary
 
 const VERSION = 1
 
@@ -47,12 +45,12 @@ function entryCost(entry: LedgerEntry): number | null {
   return entry.costStart === null || entry.costEnd === null ? null : Math.max(0, entry.costEnd - entry.costStart)
 }
 
-export function summarize(ledger: Ledger, today: string, dayCount: number): UsageSummary {
+export function summarize(ledger: Ledger, today: string, dayCount: number): IndexUsageSummary {
   const dates = Object.keys(ledger).sort()
   const since = dates[0] ?? null
   let allTokens = 0
   let allCostUsd = 0
-  const byDate = new Map<string, DayTotal>()
+  const byDate = new Map<string, IndexDayTotal>()
   for (const date of dates) {
     let tokens = 0
     let costUsd: number | null = null
@@ -65,7 +63,7 @@ export function summarize(ledger: Ledger, today: string, dayCount: number): Usag
     allCostUsd += costUsd ?? 0
     byDate.set(date, { date, tokens, costUsd })
   }
-  const days: DayTotal[] = []
+  const days: IndexDayTotal[] = []
   const [y, m, d] = today.split('-').map(Number)
   for (let back = dayCount - 1; back >= 0; back -= 1) {
     const date = dayKey(new Date(y ?? 1970, (m ?? 1) - 1, (d ?? 1) - back).getTime())

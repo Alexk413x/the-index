@@ -11,6 +11,7 @@ import type {
   IndexPullRequest,
   IndexTurn,
   IndexTurnRecord,
+  IndexUsageSummary,
 } from '../types'
 import {
   barChart,
@@ -26,7 +27,6 @@ import {
 import { isFix, isRecord } from './git'
 import { otherSessionAverages, sessionTotals, turnAverages, turnToRecord, type Averages, type SessionTotals } from './turns'
 import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
-import type { UsageSummary } from './ledger'
 
 export type RowItem = {
   text: string
@@ -60,19 +60,19 @@ export const TITLE_WIDTH = 10
 export const MIDDLE_WIDTH = 60
 export const CHART_HEIGHT = 6
 export const GIT_LINES_HALF = 2
-export const GIT_FILES_HEIGHT = 3
-export const COMMIT_SLOTS = 10
-export const BRANCH_SLOTS = 20
-export const ACTION_WIDTH = 90
-export const PR_TITLE_MAX = 24
-export const CARD_LABEL = 18
-export const CARD_COLUMN = 14
+const GIT_FILES_HEIGHT = 3
+const COMMIT_SLOTS = 10
+const BRANCH_SLOTS = 20
+const ACTION_WIDTH = 90
+const PR_TITLE_MAX = 24
+const CARD_LABEL = 18
+const CARD_COLUMN = 14
 
 export const USAGE_DAYS = 30
 
 type Settings = Readonly<Record<string, unknown>>
 
-export function effortSetting(value: unknown): IndexEffort | undefined {
+function effortSetting(value: unknown): IndexEffort | undefined {
   if (typeof value === 'number') return value
   return typeof value === 'string' && (EFFORTS as readonly string[]).includes(value) ? (value as IndexEffort) : undefined
 }
@@ -127,7 +127,7 @@ export type PanelView = {
   attached: number
   turn: IndexTurn | null
   sessionCostUsd: number | null
-  usage: UsageSummary | null
+  usage: IndexUsageSummary | null
   contextLog: readonly IndexContextPoint[]
   contextLimit: IndexContextLimit | null
   baseCommits: readonly IndexCommit[]
@@ -151,7 +151,15 @@ export function padTo(items: readonly RowItem[], width: number): RowItem[] {
   return [...items.slice(0, -1), { ...last, pad: (last.pad ?? 0) + Math.max(0, width - sectionWidth(items)) }]
 }
 
-export function clockTime(ms: number): string {
+function padSlots<T>(list: readonly T[], slots: number): (T | null)[] {
+  return [...list, ...Array<null>(Math.max(0, slots - list.length)).fill(null)]
+}
+
+function clip(text: string, max: number): string {
+  return text.length > max ? `${text.slice(0, max - 1)}…` : text
+}
+
+function clockTime(ms: number): string {
   const d = new Date(ms)
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
@@ -181,6 +189,14 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   const tokensColor = cfg.colors.model
   const colored = (text: string, color: string): RowItem => ({ text, color })
 
+  const baseActions = (): RowItem[] => {
+    const base = view.links.base
+    return [
+      ...(base ? [action(base.label, base.url)] : []),
+      ...view.basePrs.filter(pr => pr.url !== base?.url).map(pr => action(clip(`#${pr.number} ${pr.title}`, PR_TITLE_MAX + 4), pr.url)),
+    ]
+  }
+
   const gitRows = (
     label: string,
     actions: RowItem[],
@@ -189,7 +205,6 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     fileBars: (StackedBar | null)[],
     barWidth: number,
     totals: { added: number; removed: number; filesAdded: number; filesModified: number; filesDeleted: number } | null,
-    lineNote: RowItem | null,
     hint: string,
   ): RowItem[][] => {
     const opening = actions.length ? actions : header ? [note(header)] : []
@@ -204,7 +219,6 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const fileNotes: (RowItem | null)[] = Array.from({ length: GIT_FILES_HEIGHT }, () => null)
     if (totals) {
       lineNotes[0] = colored(`+${fmtNum(totals.added)} lines added`, cfg.colors.good)
-      lineNotes[GIT_LINES_HALF] = lineNote
       lineNotes[GIT_LINES_HALF * 2] = colored(`-${fmtNum(totals.removed)} lines removed`, cfg.colors.bad)
       fileNotes[0] = colored(`+${totals.filesAdded} files added`, cfg.colors.good)
       fileNotes[1] = colored(`~${totals.filesModified} files modified`, cfg.colors.warn)
@@ -230,9 +244,9 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   if (panel === 'base' && view.mergedPrs.length > 0) {
     const prs = [...view.mergedPrs].reverse().slice(-COMMIT_SLOTS)
     const barWidth = Math.floor(MIDDLE_WIDTH / COMMIT_SLOTS) - 1
-    const pad = <T,>(list: T[]) => [...list, ...Array<null>(Math.max(0, COMMIT_SLOTS - list.length)).fill(null)]
+    const pad = <T,>(list: T[]) => padSlots(list, COMMIT_SLOTS)
     const details = prs.map(pr => {
-      const titleText = pr.title.length > 34 ? `${pr.title.slice(0, 33)}…` : pr.title
+      const titleText = clip(pr.title, 34)
       return `#${pr.number} ${titleText} · +${pr.added} -${pr.removed} · ${pr.commits} ${pr.commits === 1 ? 'commit' : 'commits'} · ${fmtDur((pr.mergedAt - pr.openedAt) / 1000)} open`
     })
     const size = columnBars(
@@ -267,13 +281,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       return sorted.length % 2 ? (sorted[mid] ?? 0) : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2
     }
     const fixCount = prs.filter(pr => isFix(pr.title)).length
-    const base = view.links.base
-    const actions = [
-      ...(base ? [action(base.label, base.url)] : []),
-      ...view.basePrs
-        .filter(pr => pr.url !== base?.url)
-        .map(pr => action(`#${pr.number} ${pr.title.length > PR_TITLE_MAX ? `${pr.title.slice(0, PR_TITLE_MAX - 1)}…` : pr.title}`, pr.url)),
-    ]
+    const actions = baseActions()
     const head = actions.length ? chartRows('PRs', [], [], actions) : [[title('PRs'), note(`merged into ${view.baseRef}`)]]
     return [
       ...head,
@@ -295,11 +303,11 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       const deleted = c.filesDeleted ?? 0
       return { added, deleted, modified: Math.max(0, c.files - added - deleted) }
     }
-    const pad = <T,>(list: T[]) => [...list, ...Array<null>(Math.max(0, COMMIT_SLOTS - list.length)).fill(null)]
+    const pad = <T,>(list: T[]) => padSlots(list, COMMIT_SLOTS)
     const lineBars = pad(
       commits.map(c => {
         const f = split(c)
-        const subject = c.subject.length > 40 ? `${c.subject.slice(0, 39)}…` : c.subject
+        const subject = clip(c.subject, 40)
         return { up: c.added, down: c.removed, id: `commit-${c.sha}`, detail: `${subject} · +${c.added} -${c.removed} · ${fileText(f.added, f.modified, f.deleted)}` }
       }),
     )
@@ -310,13 +318,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       }),
     )
     const sum = (pick: (c: IndexCommit) => number) => commits.reduce((total, c) => total + pick(c), 0)
-    const base = view.links.base
-    const actions = [
-      ...(base ? [action(base.label, base.url)] : []),
-      ...view.basePrs
-        .filter(pr => pr.url !== base?.url)
-        .map(pr => action(`#${pr.number} ${pr.title.length > PR_TITLE_MAX ? `${pr.title.slice(0, PR_TITLE_MAX - 1)}…` : pr.title}`, pr.url)),
-    ]
+    const actions = baseActions()
     const header = commits.length ? '' : `no commits on ${view.baseRef || 'the base branch'}`
     const totals = commits.length
       ? {
@@ -328,7 +330,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
         }
       : null
     const barWidth = Math.floor(MIDDLE_WIDTH / COMMIT_SLOTS) - 1
-    return gitRows('Commits', actions, header, lineBars, fileBars, barWidth, totals, null, commits.length ? 'hover a bar for its commit' : '')
+    return gitRows('Commits', actions, header, lineBars, fileBars, barWidth, totals, commits.length ? 'hover a bar for its commit' : '')
   }
 
   if (panel === 'branch') {
@@ -337,11 +339,11 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const head: RowItem[][] = [[title('Branch'), ...(actions.length ? actions : [note(`ahead of ${view.baseRef || 'the base branch'}`)])]]
     if (commits.length === 0) return [...head, [blankTitle(), note(`no commits ahead of ${view.baseRef || 'the base branch'}`)]]
     const barWidth = Math.floor(MIDDLE_WIDTH / BRANCH_SLOTS) - 1
-    const pad = <T,>(list: T[]) => [...list, ...Array<null>(Math.max(0, BRANCH_SLOTS - list.length)).fill(null)]
+    const pad = <T,>(list: T[]) => padSlots(list, BRANCH_SLOTS)
     const details = commits.map((c, i) => {
       const previous = commits[i - 1]
       const gap = previous ? ` · ${fmtDur((c.at - previous.at) / 1000)} after the previous` : ''
-      const subject = c.subject.length > 40 ? `${c.subject.slice(0, 39)}…` : c.subject
+      const subject = clip(c.subject, 40)
       return `${subject} · +${c.added} -${c.removed} · ${c.files} ${c.files === 1 ? 'file' : 'files'}${gap}`
     })
     const lineBars = pad(commits.map((c, i) => ({ up: c.added, down: c.removed, id: `commit-${c.sha}`, detail: details[i] ?? '' })))

@@ -6,6 +6,7 @@ import type {
   IndexEffort,
   IndexGit,
   IndexHost,
+  IndexPanel,
   IndexRateLimit,
   IndexTotals,
   IndexUsage,
@@ -20,7 +21,7 @@ export const MODEL_CHOICES = [
   { alias: 'haiku', id: 'claude-haiku-4-5-20251001' },
 ] as const
 
-export const SHADE = '░'
+const SHADE = '░'
 const SYM_IN = '↑'
 const SYM_OUT = '↓'
 const SYM_CC = '⤒'
@@ -53,7 +54,7 @@ const SYM_REMOTE_ON = '●'
 const SYM_REMOTE_OFF = '○'
 const SYM_AGENT = '⤷'
 
-export const SEGMENTS = [
+const SEGMENTS = [
   'remote',
   'session',
   'model',
@@ -72,7 +73,7 @@ export const SEGMENTS = [
 
 export type Segment = (typeof SEGMENTS)[number]
 
-export const COLOR_DEFAULTS = {
+const COLOR_DEFAULTS = {
   session: '#d75f00',
   model: '#d75f00',
   ide: '#d75f00',
@@ -161,7 +162,7 @@ export function modelLabel(id: string): string {
   return `${family} ${m[2]}.${m[3]}${m[4] ? ' (1M context)' : ''}`
 }
 
-export function effortLabel(effort: IndexEffort | undefined): string {
+function effortLabel(effort: IndexEffort | undefined): string {
   return effort === undefined ? '' : String(effort)
 }
 
@@ -210,7 +211,7 @@ export function fmtMs(ms: number): string {
   return fmtDur(Math.round(s))
 }
 
-export function hitPct(cacheRead: number, totalIn: number): number {
+function hitPct(cacheRead: number, totalIn: number): number {
   if (totalIn <= 0) return 0
   return Math.max(0, Math.min(100, Math.floor((cacheRead / totalIn) * 100)))
 }
@@ -258,20 +259,7 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   return Math.max(1000, Math.min(...candidates))
 }
 
-export type Menu =
-  | 'harness'
-  | 'effort'
-  | 'model'
-  | 'session'
-  | 'project'
-  | 'context'
-  | 'calls'
-  | 'callLines'
-  | 'totals'
-  | 'totalLines'
-  | 'usage'
-  | 'branch'
-  | 'base'
+export type Menu = IndexPanel | 'project'
 export type Seg = { text: string; color: string; menu?: Menu }
 export type Part = readonly Seg[]
 export type Line = readonly Part[]
