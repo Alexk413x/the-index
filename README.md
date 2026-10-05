@@ -89,5 +89,4 @@ To load a local checkout, run `claude --plugin-dir .`, or add the path to
 
 Free to use, including at work, and free to fork and share. You may not sell it, a fork
 of it, or paid setup or hosting of it, and you may not use it for fraud or scams. See
-[LICENSE](LICENSE) for the full terms: Apache 2.0 with a no-resale condition. The
-software is not open source.
+[LICENSE](LICENSE) for the full terms.
