@@ -2,6 +2,13 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.1] - 2026-10-04
+
+### Fixed
+
+- Hovering the code half of Δ or Σ shrank the ⏱ timer to one cell; the timer is no
+  longer underlined on hover.
+
 ## [0.10.0] - 2026-10-04
 
 ### Changed
