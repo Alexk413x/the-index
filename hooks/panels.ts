@@ -263,7 +263,8 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     lineNote: RowItem | null,
     hint: string,
   ): RowItem[][] => {
-    const head = chartRows(label, [], [], actions.length ? actions : [note(header)])
+    const opening = actions.length ? actions : header ? [note(header)] : []
+    const head = opening.length ? chartRows(label, [], [], opening) : []
     const linesChart = splitBars(lineBars, barWidth, GIT_LINES_HALF, {
       up: cfg.colors.good,
       down: cfg.colors.bad,
@@ -283,7 +284,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const block = (title_: string, chart: RowItem[][], notes: readonly (RowItem | null)[]) =>
       chart.map((row, r) => [r === 0 ? title(title_) : blankTitle(), ...row, ...(notes[r] ? [notes[r]] : [])])
     return [
-      ...(actions.length ? [...head, [blankTitle(), note(header)]] : head),
+      ...(actions.length && header ? [...head, [blankTitle(), note(header)]] : head),
       ...block('Lines', linesChart, lineNotes),
       [blankTitle()],
       ...block('Files', stackedBars(fileBars, barWidth, GIT_FILES_HEIGHT, cfg.colors.icons), fileNotes),
@@ -326,9 +327,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
         .filter(pr => pr.url !== base?.url)
         .map(pr => action(`#${pr.number} ${pr.title.length > PR_TITLE_MAX ? `${pr.title.slice(0, PR_TITLE_MAX - 1)}…` : pr.title}`, pr.url)),
     ]
-    const header = commits.length
-      ? `last ${commits.length} ${commits.length === 1 ? 'commit' : 'commits'} to ${view.baseRef}`
-      : `no commits on ${view.baseRef || 'the base branch'}`
+    const header = commits.length ? '' : `no commits on ${view.baseRef || 'the base branch'}`
     const totals = commits.length
       ? {
           added: sum(c => c.added),

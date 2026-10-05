@@ -851,7 +851,7 @@ test('hovering the branch and base sections charts the working tree and the base
   await band.post({ hover: true }, { in: 'base-chip' })
   await clock.advance(110)
   const base = ((await band.find({ key: 'base-row' }))?.props['props'] as { lines: { text: string; pick?: string }[][] }).lines
-  expect(base.flat().some(i => i.text === 'last 2 commits to origin/main')).toBe(true)
+  expect(base[0]?.[0]?.text.trim()).toBe('Commits')
   expect(base[0]?.filter(i => i.pick).map(i => i.text)).toEqual(['#9 Other work ↗'])
   await band.post({ hover: false }, { in: 'base-chip' })
   await band.post({ hover: true }, { in: 'branch-chip' })

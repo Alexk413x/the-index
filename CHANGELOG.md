@@ -2,6 +2,12 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-10-04
+
+### Changed
+
+- The `origin/main` chart drops its "last N commits" line.
+
 ## [0.8.0] - 2026-10-04
 
 ### Changed
