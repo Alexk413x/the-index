@@ -46,6 +46,32 @@ The repositories are private, so installing needs GitHub access to them.
   line 1 to open Codex, Gemini CLI or another agent CLI in a new tab.
 - **`gh` CLI:** when installed, the band shows your open PRs and charts merged PRs.
 
+## What it runs, reads and writes
+
+The band works on your machine only. It sends nothing to any server of its own and
+collects no telemetry.
+
+- **Runs:**
+  - `git` in the session folder, for status, diffs and commit history;
+  - `gh` in the session folder, when installed, to look up pull requests on GitHub with
+    your existing `gh` sign-in;
+  - PowerShell's `Shell.Application`, `open` or `xdg-open`, only when you click the
+    folder name or a GitHub button, to open that folder or `https://` link;
+  - Claude Code's own `/model` and `/effort` commands, when you pick a model or effort.
+- **Reads:**
+  - the session registry (`~/.claude/sessions`), for the session name and Remote Control
+    link;
+  - IDE lock files (`~/.claude/ide`), for the connected IDE;
+  - agent files in `~/.claude/agents` and `.claude/agents`, for agent colours;
+  - your Claude Code settings, for the saved model and effort.
+- **Writes:**
+  - `the-index-usage.json` and `the-index-turns.json` in your Claude config folder;
+  - `claude-statusline-ratelimits.json` in the temp folder, shared with other sessions.
+- **Calls:** the ide-agent-tabs plugin's tools, when installed, to list agent CLIs and
+  open one in a new tab.
+- **Changes:** the prompt draft, only when you click `ultracode`, to add or remove that
+  word.
+
 ## Settings
 
 Change settings in the `/config` menu. Every setting is optional.
