@@ -13,7 +13,7 @@ close you are to a limit, and where your code stands, without leaving the prompt
 
 ```sh
 claude plugin marketplace add Alexk413x/marketplace
-claude plugin install the-index@library
+claude plugin install the-index@alexk413x
 ```
 
 The repositories are private, so installing needs GitHub access to them.
