@@ -12,11 +12,11 @@ close you are to a limit, and where your code stands, without leaving the prompt
 ## Install
 
 ```sh
-claude plugin marketplace add Alexk413x/the-index
-claude plugin install the-index@the-index
+claude plugin marketplace add Alexk413x/marketplace
+claude plugin install the-index@alexk413x
 ```
 
-The repository is private, so the marketplace needs GitHub access to it.
+The repositories are private, so installing needs GitHub access to them.
 
 > **Pre-1.0.** The band runs on function hooks, an early-access Claude Code API that
 > changes between releases.
@@ -79,7 +79,6 @@ Run every check before you commit:
 claude plugin test .
 npx -p typescript@5 tsc -p .
 claude plugin validate --strict .
-claude plugin validate --strict .claude-plugin/marketplace.json
 ```
 
 To load a local checkout, run `claude --plugin-dir .`, or add the path to
