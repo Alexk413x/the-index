@@ -742,34 +742,41 @@ test('a subagent transcript takes the colour its agent file gives its type', asy
   await sub.unmount()
 })
 
-test('hovering the call telemetry bars cost per token by turn, and a bar shows its turn', async ($, on) => {
+test('a finished turn joins the saved history, and the Δ and Σ sections open their cards', async ($, on) => {
   engine(on)
+  on('turn.complete', () => ({ text: '' }))
+  const writes: { path: string; text: string }[] = []
+  on('fs.write', ($, e) => {
+    const w = e as { path: string; text: string }
+    writes.push({ path: w.path.replace(/\\/g, '/'), text: w.text })
+    return { value: undefined } as never
+  })
+  await startSession($, on)
   await step($, 'claude-opus-5-5', 'high')
   await step($, 'claude-opus-5-5', 'high')
+  await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+  await clock.advance(5100)
+  const saved = writes.filter(w => w.path.endsWith('/the-index-turns.json')).at(-1)
+  expect(saved?.path).toBe('C:/nobody/.claude/the-index-turns.json')
+  expect((JSON.parse(saved?.text ?? '{}') as { turns: { id: string; session: string; tokens: number }[] }).turns).toEqual([
+    expect.objectContaining({ id: 't', session: 'abc', tokens: 20_400 }),
+  ])
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const chip = await band.find({ key: 'calls-chip' })
   expect((chip?.props['props'] as { text: string }).text).toStartWith('Δ ↑10')
-  expect((chip?.props['props'] as { parts?: unknown[] }).parts?.length).toBeGreaterThan(1)
-  await band.post({ hover: true }, { in: 'calls-chip' })
-  await clock.advance(110)
-  const lines = ((await band.find({ key: 'calls-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
-  expect(lines).toHaveLength(8)
-  expect(lines.at(-1)?.at(-1)?.text).toBe('hover a bar for its turn · last 1 of 1')
-  await band.pointer({ type: 'move', x: TITLE_WIDTH + ROW_GAP, y: 0, in: 'calls-row' })
-  expect(visible(await band.drawn({ in: 'calls-row' }))).toContain('turn 1 · 20k tokens')
-  await band.post({ hover: false }, { in: 'calls-chip' })
-  await band.post({ hover: true }, { in: 'totals-chip' })
-  await clock.advance(110)
-  const totals = ((await band.find({ key: 'totals-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
-  expect(totals.at(-1)?.at(-1)?.text).toBe('over 2 calls')
-  await band.post({ hover: false }, { in: 'totals-chip' })
-  await band.post({ hover: true }, { in: 'callLines-chip' })
-  await clock.advance(110)
-  expect(await band.find({ key: 'callLines-row' })).toBeDefined()
-  await band.post({ hover: false }, { in: 'callLines-chip' })
-  await band.post({ hover: true }, { in: 'totalLines-chip' })
-  await clock.advance(110)
-  expect(await band.find({ key: 'totalLines-row' })).toBeDefined()
+  for (const [panel, first] of [
+    ['calls', 'Last turn'],
+    ['callLines', 'Last turn'],
+    ['totals', 'Session'],
+    ['totalLines', 'Session'],
+  ] as const) {
+    await band.post({ hover: true }, { in: `${panel}-chip` })
+    await clock.advance(110)
+    const lines = ((await band.find({ key: `${panel}-row` }))?.props['props'] as { lines: { text: string }[][] }).lines
+    expect(lines[0]?.[0]?.text.trim()).toBe(first)
+    await band.post({ hover: false }, { in: `${panel}-chip` })
+    await band.post({ faded: true }, { in: `${panel}-row` })
+  }
   await band.unmount()
 })
 

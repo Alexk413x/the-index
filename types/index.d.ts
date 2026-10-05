@@ -29,9 +29,6 @@ export type IndexTotals = {
   linesAdded: number
   linesRemoved: number
   lastResponseAt: number | null
-  markAdded: number
-  markRemoved: number
-  markCostUsd: number | null
   cacheTtlMs?: number
 }
 
@@ -112,6 +109,23 @@ export type IndexCallPoint = {
   cacheWrite?: number
   linesAdded?: number
   linesRemoved?: number
+  files?: readonly string[]
+}
+
+export type IndexTurnRecord = {
+  id: string
+  session: string
+  at: number
+  tokens: number
+  input: number
+  cacheRead: number
+  output: number
+  apiMs: number
+  spanMs: number
+  costUsd: number | null
+  linesAdded: number
+  linesRemoved: number
+  files: number
 }
 
 export type IndexContextPoint = { at: number; percent: number; tokens: number | null; compaction?: 'manual' | 'auto' | 'plugin' }
@@ -173,6 +187,7 @@ declare module 'claude-code' {
       contextLimit: IndexContextLimit | null
       baseCommits: readonly IndexCommit[]
       branchCommits: readonly IndexCommit[]
+      turnHistory: readonly IndexTurnRecord[]
       mergedPrs: readonly IndexMergedPr[]
       basePrs: readonly IndexPullRequest[]
       usageSummary: IndexUsageSummary | null

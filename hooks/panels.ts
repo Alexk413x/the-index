@@ -10,11 +10,11 @@ import type {
   IndexPanel,
   IndexMergedPr,
   IndexPullRequest,
+  IndexTurnRecord,
 } from '../types'
 import {
   barChart,
   columnBars,
-  divergingBars,
   lineChart,
   markColumns,
   markerRow,
@@ -24,6 +24,7 @@ import {
   type StackedBar,
 } from './charts'
 import { isFix, isRecord } from './git'
+import { otherSessionAverages, sessionTotals, turnAverages, type Averages, type SessionTotals } from './turns'
 import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
 import type { UsageSummary } from './ledger'
 
@@ -63,20 +64,20 @@ export const COMMIT_SLOTS = 10
 export const BRANCH_SLOTS = 20
 export const ACTION_WIDTH = 90
 export const PR_TITLE_MAX = 24
-export const TURN_SLOTS = 20
-export const TURN_HALF = 3
+export const CARD_LABEL = 18
+export const CARD_COLUMN = 14
 
 export type Turn = {
   id: string
-  number: number
   tokens: number
   input: number
   cacheRead: number
   output: number
   apiMs: number
   costUsd: number | null
-  linesAdded: number | null
-  linesRemoved: number | null
+  linesAdded: number
+  linesRemoved: number
+  files: Set<string>
   start: number
   end: number
 }
@@ -90,7 +91,6 @@ export function groupTurns(log: readonly IndexCallPoint[]): Turn[] {
     if (!turn || turn.id !== call.turnId) {
       turn = {
         id: call.turnId,
-        number: turns.length + 1,
         tokens: 0,
         input: 0,
         cacheRead: 0,
@@ -99,6 +99,7 @@ export function groupTurns(log: readonly IndexCallPoint[]): Turn[] {
         costUsd: 0,
         linesAdded: 0,
         linesRemoved: 0,
+        files: new Set(),
         start: call.at - call.apiMs,
         end: call.at,
       }
@@ -106,8 +107,9 @@ export function groupTurns(log: readonly IndexCallPoint[]): Turn[] {
     }
     turn.start = Math.min(turn.start, call.at - call.apiMs)
     turn.end = Math.max(turn.end, call.at)
-    turn.linesAdded = turn.linesAdded === null || call.linesAdded === undefined ? null : turn.linesAdded + call.linesAdded
-    turn.linesRemoved = turn.linesRemoved === null || call.linesRemoved === undefined ? null : turn.linesRemoved + call.linesRemoved
+    turn.linesAdded += call.linesAdded ?? 0
+    turn.linesRemoved += call.linesRemoved ?? 0
+    for (const file of call.files ?? []) turn.files.add(file)
     turn.tokens += call.tokens
     turn.input += call.input
     turn.cacheRead += call.cacheRead
@@ -118,39 +120,24 @@ export function groupTurns(log: readonly IndexCallPoint[]): Turn[] {
   return turns
 }
 
-export function turnLines(turn: Turn): number {
-  return (turn.linesAdded ?? 0) + (turn.linesRemoved ?? 0)
+export function turnRecord(turn: Turn, session: string): IndexTurnRecord {
+  return {
+    id: turn.id,
+    session,
+    at: turn.end,
+    tokens: turn.tokens,
+    input: turn.input,
+    cacheRead: turn.cacheRead,
+    output: turn.output,
+    apiMs: turn.apiMs,
+    spanMs: Math.max(0, turn.end - turn.start),
+    costUsd: turn.costUsd,
+    linesAdded: turn.linesAdded,
+    linesRemoved: turn.linesRemoved,
+    files: turn.files.size,
+  }
 }
 
-function perLine(costUsd: number, lines: number): string {
-  return `$${fmtCost(costUsd / lines)}/line`
-}
-
-function perMinute(lines: number, ms: number): string {
-  return `${ms > 0 ? Math.round(lines / (ms / 60_000)) : 0} lines/min`
-}
-
-export function linesDetail(turn: Turn): string {
-  const lines = turnLines(turn)
-  const parts = [`turn ${turn.number}`, `+${turn.linesAdded ?? 0} -${turn.linesRemoved ?? 0} lines`, fmtDur((turn.end - turn.start) / 1000)]
-  if (lines > 0) parts.push(perMinute(lines, turn.end - turn.start))
-  if (lines > 0 && turn.costUsd !== null) parts.push(perLine(turn.costUsd, lines))
-  return parts.join(' · ')
-}
-
-function perMillion(costUsd: number, tokens: number): string {
-  return `$${((costUsd / tokens) * 1_000_000).toFixed(2)}/M`
-}
-
-export function turnDetail(turn: Turn): string {
-  const parts = [`turn ${turn.number}`, `${fmtNum(turn.tokens)} tokens`]
-  if (turn.costUsd !== null) parts.push(`$${fmtCost(turn.costUsd)}`)
-  if (turn.costUsd !== null && turn.tokens > 0) parts.push(perMillion(turn.costUsd, turn.tokens))
-  if (turn.input > 0) parts.push(`${Math.floor((turn.cacheRead / turn.input) * 100)}% cache`)
-  parts.push(`↓${fmtNum(turn.output)}`)
-  if (turn.apiMs > 0) parts.push(`${(turn.output / (turn.apiMs / 1000)).toFixed(0)} tok/s`)
-  return parts.join(' · ')
-}
 export const USAGE_DAYS = 30
 
 type Settings = Readonly<Record<string, unknown>>
@@ -216,6 +203,7 @@ export type PanelView = {
   baseRef: string
   branchCommits: readonly IndexCommit[]
   mergedPrs: readonly IndexMergedPr[]
+  turnHistory: readonly IndexTurnRecord[]
   links: GitLinks
   basePrs: readonly IndexPullRequest[]
   cacheLeftMs: number | null
@@ -260,7 +248,6 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   }
   const action = (text: string, url: string): RowItem => ({ text: `${text} ↗`, color: cfg.colors.branch, pick: url })
   const tokensColor = cfg.colors.model
-  const costColor = cfg.colors.cold
   const colored = (text: string, color: string): RowItem => ({ text, color })
 
   const gitRows = (
@@ -484,152 +471,121 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     return chartRows('Context', chart, notes)
   }
 
-  if (panel === 'calls') {
-    const turns = groupTurns(view.callLog)
-    const known = turns.filter(t => t.costUsd !== null && t.tokens > 0)
-    const knownTokens = known.reduce((sum, t) => sum + t.tokens, 0)
-    const knownCost = known.reduce((sum, t) => sum + (t.costUsd ?? 0), 0)
-    const average = knownTokens > 0 ? knownCost / knownTokens : 0
-    const bars = turns.map(t => ({
-      id: `turn-${t.id}`,
-      value: t.costUsd === null || t.tokens === 0 ? null : t.costUsd / t.tokens,
-      detail: turnDetail(t),
-    }))
-    const chart = divergingBars(bars, average, TURN_SLOTS, Math.floor(MIDDLE_WIDTH / TURN_SLOTS) - 1, TURN_HALF, {
-      above: cfg.colors.bad,
-      below: cfg.colors.good,
-      axis: cfg.colors.icons,
-      blank: cfg.colors.icons,
-    })
-    const notes: (RowItem | null)[] = Array.from({ length: TURN_HALF * 2 + 1 }, () => null)
-    if (known.length > 0) {
-      notes[0] = colored('more per token', cfg.colors.bad)
-      notes[TURN_HALF] = note(`avg ${perMillion(knownCost, knownTokens)} tokens`)
-      notes[TURN_HALF * 2] = colored('less per token', cfg.colors.good)
+  if (panel === 'calls' || panel === 'callLines' || panel === 'totals' || panel === 'totalLines') {
+    const sid = view.host?.sessionId ?? ''
+    const history = view.turnHistory
+    const mine = history.filter(t => t.session === sid)
+    const live = groupTurns(view.callLog).at(-1)
+    const current = live ? turnRecord(live, sid) : mine.at(-1)
+    const sessionTurns = live && !mine.some(t => t.id === live.id) ? [...mine, turnRecord(live, sid)] : mine
+    const icons = cfg.colors.icons
+    const neutral = cfg.colors.model
+    const cell = (text: string, color: string): RowItem => ({ text, color, pad: Math.max(0, CARD_COLUMN - text.length) })
+    const label = (text: string): RowItem => ({ text, color: icons, pad: Math.max(0, CARD_LABEL - text.length) })
+    const judge = (value: number | null, against: number | null, better: 'lower' | 'higher' | null) => {
+      if (value === null || against === null || better === null || against === 0) return neutral
+      const change = (value - against) / Math.abs(against)
+      if (Math.abs(change) < 0.02) return neutral
+      return (change < 0) === (better === 'lower') ? cfg.colors.good : cfg.colors.bad
     }
-    const footer: RowItem = {
-      text: turns.length ? `hover a bar for its turn · last ${Math.min(turns.length, TURN_SLOTS)} of ${turns.length}` : 'no turns yet',
-      color: cfg.colors.icons,
-      footer: true,
-    }
-    return [...chartRows('Cost/tok', chart, notes), [{ ...note(''), pad: TITLE_WIDTH }, footer]]
-  }
+    type Metric = { name: string; values: (number | null)[]; show: (v: number) => string; better: 'lower' | 'higher' | null }
+    const money = (v: number) => `$${fmtCost(v)}`
+    const pct = (v: number) => `${Math.floor(v)}%`
+    const whole = (v: number) => fmtNum(Math.round(v))
+    const rate = (v: number) => (v < 10 ? v.toFixed(1) : fmtNum(Math.round(v)))
+    const table = (heads: string[], metrics: Metric[], footer: string): RowItem[][] => [
+      [label(heads[0] ?? ''), ...heads.slice(1).map(h => cell(h, icons))],
+      ...metrics.map(m => {
+        const reference = m.values.slice(1).reverse().find(v => v !== null) ?? null
+        return [
+          label(m.name),
+          ...m.values.map((v, i) => cell(v === null ? '—' : m.show(v), i === 0 ? judge(v, reference, m.better) : icons)),
+        ]
+      }),
+      [note(footer)],
+    ]
+    const sessions = new Set(history.map(t => t.session)).size
+    const footer = history.length
+      ? `7-day avg covers ${history.length} ${history.length === 1 ? 'turn' : 'turns'} in ${sessions} ${sessions === 1 ? 'session' : 'sessions'}`
+      : 'the 7-day column fills as you work'
 
-  if (panel === 'callLines') {
-    const turns = groupTurns(view.callLog).filter(t => t.linesAdded !== null && t.linesRemoved !== null)
-    const priced = turns.filter(t => turnLines(t) > 0 && t.costUsd !== null)
-    const pricedLines = priced.reduce((sum, t) => sum + turnLines(t), 0)
-    const pricedCost = priced.reduce((sum, t) => sum + (t.costUsd ?? 0), 0)
-    const average = pricedLines > 0 ? pricedCost / pricedLines : null
-    const bars = turns.map(t => {
-      const lines = turnLines(t)
-      const cost = lines > 0 && t.costUsd !== null ? t.costUsd / lines : null
-      const color = cost === null || average === null ? cfg.colors.icons : cost <= average ? cfg.colors.good : cfg.colors.bad
-      return { value: lines, color, id: `lines-${t.id}`, detail: linesDetail(t) }
-    })
-    const chart = columnBars(bars, TURN_SLOTS, Math.floor(MIDDLE_WIDTH / TURN_SLOTS) - 1, CHART_HEIGHT, cfg.colors.icons)
-    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
-    const changed = turns.reduce((sum, t) => sum + turnLines(t), 0)
-    if (changed > 0) {
-      const activeMs = turns.reduce((sum, t) => sum + (t.end - t.start), 0)
-      notes[0] = colored(`peak ${fmtNum(Math.max(...turns.map(turnLines)))} lines`, tokensColor)
-      notes[1] = note(`avg ${perMinute(changed, activeMs)}`)
-      if (average !== null) notes[2] = note(`avg ${perLine(pricedCost, pricedLines)}`)
-      notes[3] = colored('less per line', cfg.colors.good)
-      notes[4] = colored('more per line', cfg.colors.bad)
-    }
-    const footer: RowItem = {
-      text: turns.length
-        ? changed > 0
-          ? `hover a bar for its turn · last ${Math.min(turns.length, TURN_SLOTS)} of ${turns.length}`
-          : 'no lines changed yet'
-        : 'no turns yet',
-      color: cfg.colors.icons,
-      footer: true,
-    }
-    return [...chartRows('Lines', chart, notes), [{ ...note(''), pad: TITLE_WIDTH }, footer]]
-  }
-
-  if (panel === 'totals') {
-    const log = view.callLog.filter(c => typeof c.turnId === 'string' && typeof c.cacheWrite === 'number')
-    if (log.length === 0) return [[title('Totals'), note('no calls yet')]]
-    const running = <T,>(pick: (sums: Record<string, number>, call: IndexCallPoint) => T): T[] => {
-      const sums: Record<string, number> = { sent: 0, write: 0, read: 0, input: 0, output: 0, cost: 0, tps: 0, tpsCalls: 0 }
-      return log.map(call => {
-        sums['sent'] = (sums['sent'] ?? 0) + call.input
-        sums['write'] = (sums['write'] ?? 0) + (call.cacheWrite ?? 0)
-        sums['read'] = (sums['read'] ?? 0) + call.cacheRead
-        sums['input'] = (sums['input'] ?? 0) + call.input
-        sums['output'] = (sums['output'] ?? 0) + call.output
-        sums['cost'] = (sums['cost'] ?? 0) + (call.costUsd ?? 0)
-        if (call.output > 0 && call.apiMs > 0) {
-          sums['tps'] = (sums['tps'] ?? 0) + call.output / (call.apiMs / 1000)
-          sums['tpsCalls'] = (sums['tpsCalls'] ?? 0) + 1
-        }
-        return pick(sums, call)
+    if (panel === 'calls' || panel === 'callLines') {
+      if (!current) return [[label('Last turn'), note('no turns yet')]]
+      const now = turnAverages([current])
+      const here = turnAverages(sessionTurns)
+      const week = turnAverages(history)
+      const row = (name: string, pick: (a: Averages) => number | null, show: (v: number) => string, better: Metric['better']): Metric => ({
+        name,
+        values: [pick(now), pick(here), history.length ? pick(week) : null],
+        show,
+        better,
       })
+      const heads = ['Last turn', 'this turn', 'session avg', '7-day avg']
+      if (panel === 'calls') {
+        return table(
+          heads,
+          [
+            row('Cost', a => a.cost, money, 'lower'),
+            row('Cost per 1M tok', a => a.costPerMTok, money, 'lower'),
+            row('Cache hit', a => a.cacheHit, pct, 'higher'),
+            row('Tokens/s', a => a.tps, whole, 'higher'),
+            row('Output', a => a.output, whole, null),
+          ],
+          footer,
+        )
+      }
+      const linesText = (a: Averages) => (a.linesAdded === null || a.linesRemoved === null ? null : a.linesAdded + a.linesRemoved)
+      return table(
+        heads,
+        [
+          {
+            name: 'Lines changed',
+            values: [now, here, history.length ? week : null].map(a => (a ? linesText(a) : null)),
+            show: whole,
+            better: null,
+          },
+          row('Lines/min', a => a.linesPerMin, rate, 'higher'),
+          row('Cost per line', a => a.costPerLine, money, 'lower'),
+          row('Files touched', a => a.files, rate, null),
+        ],
+        footer,
+      )
     }
-    const at = (key: string) => running(s => s[key] ?? 0)
-    const tps = running(s => ((s['tpsCalls'] ?? 0) > 0 ? (s['tps'] ?? 0) / (s['tpsCalls'] ?? 1) : 0))
-    const hit = running(s => ((s['input'] ?? 0) > 0 ? ((s['read'] ?? 0) / (s['input'] ?? 1)) * 100 : 0))
-    const last = (values: number[]) => values[values.length - 1] ?? 0
-    const rows: [string, number[], string, string][] = [
-      ['↑ sent', at('sent'), fmtNum(last(at('sent'))), tokensColor],
-      ['⤒ written', at('write'), fmtNum(last(at('write'))), tokensColor],
-      ['⤓ read', at('read'), fmtNum(last(at('read'))), tokensColor],
-      ['↓ output', at('output'), fmtNum(last(at('output'))), tokensColor],
-      ['↯ tok/s', tps, last(tps).toFixed(0), cfg.colors.warn],
-      ['⌖ hit', hit, `${Math.floor(last(hit))}%`, cfg.colors.good],
-      ['$ cost', at('cost'), `$${fmtCost(last(at('cost')))}`, costColor],
-    ]
-    return [
-      ...rows.map(([label, values, current, color]) => [
-        title(label),
-        ...(lineChart([{ values, color }], MIDDLE_WIDTH, 1, cfg.colors.icons)[0] ?? []),
-        colored(current, color),
-      ]),
-      [{ ...note(''), pad: TITLE_WIDTH }, note(`over ${log.length} ${log.length === 1 ? 'call' : 'calls'}`)],
-    ]
-  }
 
-  if (panel === 'totalLines') {
-    const turns = groupTurns(view.callLog).filter(t => t.linesAdded !== null && t.linesRemoved !== null)
-    let lines = 0
-    let activeMs = 0
-    let cost = 0
-    const cumulative: number[] = []
-    const speed: number[] = []
-    const perLineCost: number[] = []
-    for (const t of turns) {
-      lines += turnLines(t)
-      activeMs += t.end - t.start
-      cost += t.costUsd ?? 0
-      cumulative.push(lines)
-      speed.push(activeMs > 0 ? lines / (activeMs / 60_000) : 0)
-      perLineCost.push(lines > 0 ? cost / lines : 0)
+    if (sessionTurns.length === 0) return [[label('Session'), note('no turns yet')]]
+    const totals = sessionTotals(sessionTurns)
+    const others = otherSessionAverages(history, sid)
+    const pair = (name: string, pick: (s: SessionTotals) => number | null, show: (v: number) => string, better: Metric['better']): Metric => ({
+      name,
+      values: [pick(totals), others ? pick(others) : null],
+      show,
+      better,
+    })
+    const heads = ['Session', 'this session', '7-day avg/session']
+    const sessionFooter = others ? footer : 'the 7-day column fills as other sessions finish turns'
+    if (panel === 'totals') {
+      return table(
+        heads,
+        [
+          pair('Turns', s => s.turns, whole, null),
+          pair('Tokens sent', s => s.tokens, whole, null),
+          pair('Cache hit', s => s.cacheHit, pct, 'higher'),
+          pair('Tokens/s', s => s.tps, whole, 'higher'),
+          pair('Cost', s => s.cost, money, null),
+          pair('Cost per turn', s => s.costPerTurn, money, 'lower'),
+        ],
+        sessionFooter,
+      )
     }
-    const chart = lineChart(
+    return table(
+      heads,
       [
-        { values: cumulative, color: cfg.colors.good },
-        { values: speed, color: cfg.colors.warn },
-        { values: perLineCost, color: costColor },
+        pair('Lines changed', s => s.linesAdded + s.linesRemoved, whole, null),
+        pair('Lines/min', s => s.linesPerMin, rate, 'higher'),
+        pair('Cost per line', s => s.costPerLine, money, 'lower'),
       ],
-      MIDDLE_WIDTH,
-      CHART_HEIGHT,
-      cfg.colors.icons,
+      sessionFooter,
     )
-    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
-    if (lines === 0) {
-      notes[CHART_HEIGHT - 1] = note(turns.length ? 'no lines changed yet' : 'no turns yet')
-    } else {
-      const added = turns.reduce((sum, t) => sum + (t.linesAdded ?? 0), 0)
-      const removed = turns.reduce((sum, t) => sum + (t.linesRemoved ?? 0), 0)
-      notes[0] = colored(`+${fmtNum(added)} -${fmtNum(removed)} lines`, cfg.colors.good)
-      notes[1] = colored(perMinute(lines, activeMs), cfg.colors.warn)
-      notes[2] = colored(perLine(cost, lines), costColor)
-      notes[CHART_HEIGHT - 1] = note(`over ${turns.length} ${turns.length === 1 ? 'turn' : 'turns'}`)
-    }
-    return chartRows('Lines', chart, notes)
   }
 
   if (panel === 'usage') {

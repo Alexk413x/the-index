@@ -10,6 +10,7 @@ import type {
   IndexMergedPr,
   IndexPullRequest,
   IndexRateLimit,
+  IndexTurnRecord,
   IndexUsage,
 } from '../types'
 import {
@@ -34,6 +35,8 @@ import {
 import {
   EFFORTS,
   PANELS,
+  groupTurns,
+  turnRecord,
   ROW_GAP,
   USAGE_DAYS,
   currentChoices,
@@ -60,6 +63,7 @@ import {
 } from './git'
 import { agentColorKey, parseAgentFile } from './agents'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type LedgerEntry } from './ledger'
+import { mergeTurns, parseTurns, serializeTurns } from './turns'
 
 const agents = atom({ plugin: 'the-index', key: 'agents' } as const, {})
 const call = atom({ plugin: 'the-index', key: 'call' } as const, null)
@@ -84,6 +88,7 @@ const contextLimit = atom({ plugin: 'the-index', key: 'contextLimit' } as const,
 const baseCommits = atom({ plugin: 'the-index', key: 'baseCommits' } as const, [])
 const branchCommits = atom({ plugin: 'the-index', key: 'branchCommits' } as const, [])
 const mergedPrs = atom({ plugin: 'the-index', key: 'mergedPrs' } as const, [])
+const turnHistory = atom({ plugin: 'the-index', key: 'turnHistory' } as const, [])
 const basePrs = atom({ plugin: 'the-index', key: 'basePrs' } as const, [])
 
 const EWMA_ALPHA = 0.3
@@ -476,7 +481,7 @@ async function refreshCompactThreshold($: EngineInterface): Promise<void> {
   }
 }
 
-async function recordEdit($: EngineInterface, result: unknown, isMainLoop: boolean): Promise<void> {
+async function recordEdit($: EngineInterface, result: unknown, isMainLoop: boolean, path: string | undefined): Promise<void> {
   if (!isRecord(result) || result['staged'] === true) return
   const patch = Array.isArray(result['structuredPatch']) ? (result['structuredPatch'] as { lines: string[] }[]) : []
   const { added, removed } = patchLineCounts(patch)
@@ -491,7 +496,13 @@ async function recordEdit($: EngineInterface, result: unknown, isMainLoop: boole
   await update($, callLog, prev => {
     const last = prev[prev.length - 1]
     if (!last) return prev
-    const credited = { ...last, linesAdded: (last.linesAdded ?? 0) + added, linesRemoved: (last.linesRemoved ?? 0) + removed }
+    const files = path && !(last.files ?? []).includes(path) ? [...(last.files ?? []), path] : last.files
+    const credited = {
+      ...last,
+      linesAdded: (last.linesAdded ?? 0) + added,
+      linesRemoved: (last.linesRemoved ?? 0) + removed,
+      ...(files ? { files } : {}),
+    }
     return [...prev.slice(0, -1), credited]
   })
 }
@@ -499,6 +510,9 @@ async function recordEdit($: EngineInterface, result: unknown, isMainLoop: boole
 const CALL_LOG_MAX = 500
 const LEDGER_WRITE_MS = 5000
 const LEDGER_FILE = 'the-index-usage.json'
+const TURNS_FILE = 'the-index-turns.json'
+let turnsMine: IndexTurnRecord[] = []
+let turnsLoaded = false
 const ledgerMine: Record<string, LedgerEntry> = {}
 let ledgerCost: number | null = null
 let ledgerTimer: Timer | undefined
@@ -518,6 +532,26 @@ async function syncLedger($: EngineInterface): Promise<void> {
   const merged = mergeLedger(onDisk, sessionId, ledgerMine)
   if (Object.keys(ledgerMine).length > 0) await $.fs.write(path, serializeLedger(merged)).catch(() => undefined)
   await update($, usageSummary, () => summarize(merged, dayKey(now), USAGE_DAYS))
+
+  const turnsPath = `${dir}/${TURNS_FILE}`
+  const turnsOnDisk = parseTurns(await readJson($, turnsPath))
+  if (!turnsLoaded) {
+    turnsLoaded = true
+    const known = new Set(turnsMine.map(t => t.id))
+    turnsMine = [...turnsOnDisk.filter(t => t.session === sessionId && !known.has(t.id)), ...turnsMine]
+  }
+  const turns = mergeTurns(turnsOnDisk, sessionId, turnsMine, now)
+  if (turnsMine.length > 0) await $.fs.write(turnsPath, serializeTurns(turns)).catch(() => undefined)
+  await update($, turnHistory, () => turns)
+}
+
+async function recordTurn($: EngineInterface, turnId: string): Promise<void> {
+  const turn = groupTurns(await read($, callLog)).find(t => t.id === turnId)
+  if (!turn) return
+  const record = turnRecord(turn, await $.session.id())
+  turnsMine = [...turnsMine.filter(t => t.id !== record.id), record]
+  await update($, turnHistory, prev => [...prev.filter(t => t.id !== record.id), record])
+  syncLedgerSoon($)
 }
 
 function syncLedgerSoon($: EngineInterface): void {
@@ -902,9 +936,6 @@ export const register: Register = (on, options) => {
         apiMs: prev.apiMs + apiMs,
         ewmaHit: prev.ewmaHit === null ? hitFrac : EWMA_ALPHA * hitFrac + (1 - EWMA_ALPHA) * prev.ewmaHit,
         lastResponseAt: endedAt,
-        markAdded: prev.linesAdded,
-        markRemoved: prev.linesRemoved,
-        markCostUsd: cost,
       }
     })
     scheduleTick($, cfg)
@@ -940,7 +971,10 @@ export const register: Register = (on, options) => {
   on('tool.call', async ($, e, next) => {
     const r = await next(e)
     if (r.deny !== undefined) return r
-    if ((e.tool === 'Edit' || e.tool === 'Write') && !r.isError) await recordEdit($, r.result, e.agentId === undefined)
+    if ((e.tool === 'Edit' || e.tool === 'Write') && !r.isError) {
+      const path = (e as { file_path?: unknown }).file_path
+      await recordEdit($, r.result, e.agentId === undefined, typeof path === 'string' ? path : undefined)
+    }
     if (e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'Bash') refreshGitSoon($)
     return r
   })
@@ -948,6 +982,7 @@ export const register: Register = (on, options) => {
   on('turn.complete', async ($, e, next) => {
     const result = await next(e)
     if (e.agentId !== undefined) return result
+    await recordTurn($, e.turnId)
     refreshGitSoon($)
     const now = await $.clock.now()
     if (now - hostAt >= HOST_MIN_GAP_MS) {
@@ -964,7 +999,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary, contextPoints, limit, commits, branchLog, merged, prs] =
+    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary, contextPoints, limit, commits, branchLog, merged, prs, history] =
       await Promise.all([
         read($, agents),
         read($, call),
@@ -990,6 +1025,7 @@ export const register: Register = (on, options) => {
         read($, branchCommits),
         read($, mergedPrs),
         read($, basePrs),
+        read($, turnHistory),
       ])
     const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
     const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
@@ -1047,6 +1083,7 @@ export const register: Register = (on, options) => {
       baseRef: repo?.prBaseRef ?? '',
       branchCommits: branchLog,
       mergedPrs: merged,
+      turnHistory: history,
       links: gitLinks(repo),
       basePrs: prs,
       cacheLeftMs: cfg.show.cache ? cacheLeftMs(sums, cfg, now) : null,

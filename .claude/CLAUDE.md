@@ -17,6 +17,8 @@ the prompt. `README.md` describes the band, its settings, and how it differs fro
 - `hooks/agents.ts` — pure: agent file frontmatter and the theme key of an agent colour.
 - `hooks/charts.ts` — pure: braille line charts and block bar charts as row items.
 - `hooks/ledger.ts` — pure: the shared daily usage file's format, merge and summary.
+- `hooks/turns.ts` — pure: the shared turn history file's format, merge, and the cards'
+  averages.
 - `hooks/chip.tsx` — the `Client` module for clickable coloured text (the effort, model
   and session names, the pins and the folder name). It has no `$`; it posts `{ press }`
   and `{ hover }` to the hooks module.
@@ -36,7 +38,7 @@ the prompt. `README.md` describes the band, its settings, and how it differs fro
 - A function that takes `$` is a top-level function declaration in `register.tsx`, and
   calls `$` as `$.noun.method(...)`. `$.env.get` takes a literal name. The validator
   refuses anything else.
-- Keep `format.ts`, `panels.ts`, `agents.ts`, `charts.ts`, `ledger.ts` and `git.ts` free of `$`, so tests call them directly.
+- Keep `format.ts`, `panels.ts`, `agents.ts`, `charts.ts`, `ledger.ts`, `turns.ts` and `git.ts` free of `$`, so tests call them directly.
 - A render hook never writes state. Timers and event hooks write; the band reads.
 - Never show an invented figure. A value the API doesn't give is a `░` placeholder, and
   `README.md` lists it under the differences from `statusline.py`.

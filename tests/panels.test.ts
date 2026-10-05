@@ -40,6 +40,7 @@ function view(over: Partial<PanelView> = {}): PanelView {
     baseRef: 'origin/main',
     branchCommits: [],
     mergedPrs: [],
+    turnHistory: [],
     links: {},
     basePrs: [],
     cacheLeftMs: null,

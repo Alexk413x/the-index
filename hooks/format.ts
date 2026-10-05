@@ -634,9 +634,6 @@ export const EMPTY_TOTALS: IndexTotals = {
   linesAdded: 0,
   linesRemoved: 0,
   lastResponseAt: null,
-  markAdded: 0,
-  markRemoved: 0,
-  markCostUsd: null,
 }
 
 export function mergeRateLimit(

@@ -95,48 +95,53 @@ Hover the session name for a table of the session name and full id with its star
 time, the agent and its colour, the Remote Control session id and attached clients when
 linked, and the folder with the Claude Code version.
 
-## Charts
+## Charts and cards
 
-Hover a section of the band for a chart in a row above it:
+Hover a section of the band for a chart or a card in a row above it. Click the section to
+pin the row.
+
+**Line 1, quick usage**
 
 - **The cache timer and context fill:** the context window's fill across the session
-  against the full window, a dashed line where auto-compaction starts (Claude Code's own
-  threshold, when auto-compaction is on), `▲` under each compaction, and how long the
-  prompt cache stays warm.
-- **Δ, its token half (↑ to ⌖):** cost per token for each turn, the last 20 turns,
-  against the session's average in the middle. A red bar above it cost more per token
-  than average; a green bar below it cost less. Hover a bar for that turn's tokens, cost,
-  cost per million tokens, cache hit, output and tokens per second.
-- **Δ, its code half (≡, ⏱, $):** lines changed in each turn as bars, green when the turn
-  cost less per line than the session average and red when it cost more. Hover a bar for
-  the turn's lines, time, lines per minute and cost per line.
-- **Σ, its token half:** one line for each session total (tokens sent, cache writes, cache
-  reads, output, tokens per second, cache hit and cost) showing its growth, with its
-  current value.
-- **Σ, its code half:** lines changed, lines per minute and cost per line across the
-  session's turns. Lines per minute counts the time turns ran, not idle time.
+  against the full window, `▲` under each compaction, where auto-compaction starts
+  (Claude Code's own threshold, when it's on), and how long the prompt cache stays warm.
 - **The rate limits:** tokens per day for the last 30 days as bars, with today's tokens,
   the 30-day and all-time totals, and their cost.
-- **The checked-out branch:** the working tree over the time since the last commit, in 20
-  time slices. A lines chart grows added lines up in green and removed lines down in red,
-  with the rate in lines per minute; a files chart stacks files added, modified and
-  deleted in green, yellow and red. Hover a column for the working tree at that time. Its
+
+**Line 2, how efficiently the model works.** Each card colours the current figure green
+when it beats your average and red when it's worse.
+
+- **Δ, its token half (↑ to ⌖):** the last turn against this session's average and the
+  last 7 days: cost, cost per 1M tokens, cache hit, tokens per second and output.
+- **Δ, its code half (≡, ⏱, $):** the last turn's lines changed, lines per minute, cost per
+  line and files touched, against the same averages.
+- **Σ, its token half:** this session against the average other session in the last 7
+  days: turns, tokens sent, cache hit, tokens per second, cost and cost per turn.
+- **Σ, its code half:** this session's lines changed, lines per minute and cost per line
+  against the average other session.
+
+**Line 3, how the code is going.** These read git history, so they show data at once.
+
+- **The checked-out branch:** each commit on your branch that isn't on the base branch,
+  lines added up in green and removed down in red, with a `×` under commits whose subject
+  reads as a fix (`fix`, `bug`, `hotfix`, `revert`). The notes give the totals, the average
+  time between commits, and the share of fixes. Hover a column for the commit. Its
   `View branch ↗` button opens the branch on GitHub once it's pushed.
-- **`origin/main`:** the same two charts for each of the last 10 commits on the base
-  branch; hover a column for the commit's subject and counts. Its first button opens your
-  branch's PR (`View PR #42 ↗`), GitHub's create-PR page when your branch differs and has
-  none (`Create PR ↗`), or on `main` itself the commit history (`View commits ↗`). The
-  other open PRs into the base branch follow as buttons, from the `gh` CLI.
+- **`origin/main`:** the last 10 PRs merged into the base branch, from the `gh` CLI: each
+  PR's size, time from open to merge, and a `×` for fix PRs, with the medians. Without
+  `gh` it charts the last 10 commits on the base branch instead. Its first button opens
+  your branch's PR (`View PR #42 ↗`), GitHub's create-PR page when your branch differs
+  and has none (`Create PR ↗`), or on `main` itself the commit history
+  (`View commits ↗`). The other open PRs into the base branch follow as buttons.
 
-A button in a row underlines while the pointer is on it.
+A button in a row underlines while the pointer is on it. A terminal cell takes one
+colour, so where two lines of a chart cross, the cell shows the first line's colour.
+Tokens count input, cache writes, cache reads and output.
 
-A terminal cell takes one colour, so where two lines of a chart cross, the cell shows the
-first line's colour. Tokens count input, cache writes, cache reads and output. Click a section to pin its
-chart, as with the other rows.
-
-The daily chart reads `the-index-usage.json` in your Claude config folder. Every session
-running the band adds its own tokens and cost per day there, main loop and subagents
-alike, so the chart covers usage since you installed the band, and says since when.
+The band keeps two files in your Claude config folder, shared by every session running
+it: `the-index-usage.json` holds tokens and cost per day for the daily chart, and
+`the-index-turns.json` holds the last 7 days of finished turns for the cards' averages.
+Both start empty, so the averages fill as you work.
 
 ## Colours
 
@@ -252,6 +257,8 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
   drop in the context fill, so a `/clear` no longer counts.
 - **Working-tree chart.** The band samples the working tree when it refreshes git, so
   the chart starts at the first sample after the last commit, or after the band loaded.
+- **Fix share.** A fix is a commit or PR whose subject starts with a fix word. It's an
+  estimate of rework, not a measure of it.
 - **Daily usage.** Claude Code keeps no daily history a mod can read. The band counts
   usage from the day it was installed, in sessions where it runs, and shows days before
   that as `·`.

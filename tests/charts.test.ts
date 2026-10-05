@@ -1,6 +1,8 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { barChart, divergingBars, lineChart, markerRow } from '../hooks/charts'
+import { barChart, lineChart, markerRow } from '../hooks/charts'
+import { HISTORY_MS, mergeTurns, otherSessionAverages, parseTurns, serializeTurns, turnAverages } from '../hooks/turns'
+import type { IndexTurnRecord } from '../types'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type Ledger } from '../hooks/ledger'
 import { isFix, parseCommitLog, parseMergedPrs } from '../hooks/git'
 import { readConfig } from '../hooks/format'
@@ -9,11 +11,10 @@ import {
   MIDDLE_WIDTH,
   ROW_GAP,
   TITLE_WIDTH,
-  TURN_HALF,
   GIT_LINES_HALF,
   groupTurns,
   panelLines,
-  turnDetail,
+  turnRecord,
   type PanelView,
   type RowItem,
 } from '../hooks/panels'
@@ -191,47 +192,79 @@ describe('commit log', () => {
   })
 })
 
-describe('turns and diverging bars', () => {
-  const call = (turnId: string, tokens: number, costUsd: number | null) => ({
-    at: 0,
+describe('turns', () => {
+  const call = (turnId: string, at: number, costUsd: number | null, files: string[] = []) => ({
+    at,
     turnId,
-    tokens,
-    input: tokens,
-    cacheRead: 0,
-    output: 0,
-    apiMs: 0,
+    tokens: 1000,
+    input: 900,
+    cacheRead: 800,
+    output: 100,
+    apiMs: 1000,
     costUsd,
+    linesAdded: 3,
+    linesRemoved: 1,
+    files,
   })
 
-  test('calls group into turns in order, and an unknown cost makes the turn unknown', () => {
-    const turns = groupTurns([call('a', 10, 0.1), call('a', 5, 0.2), call('b', 7, null), call('b', 1, 0.1)])
-    expect(turns.map(t => [t.id, t.number, t.tokens, t.costUsd])).toEqual([
-      ['a', 1, 15, 0.30000000000000004],
-      ['b', 2, 8, null],
+  test('calls group into turns with their files, and an unknown cost makes the turn unknown', () => {
+    const turns = groupTurns([call('a', 1000, 0.1, ['x.ts']), call('a', 3000, 0.2, ['x.ts', 'y.ts']), call('b', 5000, null), call('b', 6000, 0.1)])
+    expect(turns.map(t => [t.id, t.tokens, t.costUsd, t.files.size, t.linesAdded])).toEqual([
+      ['a', 2000, 0.30000000000000004, 2, 6],
+      ['b', 2000, null, 0, 6],
     ])
-    expect(turnDetail(turns[1]!)).toBe('turn 2 · 8 tokens · 0% cache · ↓0')
+    expect(turnRecord(turns[0]!, 's1')).toMatchObject({ id: 'a', session: 's1', at: 3000, spanMs: 3000, files: 2 })
     const old = { at: 0, tokens: 5, costUsd: 0.1 } as unknown as Parameters<typeof groupTurns>[0][number]
-    expect(groupTurns([old, call('c', 3, 0.1)]).map(t => [t.id, t.number, t.tokens])).toEqual([['c', 1, 3]])
+    expect(groupTurns([old, call('c', 1, 0.1)]).map(t => t.id)).toEqual(['c'])
+  })
+})
+
+const round = (v: number | null | undefined) => (v === null || v === undefined ? v : Number(v.toFixed(6)))
+
+describe('turn history', () => {
+  const record = (id: string, session: string, at: number, over: Partial<IndexTurnRecord> = {}): IndexTurnRecord => ({
+    id,
+    session,
+    at,
+    tokens: 2000,
+    input: 1800,
+    cacheRead: 900,
+    output: 200,
+    apiMs: 2000,
+    spanMs: 60_000,
+    costUsd: 0.1,
+    linesAdded: 10,
+    linesRemoved: 0,
+    files: 1,
+    ...over,
   })
 
-  test('a bar above the average rises in the above colour, one below falls in the below colour', () => {
-    const colors = { above: '#ff0000', below: '#00ff00', axis: '#888888', blank: '#000000' }
-    const rows = divergingBars(
-      [
-        { id: 'hi', value: 3, detail: 'hi' },
-        { id: 'lo', value: 1, detail: 'lo' },
-        { id: 'mid', value: 2, detail: 'mid' },
-      ],
-      2,
-      3,
-      1,
-      1,
-      colors,
-    )
-    expect(rows.map(r => r.map(i => i.text).join(''))).toEqual(['█     ', '──────', '  █   '])
-    expect(rows[0]?.find(i => i.hoverId === 'hi')?.color).toBe('#ff0000')
-    expect(rows[2]?.find(i => i.hoverId === 'lo')?.color).toBe('#00ff00')
-    expect(rows[1]?.find(i => i.hoverId === 'mid')?.detail).toBe('mid')
+  test('the file keeps other sessions, replaces this one, and drops turns older than 7 days', () => {
+    const now = 10 * 86_400_000
+    const disk = [record('o1', 'other', now - 1000), record('old', 'other', now - HISTORY_MS - 1), record('m1', 'me', now - 5000)]
+    const merged = mergeTurns(disk, 'me', [record('m2', 'me', now - 100)], now)
+    expect(merged.map(t => t.id)).toEqual(['o1', 'm2'])
+    expect(parseTurns(JSON.parse(serializeTurns(merged)))).toEqual(merged)
+    expect(parseTurns({ version: 1, turns: [{ id: 'x', session: 's', at: 'nope' }] })).toEqual([])
+    expect(parseTurns({ version: 2, turns: [] })).toEqual([])
+  })
+
+  test('averages take cost per token and cache hit from sums, tokens per second per turn', () => {
+    const a = turnAverages([record('a', 's', 0), record('b', 's', 1, { costUsd: 0.3, tokens: 6000, input: 6000, cacheRead: 6000, apiMs: 1000 })])
+    expect(round(a.cost)).toBe(round(0.2))
+    expect(round(a.costPerMTok)).toBe(round(50))
+    expect(round(a.cacheHit)).toBe(round(((900 + 6000) / (1800 + 6000)) * 100))
+    expect(round(a.tps)).toBe(round((100 + 200) / 2))
+    expect(round(a.linesPerMin)).toBe(round(10))
+    expect(turnAverages([]).cost).toBeNull()
+  })
+
+  test('other sessions average their totals per session', () => {
+    const history = [record('a', 'one', 0), record('b', 'one', 1), record('c', 'two', 2, { costUsd: 0.4 }), record('m', 'me', 3)]
+    const others = otherSessionAverages(history, 'me')
+    expect(others?.turns).toBe(1.5)
+    expect(round(others?.costPerTurn)).toBe(round((0.1 + 0.4) / 2))
+    expect(otherSessionAverages([record('m', 'me', 0)], 'me')).toBeNull()
   })
 })
 
@@ -299,6 +332,7 @@ const view = (over: Partial<PanelView>): PanelView => ({
     baseRef: 'origin/main',
     branchCommits: [],
     mergedPrs: [],
+    turnHistory: [],
     links: {},
     basePrs: [],
     cacheLeftMs: null,
@@ -331,73 +365,56 @@ describe('chart rows', () => {
     linesRemoved: (i % 2) * 5,
   }))
 
-  test('calls, totals and usage draw a chart in the middle column with notes after it', () => {
-    const heights = { calls: TURN_HALF * 2 + 1, callLines: CHART_HEIGHT, totals: 7, totalLines: CHART_HEIGHT, usage: CHART_HEIGHT }
-    for (const panel of ['calls', 'callLines', 'totals', 'totalLines', 'usage'] as const) {
-      const lines = panelLines(panel, view({ callLog: calls }))
-      const chartLines = lines.slice(0, heights[panel])
-      expect(chartLines).toHaveLength(heights[panel])
-      for (const line of chartLines) {
-        expect(columns(line)[1]).toBe(TITLE_WIDTH + ROW_GAP)
-        const chartWidth = line.filter((item, i) => i > 0 && (i === 1 || item.tight)).reduce((sum, item) => sum + item.text.length, 0)
-        expect(chartWidth).toBe(MIDDLE_WIDTH)
-      }
-    }
+  const history: IndexTurnRecord[] = [
+    { id: 'h1', session: 'me', at: 100, tokens: 4000, input: 3600, cacheRead: 1800, output: 200, apiMs: 4000, spanMs: 4000, costUsd: 0.08, linesAdded: 20, linesRemoved: 0, files: 1 },
+    { id: 'o1', session: 'other', at: 50, tokens: 2000, input: 1800, cacheRead: 1700, output: 100, apiMs: 1000, spanMs: 1000, costUsd: 0.1, linesAdded: 0, linesRemoved: 0, files: 0 },
+    { id: 'o2', session: 'other', at: 60, tokens: 2000, input: 1800, cacheRead: 1700, output: 100, apiMs: 1000, spanMs: 1000, costUsd: 0.1, linesAdded: 0, linesRemoved: 0, files: 0 },
+  ]
+  const liveCalls = [
+    { at: 1000, turnId: 'live', tokens: 1000, input: 900, cacheRead: 800, output: 100, apiMs: 1000, costUsd: 0.02, linesAdded: 10, linesRemoved: 0, files: ['a.ts'] },
+    { at: 2000, turnId: 'live', tokens: 1000, input: 900, cacheRead: 850, output: 100, apiMs: 1000, costUsd: 0.02, linesAdded: 0, linesRemoved: 5, files: ['a.ts', 'b.ts'] },
+  ]
+  const card = (panel: 'calls' | 'callLines' | 'totals' | 'totalLines') =>
+    panelLines(panel, view({ callLog: liveCalls, turnHistory: history, host: { sessionName: '', sessionId: 'me', bridged: false, ide: '', agent: '', project: '' } }))
+  const cellsOf = (line: readonly RowItem[] | undefined) => (line ?? []).map(i => i.text.trim())
+  const cfg = readConfig({})
+
+  test('the last turn card compares this turn with the session and the last 7 days', () => {
+    const lines = card('calls')
+    expect(cellsOf(lines[0])).toEqual(['Last turn', 'this turn', 'session avg', '7-day avg'])
+    expect(lines.map(l => l[0]?.text.trim())).toEqual(['Last turn', 'Cost', 'Cost per 1M tok', 'Cache hit', 'Tokens/s', 'Output', '7-day avg covers 3 turns in 2 sessions'])
+    expect(cellsOf(lines[1])).toEqual(['Cost', '$0.04', '$0.06', '$0.09'])
+    expect(lines[1]?.[1]?.color).toBe(cfg.colors.good)
+    expect(cellsOf(lines[3])).toEqual(['Cache hit', '91%', expect.any(String), '72%'])
+    expect(lines[3]?.[1]?.color).toBe(cfg.colors.good)
+    expect(lines.at(-1)?.at(-1)?.text).toBe('7-day avg covers 3 turns in 2 sessions')
   })
 
-  test('the cost per token row bars each turn against the session average, with a footer for the hovered turn', () => {
-    const lines = panelLines('calls', view({ callLog: calls }))
-    const cfg = readConfig({})
-    expect(lines).toHaveLength(TURN_HALF * 2 + 2)
-    expect(lines[0]?.[0]?.text).toBe('Cost/tok')
-    expect(lines[0]?.at(-1)?.text).toBe('more per token')
-    expect(lines[TURN_HALF]?.at(-1)?.text).toMatch(/^avg \$\d+\.\d\d\/M tokens$/)
-    expect(lines[TURN_HALF * 2]?.at(-1)?.text).toBe('less per token')
-    const footer = lines.at(-1)?.at(-1)
-    expect(footer).toMatchObject({ text: 'hover a bar for its turn · last 6 of 6', footer: true })
-    const cells = lines.slice(0, TURN_HALF * 2 + 1).flat()
-    expect(cells.some(i => i.color === cfg.colors.bad && i.hoverId)).toBe(true)
-    expect(cells.some(i => i.color === cfg.colors.good && i.hoverId)).toBe(true)
-    expect(cells.find(i => i.hoverId === 'turn-t0')?.detail).toMatch(/^turn 1 · 3\.0k tokens · \$0\.03 · \$10\.00\/M · 50% cache · ↓300 · 150 tok\/s$/)
+  test("the turn's code card gives lines, pace, cost per line and files", () => {
+    const lines = card('callLines')
+    expect(cellsOf(lines[1])).toEqual(['Lines changed', '15', '18', '7'])
+    expect(cellsOf(lines[2])).toEqual(['Lines/min', '450', expect.any(String), expect.any(String)])
+    expect(cellsOf(lines[3])).toEqual(['Cost per line', '$0.0027', expect.any(String), expect.any(String)])
+    expect(cellsOf(lines[4])).toEqual(['Files touched', '2.0', '1.5', '0.3'])
   })
 
-  test('the totals row gives each session total its own line and current value', () => {
-    const lines = panelLines('totals', view({ callLog: calls }))
-    expect(lines.map(l => [l[0]?.text.trim(), l.at(-1)?.text])).toEqual([
-      ['↑ sent', '70k'],
-      ['⤒ written', '7.8k'],
-      ['⤓ read', '35k'],
-      ['↓ output', '7.8k'],
-      ['↯ tok/s', '650'],
-      ['⌖ hit', '50%'],
-      ['$ cost', '$0.24'],
-      ['', 'over 12 calls'],
-    ])
+  test('the session cards compare this session with the average other session', () => {
+    const lines = card('totals')
+    expect(cellsOf(lines[0])).toEqual(['Session', 'this session', '7-day avg/session'])
+    expect(cellsOf(lines[1])).toEqual(['Turns', '2', '2'])
+    expect(cellsOf(lines[6])).toEqual(['Cost per turn', '$0.06', '$0.10'])
+    expect(lines[6]?.[1]?.color).toBe(cfg.colors.good)
+    const code = card('totalLines')
+    expect(cellsOf(code[1])).toEqual(['Lines changed', '35', '0'])
+    expect(cellsOf(code[2])).toEqual(['Lines/min', expect.any(String), '—'])
   })
 
-  test('the lines row bars lines per turn, green when it less per line than average and red when more', () => {
-    const lines = panelLines('callLines', view({ callLog: calls }))
-    const cfg = readConfig({})
-    expect(lines).toHaveLength(CHART_HEIGHT + 1)
-    expect(lines[0]?.at(-1)?.text).toBe('peak 55 lines')
-    expect(lines[2]?.at(-1)?.text).toBe('avg $0.0011/line')
-    const cells = lines.slice(0, CHART_HEIGHT).flat()
-    expect(cells.find(i => i.hoverId === 'lines-t0' && i.text.trim())?.color).toBe(cfg.colors.bad)
-    expect(cells.find(i => i.hoverId === 'lines-t1' && i.text.trim())?.color).toBe(cfg.colors.good)
-    expect(cells.find(i => i.hoverId === 'lines-t1')?.detail).toBe('turn 2 · +50 -5 lines · 1s · 3297 lines/min · $0.0007/line')
-    expect(lines.at(-1)?.at(-1)).toMatchObject({ text: 'hover a bar for its turn · last 6 of 6', footer: true })
-  })
-
-  test('the session lines row tracks lines, speed and cost per line over the turns', () => {
-    const lines = panelLines('totalLines', view({ callLog: calls }))
-    expect(lines.map(l => l.at(-1)?.text)).toEqual([
-      '+180 -30 lines',
-      expect.stringMatching(/^\d+ lines\/min$/),
-      '$0.0011/line',
-      expect.any(String),
-      expect.any(String),
-      'over 6 turns',
-    ])
+  test('with no turns the cards say so, and without history the 7-day column waits', () => {
+    expect(panelLines('calls', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
+    expect(panelLines('totals', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
+    const fresh = panelLines('calls', view({ callLog: liveCalls }))
+    expect(cellsOf(fresh[1])).toEqual(['Cost', '$0.04', '$0.04', '—'])
+    expect(fresh.at(-1)?.at(-1)?.text).toBe('the 7-day column fills as you work')
   })
 
   test('the usage row says when nothing is recorded, and since when otherwise', () => {
@@ -429,12 +446,5 @@ describe('chart rows', () => {
     expect(warm[4]?.at(-1)?.text).toBe('cache warm · 42m0s left')
     const cold = panelLines('context', view({ contextLog, cacheLeftMs: 0 }))
     expect(cold[4]?.at(-1)?.text).toBe('cache cold · next call re-reads it')
-  })
-
-  test('with no calls yet the charts say so', () => {
-    expect(panelLines('calls', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
-    expect(panelLines('totals', view({})).at(-1)?.at(-1)?.text).toBe('no calls yet')
-    expect(panelLines('callLines', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
-    expect(panelLines('totalLines', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
   })
 })

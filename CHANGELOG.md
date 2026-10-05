@@ -2,6 +2,26 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-10-04
+
+### Added
+
+- Scorecards for Δ and Σ: the last turn against this session and the last 7 days, and
+  this session against the average other session, green when better and red when worse.
+- `the-index-turns.json` in the Claude config folder: the last 7 days of finished turns,
+  shared by every session running the band.
+- The branch chart charts each commit ahead of the base branch with its fix mark; the
+  `origin/main` chart charts the last 10 merged PRs' size, time to merge and fix mark.
+
+### Changed
+
+- The context chart drops the auto-compaction line; the threshold stays as a note.
+
+### Removed
+
+- The per-turn bar charts and the session line charts for Δ and Σ, and the
+  working-tree-over-time chart.
+
 ## [0.8.1] - 2026-10-04
 
 ### Changed
