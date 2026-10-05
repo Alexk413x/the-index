@@ -5,15 +5,21 @@ export type IndexAgentStep = {
   effort?: IndexEffort
 }
 
-export type IndexCall = {
+export type IndexTurn = {
+  turnId: string
+  calls: number
   input: number
   cacheWrite: number
   cacheRead: number
   output: number
   apiMs: number
+  costStartUsd: number | null
   costUsd: number | null
   linesAdded: number
   linesRemoved: number
+  files: readonly string[]
+  start: number
+  end: number
 }
 
 export type IndexTotals = {
@@ -126,6 +132,8 @@ export type IndexTurnRecord = {
   linesAdded: number
   linesRemoved: number
   files: number
+  calls?: number
+  sessionCostUsd?: number | null
 }
 
 export type IndexContextPoint = { at: number; percent: number; tokens: number | null; compaction?: 'manual' | 'auto' | 'plugin' }
@@ -167,7 +175,7 @@ declare module 'claude-code' {
   interface PluginState {
     'the-index': {
       agents: Readonly<Record<string, IndexAgentStep>>
-      call: IndexCall | null
+      turn: IndexTurn | null
       totals: IndexTotals
       usage: IndexUsage | null
       git: IndexGit | null

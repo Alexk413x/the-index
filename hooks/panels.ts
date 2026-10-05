@@ -1,6 +1,5 @@
 import type {
   IndexAgentStep,
-  IndexCallPoint,
   IndexCommit,
   IndexContextLimit,
   IndexContextPoint,
@@ -10,6 +9,7 @@ import type {
   IndexPanel,
   IndexMergedPr,
   IndexPullRequest,
+  IndexTurn,
   IndexTurnRecord,
 } from '../types'
 import {
@@ -24,7 +24,7 @@ import {
   type StackedBar,
 } from './charts'
 import { isFix, isRecord } from './git'
-import { otherSessionAverages, sessionTotals, turnAverages, type Averages, type SessionTotals } from './turns'
+import { otherSessionAverages, sessionTotals, turnAverages, turnToRecord, type Averages, type SessionTotals } from './turns'
 import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
 import type { UsageSummary } from './ledger'
 
@@ -66,77 +66,6 @@ export const ACTION_WIDTH = 90
 export const PR_TITLE_MAX = 24
 export const CARD_LABEL = 18
 export const CARD_COLUMN = 14
-
-export type Turn = {
-  id: string
-  tokens: number
-  input: number
-  cacheRead: number
-  output: number
-  apiMs: number
-  costUsd: number | null
-  linesAdded: number
-  linesRemoved: number
-  files: Set<string>
-  start: number
-  end: number
-}
-
-export function groupTurns(log: readonly IndexCallPoint[]): Turn[] {
-  const turns: Turn[] = []
-  for (const call of log) {
-    // Calls logged by a build before turns were recorded carry no turn id or token split.
-    if (typeof call.turnId !== 'string') continue
-    let turn = turns[turns.length - 1]
-    if (!turn || turn.id !== call.turnId) {
-      turn = {
-        id: call.turnId,
-        tokens: 0,
-        input: 0,
-        cacheRead: 0,
-        output: 0,
-        apiMs: 0,
-        costUsd: 0,
-        linesAdded: 0,
-        linesRemoved: 0,
-        files: new Set(),
-        start: call.at - call.apiMs,
-        end: call.at,
-      }
-      turns.push(turn)
-    }
-    turn.start = Math.min(turn.start, call.at - call.apiMs)
-    turn.end = Math.max(turn.end, call.at)
-    turn.linesAdded += call.linesAdded ?? 0
-    turn.linesRemoved += call.linesRemoved ?? 0
-    for (const file of call.files ?? []) turn.files.add(file)
-    turn.tokens += call.tokens
-    turn.input += call.input
-    turn.cacheRead += call.cacheRead
-    turn.output += call.output
-    turn.apiMs += call.apiMs
-    turn.costUsd = turn.costUsd === null || call.costUsd === null ? null : turn.costUsd + call.costUsd
-  }
-  return turns
-}
-
-export function turnRecord(turn: Turn, session: string): IndexTurnRecord {
-  return {
-    id: turn.id,
-    session,
-    at: turn.end,
-    tokens: turn.tokens,
-    input: turn.input,
-    cacheRead: turn.cacheRead,
-    output: turn.output,
-    apiMs: turn.apiMs,
-    spanMs: Math.max(0, turn.end - turn.start),
-    costUsd: turn.costUsd,
-    linesAdded: turn.linesAdded,
-    linesRemoved: turn.linesRemoved,
-    files: turn.files.size,
-  }
-}
 
 export const USAGE_DAYS = 30
 
@@ -195,7 +124,8 @@ export type PanelView = {
   agentColor?: string
   startedAt: number | null
   attached: number
-  callLog: readonly IndexCallPoint[]
+  turn: IndexTurn | null
+  sessionCostUsd: number | null
   usage: UsageSummary | null
   contextLog: readonly IndexContextPoint[]
   contextLimit: IndexContextLimit | null
@@ -475,9 +405,9 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const sid = view.host?.sessionId ?? ''
     const history = view.turnHistory
     const mine = history.filter(t => t.session === sid)
-    const live = groupTurns(view.callLog).at(-1)
-    const current = live ? turnRecord(live, sid) : mine.at(-1)
-    const sessionTurns = live && !mine.some(t => t.id === live.id) ? [...mine, turnRecord(live, sid)] : mine
+    const live = view.turn ? turnToRecord(view.turn, sid, view.sessionCostUsd) : undefined
+    const current = live ?? mine.at(-1)
+    const sessionTurns = live && !mine.some(t => t.id === live.id) ? [...mine, live] : mine
     const icons = cfg.colors.icons
     const neutral = cfg.colors.model
     const cell = (text: string, color: string): RowItem => ({ text, color, pad: Math.max(0, CARD_COLUMN - text.length) })
@@ -525,6 +455,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
         return table(
           heads,
           [
+            row('Calls', a => a.calls, rate, null),
             row('Cost', a => a.cost, money, 'lower'),
             row('Cost per 1M tok', a => a.costPerMTok, money, 'lower'),
             row('Cache hit', a => a.cacheHit, pct, 'higher'),
@@ -553,7 +484,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     }
 
     if (sessionTurns.length === 0) return [[label('Session'), note('no turns yet')]]
-    const totals = sessionTotals(sessionTurns)
+    const totals = sessionTotals(sessionTurns, view.sessionCostUsd)
     const others = otherSessionAverages(history, sid)
     const pair = (name: string, pick: (s: SessionTotals) => number | null, show: (v: number) => string, better: Metric['better']): Metric => ({
       name,
@@ -568,6 +499,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
         heads,
         [
           pair('Turns', s => s.turns, whole, null),
+          pair('Calls', s => s.calls, whole, null),
           pair('Tokens sent', s => s.tokens, whole, null),
           pair('Cache hit', s => s.cacheHit, pct, 'higher'),
           pair('Tokens/s', s => s.tps, whole, 'higher'),

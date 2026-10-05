@@ -35,8 +35,6 @@ import {
 import {
   EFFORTS,
   PANELS,
-  groupTurns,
-  turnRecord,
   ROW_GAP,
   USAGE_DAYS,
   currentChoices,
@@ -63,10 +61,10 @@ import {
 } from './git'
 import { agentColorKey, parseAgentFile } from './agents'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type LedgerEntry } from './ledger'
-import { mergeTurns, parseTurns, serializeTurns } from './turns'
+import { mergeTurns, parseTurns, serializeTurns, turnToRecord } from './turns'
 
 const agents = atom({ plugin: 'the-index', key: 'agents' } as const, {})
-const call = atom({ plugin: 'the-index', key: 'call' } as const, null)
+const turn = atom({ plugin: 'the-index', key: 'turn' } as const, null)
 const totals = atom({ plugin: 'the-index', key: 'totals' } as const, EMPTY_TOTALS)
 const usage = atom({ plugin: 'the-index', key: 'usage' } as const, null)
 const git = atom({ plugin: 'the-index', key: 'git' } as const, null)
@@ -320,7 +318,7 @@ async function gitStamp($: EngineInterface, gitDir: string): Promise<string> {
 async function nextTickDelay($: EngineInterface, cfg: Config): Promise<number> {
   const [sums, measured, now] = await Promise.all([read($, totals), read($, usage), $.clock.now()])
   return nextChangeMs(
-    { now, agents: {}, call: null, totals: sums, usage: measured, git: null, host: null, clients: 0, agentEfforts: {}, agentModels: {} },
+    { now, agents: {}, turn: null, totals: sums, usage: measured, git: null, host: null, clients: 0, agentEfforts: {}, agentModels: {} },
     cfg,
   )
 }
@@ -492,7 +490,16 @@ async function recordEdit($: EngineInterface, result: unknown, isMainLoop: boole
     linesRemoved: prev.linesRemoved + removed,
   }))
   if (!isMainLoop) return
-  await update($, call, prev => (prev ? { ...prev, linesAdded: prev.linesAdded + added, linesRemoved: prev.linesRemoved + removed } : prev))
+  await update($, turn, prev =>
+    prev
+      ? {
+          ...prev,
+          linesAdded: prev.linesAdded + added,
+          linesRemoved: prev.linesRemoved + removed,
+          files: path && !prev.files.includes(path) ? [...prev.files, path] : prev.files,
+        }
+      : prev,
+  )
   await update($, callLog, prev => {
     const last = prev[prev.length - 1]
     if (!last) return prev
@@ -546,9 +553,10 @@ async function syncLedger($: EngineInterface): Promise<void> {
 }
 
 async function recordTurn($: EngineInterface, turnId: string): Promise<void> {
-  const turn = groupTurns(await read($, callLog)).find(t => t.id === turnId)
-  if (!turn) return
-  const record = turnRecord(turn, await $.session.id())
+  const live = await read($, turn)
+  if (live?.turnId !== turnId) return
+  const [session, measured] = await Promise.all([$.session.id(), $.session.usage()])
+  const record = turnToRecord(live, session, measured.cost?.usd ?? null)
   turnsMine = [...turnsMine.filter(t => t.id !== record.id), record]
   await update($, turnHistory, prev => [...prev.filter(t => t.id !== record.id), record])
   syncLedgerSoon($)
@@ -939,16 +947,39 @@ export const register: Register = (on, options) => {
       }
     })
     scheduleTick($, cfg)
-    await update($, call, () => ({
-      input: u.input_tokens,
-      cacheWrite: u.cache_creation_input_tokens,
-      cacheRead: u.cache_read_input_tokens,
-      output: u.output_tokens,
-      apiMs,
-      costUsd: callCost,
-      linesAdded: 0,
-      linesRemoved: 0,
-    }))
+    await update($, turn, prev => {
+      const base =
+        prev?.turnId === e.turnId
+          ? prev
+          : {
+              turnId: e.turnId,
+              calls: 0,
+              input: 0,
+              cacheWrite: 0,
+              cacheRead: 0,
+              output: 0,
+              apiMs: 0,
+              costStartUsd: costBefore,
+              costUsd: null,
+              linesAdded: 0,
+              linesRemoved: 0,
+              files: [],
+              start: startedAt,
+              end: endedAt,
+            }
+      return {
+        ...base,
+        calls: base.calls + 1,
+        input: base.input + u.input_tokens,
+        cacheWrite: base.cacheWrite + u.cache_creation_input_tokens,
+        cacheRead: base.cacheRead + u.cache_read_input_tokens,
+        output: base.output + u.output_tokens,
+        apiMs: base.apiMs + apiMs,
+        end: endedAt,
+        // A turn costs the session cost's rise from its first call, so subagents it ran count.
+        costUsd: cost === null || base.costStartUsd === null ? null : Math.max(0, cost - base.costStartUsd),
+      }
+    })
     await update($, callLog, prev => [
       ...prev.slice(-(CALL_LOG_MAX - 1)),
       {
@@ -999,10 +1030,10 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary, contextPoints, limit, commits, branchLog, merged, prs, history] =
+    const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history] =
       await Promise.all([
         read($, agents),
-        read($, call),
+        read($, turn),
         read($, totals),
         read($, usage),
         read($, git),
@@ -1017,7 +1048,6 @@ export const register: Register = (on, options) => {
         read($, harnesses),
         read($, ultracode),
         read($, agentColors),
-        read($, callLog),
         read($, usageSummary),
         read($, contextLog),
         read($, contextLimit),
@@ -1050,7 +1080,7 @@ export const register: Register = (on, options) => {
       {
         now,
         agents: steps,
-        call: lastCall,
+        turn: liveTurn,
         totals: sums,
         usage: measured,
         git: repo,
@@ -1075,7 +1105,8 @@ export const register: Register = (on, options) => {
       agentColor,
       startedAt: measured?.startedAt ?? null,
       attached,
-      callLog: calls,
+      turn: liveTurn,
+      sessionCostUsd: measured?.costUsd ?? null,
       usage: summary,
       contextLog: contextPoints,
       contextLimit: limit,

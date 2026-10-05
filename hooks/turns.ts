@@ -1,10 +1,11 @@
-import type { IndexTurnRecord } from '../types'
+import type { IndexTurn, IndexTurnRecord } from '../types'
 import { isRecord } from './git'
 
 const VERSION = 1
 export const HISTORY_MS = 7 * 86_400_000
 
 export type Averages = {
+  calls: number | null
   cost: number | null
   costPerMTok: number | null
   cacheHit: number | null
@@ -19,6 +20,7 @@ export type Averages = {
 
 export type SessionTotals = {
   turns: number
+  calls: number | null
   tokens: number
   cacheHit: number | null
   tps: number | null
@@ -38,15 +40,40 @@ export function parseTurns(data: unknown): IndexTurnRecord[] {
     if (!isRecord(t) || typeof t['session'] !== 'string' || typeof t['id'] !== 'string') return []
     if (!KEYS.every(k => typeof t[k] === 'number' && Number.isFinite(t[k]))) return []
     const cost = t['costUsd']
+    const calls = t['calls']
+    const sessionCost = t['sessionCostUsd']
     return [
       {
         id: t['id'],
         session: t['session'],
         ...(Object.fromEntries(KEYS.map(k => [k, t[k] as number])) as Record<(typeof KEYS)[number], number>),
         costUsd: typeof cost === 'number' && Number.isFinite(cost) ? cost : null,
+        ...(typeof calls === 'number' && Number.isFinite(calls) ? { calls } : {}),
+        ...(typeof sessionCost === 'number' && Number.isFinite(sessionCost) ? { sessionCostUsd: sessionCost } : {}),
       },
     ]
   })
+}
+
+export function turnToRecord(turn: IndexTurn, session: string, sessionCostUsd: number | null): IndexTurnRecord {
+  const input = turn.input + turn.cacheWrite + turn.cacheRead
+  return {
+    id: turn.turnId,
+    session,
+    at: turn.end,
+    tokens: input + turn.output,
+    input,
+    cacheRead: turn.cacheRead,
+    output: turn.output,
+    apiMs: turn.apiMs,
+    spanMs: Math.max(0, turn.end - turn.start),
+    costUsd: turn.costUsd,
+    linesAdded: turn.linesAdded,
+    linesRemoved: turn.linesRemoved,
+    files: turn.files.length,
+    calls: turn.calls,
+    sessionCostUsd,
+  }
 }
 
 export function mergeTurns(
@@ -95,6 +122,7 @@ function linesPerMin(turns: readonly IndexTurnRecord[]): number | null {
 export function turnAverages(turns: readonly IndexTurnRecord[]): Averages {
   if (turns.length === 0) {
     return {
+      calls: null,
       cost: null,
       costPerMTok: null,
       cacheHit: null,
@@ -110,7 +138,9 @@ export function turnAverages(turns: readonly IndexTurnRecord[]): Averages {
   const paid = priced(turns)
   const paidTokens = sum(paid, t => t.tokens)
   const input = sum(turns, t => t.input)
+  const counted = turns.filter(t => t.calls !== undefined)
   return {
+    calls: counted.length ? sum(counted, t => t.calls ?? 0) / counted.length : null,
     cost: paid.length ? sum(paid, t => t.costUsd ?? 0) / paid.length : null,
     costPerMTok: paidTokens > 0 ? (sum(paid, t => t.costUsd ?? 0) / paidTokens) * 1_000_000 : null,
     cacheHit: input > 0 ? (sum(turns, t => t.cacheRead) / input) * 100 : null,
@@ -124,17 +154,20 @@ export function turnAverages(turns: readonly IndexTurnRecord[]): Averages {
   }
 }
 
-export function sessionTotals(turns: readonly IndexTurnRecord[]): SessionTotals {
+export function sessionTotals(turns: readonly IndexTurnRecord[], sessionCostUsd?: number | null): SessionTotals {
   const paid = priced(turns)
   const input = sum(turns, t => t.input)
-  const cost = paid.length ? sum(paid, t => t.costUsd ?? 0) : null
+  const recorded = turns.map(t => t.sessionCostUsd).filter((v): v is number => typeof v === 'number')
+  const cost = sessionCostUsd ?? (recorded.length ? Math.max(...recorded) : paid.length ? sum(paid, t => t.costUsd ?? 0) : null)
+  const counted = turns.filter(t => t.calls !== undefined)
   return {
     turns: turns.length,
+    calls: counted.length ? sum(counted, t => t.calls ?? 0) : null,
     tokens: sum(turns, t => t.tokens),
     cacheHit: input > 0 ? (sum(turns, t => t.cacheRead) / input) * 100 : null,
     tps: meanTps(turns),
     cost,
-    costPerTurn: cost !== null && paid.length ? cost / paid.length : null,
+    costPerTurn: cost !== null && turns.length ? cost / turns.length : null,
     linesAdded: sum(turns, t => t.linesAdded),
     linesRemoved: sum(turns, t => t.linesRemoved),
     linesPerMin: linesPerMin(turns),
@@ -148,7 +181,7 @@ export function otherSessionAverages(history: readonly IndexTurnRecord[], sessio
     if (t.session === session) continue
     bySession.set(t.session, [...(bySession.get(t.session) ?? []), t])
   }
-  const totals = [...bySession.values()].map(sessionTotals)
+  const totals = [...bySession.values()].map(turns => sessionTotals(turns))
   if (totals.length === 0) return null
   const mean = (pick: (s: SessionTotals) => number | null) => {
     const known = totals.map(pick).filter((v): v is number => v !== null)
@@ -156,6 +189,7 @@ export function otherSessionAverages(history: readonly IndexTurnRecord[], sessio
   }
   return {
     turns: mean(s => s.turns) ?? 0,
+    calls: mean(s => s.calls),
     tokens: mean(s => s.tokens) ?? 0,
     cacheHit: mean(s => s.cacheHit),
     tps: mean(s => s.tps),

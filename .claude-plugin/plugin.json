@@ -1,6 +1,6 @@
 {
   "name": "the-index",
-  "version": "0.9.0",
+  "version": "0.10.0",
   "description": "A band above the prompt that shows the status line: session, model, context, cache, rate limits, per-call and session telemetry, and git diffs. With a subagent transcript open, it shows that agent's model, effort, type and status.",
   "author": {
     "name": "Alexk413x",

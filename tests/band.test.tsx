@@ -139,8 +139,9 @@ async function step(
   model: string,
   effort: string,
   agentId?: string,
+  turnId = 't',
 ) {
-  const e = { turnId: 't', index: 0, model, effort, messageCount: 1, ...(agentId ? { agentId } : {}) }
+  const e = { turnId, index: 0, model, effort, messageCount: 1, ...(agentId ? { agentId } : {}) }
   for await (const _ of $.turn.step(e as never)) void _
 }
 
@@ -222,7 +223,7 @@ test('subagent steps leave the main telemetry alone', async ($, on) => {
   engine(on)
   await step($, 'claude-sonnet-5-5', 'low', 'a1')
   const main = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  expect(await bandText(main)).toContain('Δ ↑░░')
+  expect(await bandText(main)).toContain('Δ ░ calls ↑░░')
   await main.unmount()
 })
 
@@ -763,7 +764,7 @@ test('a finished turn joins the saved history, and the Δ and Σ sections open t
   ])
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const chip = await band.find({ key: 'calls-chip' })
-  expect((chip?.props['props'] as { text: string }).text).toStartWith('Δ ↑10')
+  expect((chip?.props['props'] as { text: string }).text).toStartWith('Δ 2 calls ↑20k')
   for (const [panel, first] of [
     ['calls', 'Last turn'],
     ['callLines', 'Last turn'],
@@ -872,19 +873,24 @@ test('hovering the branch and base sections charts the branch commits and the me
   await band.unmount()
 })
 
-test('a call costs what the session cost rose by during it, so subagents and a reload do not skew it', async ($, on) => {
+test('a turn adds its calls up as they land, and costs the session cost rise across it, subagents included', async ($, on) => {
   engine(on)
   await step($, 'claude-opus-5-5', 'high')
   await step($, 'claude-sonnet-5-5', 'low', 'a1')
   await step($, 'claude-opus-5-5', 'high')
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const text = await bandText(band)
-  expect(text).toContain('⏱ 0ms $0.10')
-  expect(text).toContain('Δ ↑10k')
+  expect(text).toContain('Δ 2 calls ↑20k')
+  expect(text).toContain('⏱ 0ms $0.70')
   await band.unmount()
+  await step($, 'claude-opus-5-5', 'high', undefined, 'next')
+  const next = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  expect(await bandText(next)).toContain('Δ 1 call ↑10k')
+  expect(await bandText(next)).toContain('$0.10')
+  await next.unmount()
 })
 
-test("an edit's lines go to the call that asked for it, and the next call starts at zero", async ($, on) => {
+test("an edit's lines go to the turn that asked for it, and the next turn starts at zero", async ($, on) => {
   engine(on)
   on('tool.call', () => ({ result: { structuredPatch: [{ lines: ['+a', '+b', '-c'] }] } }) as never)
   await step($, 'claude-opus-5-5', 'high')
@@ -892,7 +898,7 @@ test("an edit's lines go to the call that asked for it, and the next call starts
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   expect(await bandText(band)).toContain('≡+2 -1 ⏱')
   await band.unmount()
-  await step($, 'claude-opus-5-5', 'high')
+  await step($, 'claude-opus-5-5', 'high', undefined, 'next')
   const after = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const text = await bandText(after)
   expect(text).toContain('≡+0 -0 ⏱')

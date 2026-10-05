@@ -64,7 +64,7 @@ describe('agent tint', () => {
     const snap = {
       now: 0,
       agents: { [MAIN]: { model: 'claude-opus-5-5', effort: 'high' as const } },
-      call: null,
+      turn: null,
       totals: EMPTY_TOTALS,
       usage: null,
       git: null,

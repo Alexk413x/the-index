@@ -20,10 +20,12 @@ type and status instead of the main session's.
 
 - **Line 1:** Remote Control status (`●` connected, `○` not connected), session name,
   harness, agent, model and effort, IDE, prompt-cache timer, compaction tally, context fill, uptime, and the 5-hour and 7-day rate limits.
-- **Line 2:** the last main-loop API call (Δ) and the session totals (Σ), each with
-  tokens sent, cache writes, cache reads, output, tokens per second, cache hit, lines,
-  API time and cost. Σ's tokens per second is the average of each call's own rate, so
-  idle time and a few long calls don't skew it.
+- **Line 2:** the current turn (Δ) and the session totals (Σ), each with tokens sent,
+  cache writes, cache reads, output, tokens per second, cache hit, lines, API time and
+  cost. Δ adds up the turn's calls as they land and counts them (`3 calls`); its cost is
+  the whole turn's, subagents included. Σ's cost is the session's total, and its tokens
+  per second is the average of each call's own rate, so idle time and a few long calls
+  don't skew it.
 - **Line 3:** the folder, then two sections:
   - **The checked-out branch:** what the next commit would hold, the working tree against
     `HEAD` (files added, changed and deleted, and lines).
@@ -112,11 +114,12 @@ pin the row.
 when it beats your average and red when it's worse.
 
 - **Δ, its token half (↑ to ⌖):** the last turn against this session's average and the
-  last 7 days: cost, cost per 1M tokens, cache hit, tokens per second and output.
+  last 7 days: calls, cost, cost per 1M tokens, cache hit, tokens per second and output.
 - **Δ, its code half (≡, ⏱, $):** the last turn's lines changed, lines per minute, cost per
   line and files touched, against the same averages.
 - **Σ, its token half:** this session against the average other session in the last 7
-  days: turns, tokens sent, cache hit, tokens per second, cost and cost per turn.
+  days: turns, calls, tokens sent, cache hit, tokens per second, cost and cost per turn.
+  Cost is the session's total, as Σ on the band shows it.
 - **Σ, its code half:** this session's lines changed, lines per minute and cost per line
   against the average other session.
 
@@ -226,9 +229,9 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
 - **Tokens sent (↑).** The script's ↑ is the API's uncached input, which with prompt
   caching is a handful of tokens a call. The band's ↑ is everything sent: uncached input,
   cache writes (⤒) and cache reads (⤓) together.
-- **Per-call cost and lines.** A call's cost is how much the session's cost rose while
-  that call ran, so a subagent's cost doesn't land on the next main call. A call's lines
-  are the `Edit` and `Write` changes it asked for.
+- **Turn cost and lines.** A turn's cost is how much the session's cost rose from its
+  first call to its latest, so subagents it ran count. Its lines are the `Edit` and
+  `Write` changes it asked for. Each call is also kept on its own in the band's call log.
 - **Session totals.** The script's Σ shows cache writes and hit rates. The band's Σ also
   shows tokens sent, cache reads, output and the average tokens per second, as Δ does.
 - **Cache glyph.** The script shows `☼` while warm and `❅` when cold. The band

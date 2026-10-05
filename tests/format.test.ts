@@ -31,7 +31,7 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
   return {
     now: NOW,
     agents: {},
-    call: null,
+    turn: null,
     totals: EMPTY_TOTALS,
     usage: null,
     git: null,
@@ -106,7 +106,7 @@ describe('band lines', () => {
     expect(lines).toHaveLength(2)
     expect(lineText(lines[0] ?? [])).toBe('Unknown ░░ | ☀ ░░m ○ ░░% ◷ ░░% ░h░░m ⧈ ░░% ░d░░h')
     expect(lineText(lines[1] ?? [])).toBe(
-      'Δ ↑░░ ⤒░░░░ ⤓░░░░ ↓░░░░ ↯░░ ⌖░░% ≡+░░ -░░ ⏱ ░░s $░.░░ | Σ ↑░░░ ⤒░░░░░ ⤓░░░░░ ↓░░░░ ↯░░ ⌖░░% ░░% ≡+░░░ -░░░ ⏱ ░░m░░s $░.░░',
+      'Δ ░ calls ↑░░ ⤒░░░░ ⤓░░░░ ↓░░░░ ↯░░ ⌖░░% ≡+░░ -░░ ⏱ ░░s $░.░░ | Σ ↑░░░ ⤒░░░░░ ⤓░░░░░ ↓░░░░ ↯░░ ⌖░░% ░░% ≡+░░░ -░░░ ⏱ ░░m░░s $░.░░',
     )
   })
 
@@ -133,15 +133,21 @@ describe('band lines', () => {
 
   test('telemetry, gauges and git render like the script', () => {
     const snap = snapshot({
-      call: {
+      turn: {
+        turnId: 't',
+        calls: 3,
         input: 12,
         cacheWrite: 1500,
         cacheRead: 48_000,
         output: 800,
         apiMs: 4000,
+        costStartUsd: 1,
         costUsd: 0.12,
         linesAdded: 3,
         linesRemoved: 1,
+        files: ['a.ts'],
+        start: 0,
+        end: 4000,
       },
       totals: {
         ...EMPTY_TOTALS,
@@ -190,7 +196,7 @@ describe('band lines', () => {
       'Claude Opus 5.5 ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ◵ 23% 2h0m ⧈ ░░% ░d░░h',
     )
     expect(lineText(lines[1] ?? [])).toBe(
-      'Δ ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50',
+      'Δ 3 calls ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50',
     )
     expect(lineText(lines[2] ?? [])).toBe('□ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ origin/main ◻ 0 4 0 ≡ +50 -9')
     expect(gitLinks(snap.git)).toEqual({

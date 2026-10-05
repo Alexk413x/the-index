@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { barChart, lineChart, markerRow } from '../hooks/charts'
-import { HISTORY_MS, mergeTurns, otherSessionAverages, parseTurns, serializeTurns, turnAverages } from '../hooks/turns'
+import { HISTORY_MS, mergeTurns, otherSessionAverages, parseTurns, serializeTurns, turnAverages, turnToRecord } from '../hooks/turns'
 import type { IndexTurnRecord } from '../types'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type Ledger } from '../hooks/ledger'
 import { isFix, parseCommitLog, parseMergedPrs } from '../hooks/git'
@@ -12,9 +12,7 @@ import {
   ROW_GAP,
   TITLE_WIDTH,
   GIT_LINES_HALF,
-  groupTurns,
   panelLines,
-  turnRecord,
   type PanelView,
   type RowItem,
 } from '../hooks/panels'
@@ -193,29 +191,40 @@ describe('commit log', () => {
 })
 
 describe('turns', () => {
-  const call = (turnId: string, at: number, costUsd: number | null, files: string[] = []) => ({
-    at,
-    turnId,
-    tokens: 1000,
-    input: 900,
-    cacheRead: 800,
-    output: 100,
-    apiMs: 1000,
-    costUsd,
-    linesAdded: 3,
-    linesRemoved: 1,
-    files,
-  })
-
-  test('calls group into turns with their files, and an unknown cost makes the turn unknown', () => {
-    const turns = groupTurns([call('a', 1000, 0.1, ['x.ts']), call('a', 3000, 0.2, ['x.ts', 'y.ts']), call('b', 5000, null), call('b', 6000, 0.1)])
-    expect(turns.map(t => [t.id, t.tokens, t.costUsd, t.files.size, t.linesAdded])).toEqual([
-      ['a', 2000, 0.30000000000000004, 2, 6],
-      ['b', 2000, null, 0, 6],
-    ])
-    expect(turnRecord(turns[0]!, 's1')).toMatchObject({ id: 'a', session: 's1', at: 3000, spanMs: 3000, files: 2 })
-    const old = { at: 0, tokens: 5, costUsd: 0.1 } as unknown as Parameters<typeof groupTurns>[0][number]
-    expect(groupTurns([old, call('c', 1, 0.1)]).map(t => t.id)).toEqual(['c'])
+  test('a live turn becomes a record with everything it sent, its calls and the session cost', () => {
+    const live = {
+      turnId: 't9',
+      calls: 3,
+      input: 6,
+      cacheWrite: 994,
+      cacheRead: 9000,
+      output: 300,
+      apiMs: 3000,
+      costStartUsd: 1,
+      costUsd: 0.25,
+      linesAdded: 4,
+      linesRemoved: 1,
+      files: ['a.ts', 'b.ts'],
+      start: 1000,
+      end: 7000,
+    }
+    expect(turnToRecord(live, 's1', 1.25)).toEqual({
+      id: 't9',
+      session: 's1',
+      at: 7000,
+      tokens: 10_300,
+      input: 10_000,
+      cacheRead: 9000,
+      output: 300,
+      apiMs: 3000,
+      spanMs: 6000,
+      costUsd: 0.25,
+      linesAdded: 4,
+      linesRemoved: 1,
+      files: 2,
+      calls: 3,
+      sessionCostUsd: 1.25,
+    })
   })
 })
 
@@ -324,7 +333,8 @@ const view = (over: Partial<PanelView>): PanelView => ({
     host: null,
     startedAt: null,
     attached: 0,
-    callLog: [],
+    turn: null,
+    sessionCostUsd: null,
     usage: null,
     contextLog: [],
     contextLimit: null,
@@ -370,23 +380,36 @@ describe('chart rows', () => {
     { id: 'o1', session: 'other', at: 50, tokens: 2000, input: 1800, cacheRead: 1700, output: 100, apiMs: 1000, spanMs: 1000, costUsd: 0.1, linesAdded: 0, linesRemoved: 0, files: 0 },
     { id: 'o2', session: 'other', at: 60, tokens: 2000, input: 1800, cacheRead: 1700, output: 100, apiMs: 1000, spanMs: 1000, costUsd: 0.1, linesAdded: 0, linesRemoved: 0, files: 0 },
   ]
-  const liveCalls = [
-    { at: 1000, turnId: 'live', tokens: 1000, input: 900, cacheRead: 800, output: 100, apiMs: 1000, costUsd: 0.02, linesAdded: 10, linesRemoved: 0, files: ['a.ts'] },
-    { at: 2000, turnId: 'live', tokens: 1000, input: 900, cacheRead: 850, output: 100, apiMs: 1000, costUsd: 0.02, linesAdded: 0, linesRemoved: 5, files: ['a.ts', 'b.ts'] },
-  ]
+  const liveTurn = {
+    turnId: 'live',
+    calls: 2,
+    input: 0,
+    cacheWrite: 150,
+    cacheRead: 1650,
+    output: 200,
+    apiMs: 2000,
+    costStartUsd: 1,
+    costUsd: 0.04,
+    linesAdded: 10,
+    linesRemoved: 5,
+    files: ['a.ts', 'b.ts'],
+    start: 0,
+    end: 2000,
+  }
   const card = (panel: 'calls' | 'callLines' | 'totals' | 'totalLines') =>
-    panelLines(panel, view({ callLog: liveCalls, turnHistory: history, host: { sessionName: '', sessionId: 'me', bridged: false, ide: '', agent: '', project: '' } }))
+    panelLines(panel, view({ turn: liveTurn, turnHistory: history, host: { sessionName: '', sessionId: 'me', bridged: false, ide: '', agent: '', project: '' } }))
   const cellsOf = (line: readonly RowItem[] | undefined) => (line ?? []).map(i => i.text.trim())
   const cfg = readConfig({})
 
   test('the last turn card compares this turn with the session and the last 7 days', () => {
     const lines = card('calls')
     expect(cellsOf(lines[0])).toEqual(['Last turn', 'this turn', 'session avg', '7-day avg'])
-    expect(lines.map(l => l[0]?.text.trim())).toEqual(['Last turn', 'Cost', 'Cost per 1M tok', 'Cache hit', 'Tokens/s', 'Output', '7-day avg covers 3 turns in 2 sessions'])
-    expect(cellsOf(lines[1])).toEqual(['Cost', '$0.04', '$0.06', '$0.09'])
-    expect(lines[1]?.[1]?.color).toBe(cfg.colors.good)
-    expect(cellsOf(lines[3])).toEqual(['Cache hit', '91%', expect.any(String), '72%'])
-    expect(lines[3]?.[1]?.color).toBe(cfg.colors.good)
+    expect(lines.map(l => l[0]?.text.trim())).toEqual(['Last turn', 'Calls', 'Cost', 'Cost per 1M tok', 'Cache hit', 'Tokens/s', 'Output', '7-day avg covers 3 turns in 2 sessions'])
+    expect(cellsOf(lines[1])).toEqual(['Calls', '2.0', '2.0', '—'])
+    expect(cellsOf(lines[2])).toEqual(['Cost', '$0.04', '$0.06', '$0.09'])
+    expect(lines[2]?.[1]?.color).toBe(cfg.colors.good)
+    expect(cellsOf(lines[4])).toEqual(['Cache hit', '91%', expect.any(String), '72%'])
+    expect(lines[4]?.[1]?.color).toBe(cfg.colors.good)
     expect(lines.at(-1)?.at(-1)?.text).toBe('7-day avg covers 3 turns in 2 sessions')
   })
 
@@ -402,8 +425,12 @@ describe('chart rows', () => {
     const lines = card('totals')
     expect(cellsOf(lines[0])).toEqual(['Session', 'this session', '7-day avg/session'])
     expect(cellsOf(lines[1])).toEqual(['Turns', '2', '2'])
-    expect(cellsOf(lines[6])).toEqual(['Cost per turn', '$0.06', '$0.10'])
-    expect(lines[6]?.[1]?.color).toBe(cfg.colors.good)
+    expect(cellsOf(lines[2])).toEqual(['Calls', '2', '—'])
+    expect(cellsOf(lines[7])).toEqual(['Cost per turn', '$0.06', '$0.10'])
+    expect(lines[7]?.[1]?.color).toBe(cfg.colors.good)
+    const withCost = panelLines('totals', view({ turn: liveTurn, turnHistory: history, sessionCostUsd: 0.5, host: { sessionName: '', sessionId: 'me', bridged: false, ide: '', agent: '', project: '' } }))
+    expect(cellsOf(withCost[6])).toEqual(['Cost', '$0.50', '$0.20'])
+    expect(cellsOf(withCost[7])).toEqual(['Cost per turn', '$0.25', '$0.10'])
     const code = card('totalLines')
     expect(cellsOf(code[1])).toEqual(['Lines changed', '35', '0'])
     expect(cellsOf(code[2])).toEqual(['Lines/min', expect.any(String), '—'])
@@ -412,8 +439,8 @@ describe('chart rows', () => {
   test('with no turns the cards say so, and without history the 7-day column waits', () => {
     expect(panelLines('calls', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
     expect(panelLines('totals', view({})).at(-1)?.at(-1)?.text).toBe('no turns yet')
-    const fresh = panelLines('calls', view({ callLog: liveCalls }))
-    expect(cellsOf(fresh[1])).toEqual(['Cost', '$0.04', '$0.04', '—'])
+    const fresh = panelLines('calls', view({ turn: liveTurn }))
+    expect(cellsOf(fresh[2])).toEqual(['Cost', '$0.04', '$0.04', '—'])
     expect(fresh.at(-1)?.at(-1)?.text).toBe('the 7-day column fills as you work')
   })
 

@@ -2,7 +2,7 @@ import type { PluginOptions } from 'claude-code'
 
 import type {
   IndexAgentStep,
-  IndexCall,
+  IndexTurn,
   IndexEffort,
   IndexGit,
   IndexHost,
@@ -277,7 +277,7 @@ export type Line = readonly Part[]
 export type Snapshot = {
   now: number
   agents: Readonly<Record<string, IndexAgentStep>>
-  call: IndexCall | null
+  turn: IndexTurn | null
   totals: IndexTotals
   usage: IndexUsage | null
   git: IndexGit | null
@@ -416,10 +416,11 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   const noData = t.requests === 0
   if (cfg.show.calls) {
     const v = c.calls
-    const call = snap.call
+    const turn = snap.turn
     let bits: Seg[][]
-    if (noData || !call) {
+    if (noData || !turn) {
       bits = [
+        [seg(`${SHADE} calls`, v)],
         [icon(SYM_IN), seg(SHADE.repeat(2), v)],
         [icon(SYM_CC), seg(SHADE.repeat(4), v)],
         [icon(SYM_CR), seg(SHADE.repeat(4), v)],
@@ -431,22 +432,23 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
         [icon('$'), seg(`${SHADE}.${SHADE.repeat(2)}`, v)],
       ]
     } else {
-      const totalIn = call.input + call.cacheWrite + call.cacheRead
-      const hit = hitPct(call.cacheRead, totalIn)
+      const totalIn = turn.input + turn.cacheWrite + turn.cacheRead
+      const hit = hitPct(turn.cacheRead, totalIn)
       bits = [
-        [icon(SYM_IN), seg(fmtNum(call.input + call.cacheWrite + call.cacheRead), v)],
-        [icon(SYM_CC), seg(fmtNum(call.cacheWrite), v)],
-        [icon(SYM_CR), seg(fmtNum(call.cacheRead), v)],
-        [icon(SYM_OUT), seg(fmtNum(call.output), v)],
+        [seg(`${turn.calls} ${turn.calls === 1 ? 'call' : 'calls'}`, v)],
+        [icon(SYM_IN), seg(fmtNum(totalIn), v)],
+        [icon(SYM_CC), seg(fmtNum(turn.cacheWrite), v)],
+        [icon(SYM_CR), seg(fmtNum(turn.cacheRead), v)],
+        [icon(SYM_OUT), seg(fmtNum(turn.output), v)],
       ]
-      if (call.output > 0 && call.apiMs > 0) {
-        bits.push([icon(SYM_TPS), seg((call.output / (call.apiMs / 1000)).toFixed(0), v)])
+      if (turn.output > 0 && turn.apiMs > 0) {
+        bits.push([icon(SYM_TPS), seg((turn.output / (turn.apiMs / 1000)).toFixed(0), v)])
       }
       bits.push(
         [icon(SYM_HIT), seg(`${hit}%`, hitColor(hit))],
-        [icon(SYM_LINES), seg(`+${call.linesAdded}`, c.good), sp, seg(`-${call.linesRemoved}`, c.bad)],
-        [icon(SYM_AT), seg(fmtMs(call.apiMs), v)],
-        [icon('$'), seg(call.costUsd === null ? `${SHADE}.${SHADE.repeat(2)}` : fmtCost(call.costUsd), v)],
+        [icon(SYM_LINES), seg(`+${turn.linesAdded}`, c.good), sp, seg(`-${turn.linesRemoved}`, c.bad)],
+        [icon(SYM_AT), seg(fmtMs(turn.apiMs), v)],
+        [icon('$'), seg(turn.costUsd === null ? `${SHADE}.${SHADE.repeat(2)}` : fmtCost(turn.costUsd), v)],
       )
     }
     line2.push(halves(icon(SYM_CALL), bits, 'calls', 'callLines'))

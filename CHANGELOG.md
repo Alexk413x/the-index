@@ -2,6 +2,19 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.0] - 2026-10-04
+
+### Changed
+
+- Δ on the band is the current turn: its calls add up as they land, with a call count,
+  and its cost is the whole turn's, subagents included.
+- The cards count calls per turn and per session, and the Σ card's cost is the
+  session's total, as Σ on the band shows it.
+
+### Fixed
+
+- The 7-day session averages read each session's position in the list as its cost.
+
 ## [0.9.0] - 2026-10-04
 
 ### Added
