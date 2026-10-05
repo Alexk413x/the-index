@@ -37,6 +37,7 @@ export type RowItem = {
   hoverId?: string
   detail?: string
   footer?: boolean
+  link?: boolean
 }
 
 export const PANELS: readonly IndexPanel[] = [
@@ -176,7 +177,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     }
     return [...actionLines, ...rows]
   }
-  const action = (text: string, url: string): RowItem => ({ text: `${text} ↗`, color: cfg.colors.branch, pick: url })
+  const action = (text: string, url: string): RowItem => ({ text: `${text} ↗`, color: cfg.colors.branch, pick: url, link: true })
   const tokensColor = cfg.colors.model
   const colored = (text: string, color: string): RowItem => ({ text, color })
 

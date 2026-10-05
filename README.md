@@ -137,7 +137,7 @@ when it beats your average and red when it's worse.
   and has none (`Create PR ↗`), or on `main` itself the commit history
   (`View commits ↗`). The other open PRs into the base branch follow as buttons.
 
-A button in a row underlines while the pointer is on it. A terminal cell takes one
+A GitHub button in a row underlines while the pointer is on it; a choice turns orange. A terminal cell takes one
 colour, so where two lines of a chart cross, the cell shows the first line's colour.
 Tokens count input, cache writes, cache reads and output.
 

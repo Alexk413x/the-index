@@ -2,6 +2,13 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.10.2] - 2026-10-04
+
+### Fixed
+
+- Harness, model and effort choices highlight in orange on hover again, without an
+  underline; only the GitHub link buttons underline.
+
 ## [0.10.1] - 2026-10-04
 
 ### Fixed

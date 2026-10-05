@@ -1,6 +1,7 @@
 import { expect, mock, test, type MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { readConfig } from '../hooks/format'
 import { ROW_GAP, TITLE_WIDTH } from '../hooks/panels'
 
 const SURFACES = ['terminal', 'desktop'] as const
@@ -598,6 +599,10 @@ test('a click in a row picks the choice under the pointer, and Left, Right and E
   await step($, 'claude-opus-5-5', 'high')
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   await band.post({ press: true }, { in: 'effort-chip' })
+  await band.pointer({ type: 'move', x: TITLE_WIDTH + ROW_GAP, y: 0, in: 'effort-row' })
+  const low = await band.find({ in: 'effort-row', type: 'Text', text: /low/ })
+  expect(low?.props['underline']).toBe(false)
+  expect(low?.props['color']).toBe(readConfig({}).colors.model)
   await band.pointer({ type: 'up', x: TITLE_WIDTH + ROW_GAP, y: 0, button: 'left', in: 'effort-row' })
   expect(commands).toEqual(['effort low'])
 
