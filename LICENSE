@@ -20,18 +20,28 @@ NO-RESALE CONDITION v1.0
      for a client while the Software runs in your own tools;
    - forking it and sharing your fork free of charge.
 
-2. Not allowed. The License does not grant the right to Sell the Software.
+2. Not allowed. Without limiting the other conditions in the License, the grant
+   of rights under the License does not include, and the License does not grant
+   you, the right to Sell the Software or any fork, modification or derivative
+   work of it.
 
-   "Sell" means providing, to anyone else, for a fee or any other compensation, a
-   product or service whose value comes entirely or substantially from the
-   Software. This includes:
+   "Sell" means practicing any or all of the rights granted to you under the
+   License to provide to third parties, for a fee or other consideration, a
+   product or service whose value derives, entirely or substantially, from the
+   functionality of the Software. Consideration includes money, advertising
+   revenue, and payment in data or in kind. Sell includes:
    (a) selling copies of the Software, a fork of it, or a modified version;
    (b) charging others to install, set up, configure, customize, host, manage,
        maintain or support the Software for them;
    (c) offering a paid product, bundle, subscription or service in which the
        Software is the main feature;
    (d) charging for access to the Software, or to a fork of it, behind a paywall,
-       licence key or membership.
+       licence key or membership;
+   (e) distributing the Software, or a fork of it, with advertising, tracking or
+       data collection that earns money for you or anyone else.
+
+   Voluntary donations that are not required for access to the Software are not
+   a sale. Any sale ends your licence immediately and automatically.
 
 3. The difference between 1 and 2. Using the Software in your own work is
    allowed, even when that work is paid. Making the Software itself the thing you
