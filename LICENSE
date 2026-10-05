@@ -19,8 +19,8 @@ NO-RESALE CONDITION v1.0
    - using it as a tool in paid work for your own clients, such as writing code
      for a client while the Software runs in your own tools;
    - building your own software, products or services with the help of the
-     Software, and selling them, as long as what you sell does not include the
-     Software, or a fork of it, as its main feature;
+     Software, and selling them, as long as what you sell does not contain the
+     Software, a fork of it, or a modified version of it;
    - forking it and sharing your fork free of charge.
 
 2. Not allowed. Without limiting the other conditions in the License, the grant
@@ -33,11 +33,13 @@ NO-RESALE CONDITION v1.0
    product or service whose value derives, entirely or substantially, from the
    functionality of the Software. Consideration includes money, advertising
    revenue, and payment in data or in kind. Sell includes:
-   (a) selling copies of the Software, a fork of it, or a modified version;
+   (a) selling the Software, a fork of it, or a modified version of it, in whole
+       or in substantial part, on its own or as part of anything else that is
+       sold;
    (b) charging others to install, set up, configure, customize, host, manage,
        maintain or support the Software for them;
-   (c) offering a paid product, bundle, subscription or service in which the
-       Software is the main feature;
+   (c) offering a paid product, bundle, subscription or service that includes
+       the Software, a fork of it, or a modified version of it;
    (d) charging for access to the Software, or to a fork of it, behind a paywall,
        licence key or membership;
    (e) distributing the Software, or a fork of it, with advertising, tracking or
