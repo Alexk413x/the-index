@@ -2,7 +2,7 @@
 
 A Claude Code mod: a plugin of function hooks that draws a status band above the
 prompt. `README.md` summarizes its features and settings for users. The plugin ships
-through the `alexk413x` marketplace in the `Alexk413x/marketplace` repo.
+through the `library` marketplace in the `Alexk413x/marketplace` repo.
 
 ## Layout
 
