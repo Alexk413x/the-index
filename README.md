@@ -14,7 +14,7 @@ type and status instead of the main session's.
 
 ```
 ● peer | Claude Opus 5.5 high | VS Code | ☼ 50m 💥 ◑ 45% 1h2m ◵ 23% 2h5m ⧈ 61% 3d4h
-Δ ⇄3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ⟳2 ⇄5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50
+Δ »3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ◦2 »5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50
 □ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ #42 origin/main ◻ 0 4 0 ≡ +50 -9
 ```
 
@@ -23,8 +23,8 @@ type and status instead of the main session's.
 - **Line 2:** the current turn (Δ) and the session totals (Σ), each with tokens sent (↑),
   cache writes (⤒), cache reads (⤓), output (↓), tokens per second (↯), cache hit (⌖),
   lines (≡), API time (⏱) and cost. Δ adds up the turn's calls as they land and counts
-  them (`⇄3`); its cost and lines are the whole turn's, subagents included. Σ counts the
-  session's turns (`⟳`) and calls (`⇄`); its cost is the session's total, and its tokens
+  them (`»3`); its cost and lines are the whole turn's, subagents included. Σ counts the
+  session's turns (`◦`) and calls (`»`); its cost is the session's total, and its tokens
   per second is the average of each call's own rate, so idle time and a few long calls
   don't skew it. Σ shows two cache hits: the whole session's, then a recent one that
   weights the last few calls most.

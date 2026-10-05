@@ -229,7 +229,7 @@ test('subagent steps leave the main telemetry alone', async ($, on) => {
   engine(on)
   await step($, 'claude-sonnet-5-5', 'low', 'a1')
   const main = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  expect(await bandText(main)).toContain('Δ ⇄░ ↑░░')
+  expect(await bandText(main)).toContain('Δ »░ ↑░░')
   await main.unmount()
 })
 
@@ -774,7 +774,7 @@ test('a finished turn joins the saved history, and the Δ and Σ sections open t
   ])
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const chip = await band.find({ key: 'calls-chip' })
-  expect((chip?.props['props'] as { text: string }).text).toStartWith('Δ ⇄2 ↑20k')
+  expect((chip?.props['props'] as { text: string }).text).toStartWith('Δ »2 ↑20k')
   for (const [panel, first] of [
     ['calls', 'Last turn'],
     ['callLines', 'Last turn'],
@@ -890,12 +890,12 @@ test('a turn adds its calls up as they land, and costs the session cost rise acr
   await step($, 'claude-opus-5-5', 'high')
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const text = await bandText(band)
-  expect(text).toContain('Δ ⇄2 ↑20k')
+  expect(text).toContain('Δ »2 ↑20k')
   expect(text).toContain('⏱ 0ms $0.70')
   await band.unmount()
   await step($, 'claude-opus-5-5', 'high', undefined, 'next')
   const next = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  expect(await bandText(next)).toContain('Δ ⇄1 ↑10k')
+  expect(await bandText(next)).toContain('Δ »1 ↑10k')
   expect(await bandText(next)).toContain('$0.10')
   await next.unmount()
 })
