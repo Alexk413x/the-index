@@ -2,6 +2,28 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.11.0] - 2026-10-04
+
+### Added
+
+- Icons for the call and turn counts: Δ shows the turn's calls (`⇄3`), and Σ shows the
+  session's turns (`⟳`) and calls (`⇄`).
+
+### Fixed
+
+- After a `/clear`, the usage file counted the day twice and the turn file copied the old
+  session's turns on every write.
+- An open row kept its first props, so a pinned effort row picked for the main session
+  after a subagent's transcript opened, and pinned git rows kept stale links.
+- A turn's lines and files left out its subagents' edits, though its cost included them.
+- A file `Write` created counted no lines.
+- Hovering a pinned row kept a different, fading row open.
+
+### Changed
+
+- The 30-second Remote Control check reads only the session registry; the IDE and agent
+  colours refresh every 5 minutes. The turn file is written only when a turn finishes.
+
 ## [0.10.2] - 2026-10-04
 
 ### Fixed

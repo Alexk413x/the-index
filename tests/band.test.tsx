@@ -15,6 +15,7 @@ let stepsFail = false
 let sessionModel = 'claude-opus-5-5'
 let extraSettings: Record<string, unknown> = {}
 let sessionCost = 0.25
+let sessionId: string | undefined
 let clock: MockClock
 
 function engine(on: On) {
@@ -26,6 +27,7 @@ function engine(on: On) {
   sessionModel = 'claude-opus-5-5'
   extraSettings = {}
   sessionCost = 0.25
+  sessionId = undefined
   on('command.run', ($, e) => {
     commands.push(`${e.command} ${e.args}`)
     if (e.command === 'model') {
@@ -101,6 +103,7 @@ type StartOptions = {
   run?: (argv: readonly string[], env: unknown) => Run
   sessionFile?: unknown
   files?: Record<string, string>
+  store?: Map<string, string>
 }
 
 async function startSession($: { session: { start: (e: never) => Promise<unknown> } }, on: On, opts: StartOptions = {}) {
@@ -108,7 +111,7 @@ async function startSession($: { session: { start: (e: never) => Promise<unknown
   on('session.start', () => ({ cwd }))
   on('command.register', () => ({ value: {} }) as never)
   on('session.cwd', () => ({ value: cwd }))
-  on('session.id', () => ({ value: opts.id ?? 'abc' }))
+  on('session.id', () => ({ value: sessionId ?? opts.id ?? 'abc' }))
   on('session.version', () => ({ value: { version: '2.1.288' } }) as never)
   on('process.run', ($, e) => {
     const { argv, init } = e as { argv: readonly string[]; init?: { env?: unknown } }
@@ -129,6 +132,8 @@ async function startSession($: { session: { start: (e: never) => Promise<unknown
     const path = String((e as { path?: string }).path).replace(/\\/g, '/')
     const file = Object.entries(opts.files ?? {}).find(([name]) => path.endsWith(`/${name}`))
     if (file) return { value: file[1] }
+    const stored = opts.store?.get(path.split('/').pop() ?? '')
+    if (stored !== undefined) return { value: stored }
     if (opts.sessionFile !== undefined && /sessions/.test(path)) return { value: JSON.stringify(opts.sessionFile) }
     throw new Error(`ENOENT ${path}`)
   })
@@ -224,7 +229,7 @@ test('subagent steps leave the main telemetry alone', async ($, on) => {
   engine(on)
   await step($, 'claude-sonnet-5-5', 'low', 'a1')
   const main = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  expect(await bandText(main)).toContain('Δ ░ calls ↑░░')
+  expect(await bandText(main)).toContain('Δ ⇄░ ↑░░')
   await main.unmount()
 })
 
@@ -769,7 +774,7 @@ test('a finished turn joins the saved history, and the Δ and Σ sections open t
   ])
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const chip = await band.find({ key: 'calls-chip' })
-  expect((chip?.props['props'] as { text: string }).text).toStartWith('Δ 2 calls ↑20k')
+  expect((chip?.props['props'] as { text: string }).text).toStartWith('Δ ⇄2 ↑20k')
   for (const [panel, first] of [
     ['calls', 'Last turn'],
     ['callLines', 'Last turn'],
@@ -885,29 +890,101 @@ test('a turn adds its calls up as they land, and costs the session cost rise acr
   await step($, 'claude-opus-5-5', 'high')
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const text = await bandText(band)
-  expect(text).toContain('Δ 2 calls ↑20k')
+  expect(text).toContain('Δ ⇄2 ↑20k')
   expect(text).toContain('⏱ 0ms $0.70')
   await band.unmount()
   await step($, 'claude-opus-5-5', 'high', undefined, 'next')
   const next = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  expect(await bandText(next)).toContain('Δ 1 call ↑10k')
+  expect(await bandText(next)).toContain('Δ ⇄1 ↑10k')
   expect(await bandText(next)).toContain('$0.10')
   await next.unmount()
 })
 
-test("an edit's lines go to the turn that asked for it, and the next turn starts at zero", async ($, on) => {
+test("a turn counts its own and its subagents' edits and files, and the next turn starts at zero", async ($, on) => {
   engine(on)
   on('tool.call', () => ({ result: { structuredPatch: [{ lines: ['+a', '+b', '-c'] }] } }) as never)
   await step($, 'claude-opus-5-5', 'high')
-  await $.tool.call({ tool: 'Edit', input: { file_path: 'a.ts', old_string: 'c', new_string: 'a\nb' } } as never)
+  await $.tool.call({ tool: 'Edit', file_path: 'a.ts', old_string: 'c', new_string: 'a\nb' } as never)
+  await $.tool.call({ tool: 'Edit', file_path: 'b.ts', old_string: 'c', new_string: 'a\nb', agentId: 'a1' } as never)
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
-  expect(await bandText(band)).toContain('≡+2 -1 ⏱')
+  expect(await bandText(band)).toContain('≡+4 -2 ⏱')
+  await band.post({ press: true }, { in: 'callLines-chip' })
+  const card = ((await band.find({ key: 'callLines-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
+  expect(card.find(l => l[0]?.text.trim() === 'Files touched')?.[1]?.text.trim()).toBe('2.0')
   await band.unmount()
   await step($, 'claude-opus-5-5', 'high', undefined, 'next')
   const after = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   const text = await bandText(after)
   expect(text).toContain('≡+0 -0 ⏱')
   expect(text).toContain('Σ')
-  expect(text).toMatch(/Σ .*≡\+2 -1/)
+  expect(text).toMatch(/Σ .*≡\+4 -2/)
   await after.unmount()
+})
+
+test('a file Write creates counts its lines', async ($, on) => {
+  engine(on)
+  on('tool.call', () => ({ result: { type: 'create', filePath: 'new.ts', content: 'a\nb\nc\n', structuredPatch: [] } }) as never)
+  await step($, 'claude-opus-5-5', 'high')
+  await $.tool.call({ tool: 'Write', file_path: 'new.ts', content: 'a\nb\nc\n' } as never)
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  expect(await bandText(band)).toContain('≡+3 -0 ⏱')
+  await band.unmount()
+})
+
+test('after a /clear the new session writes its own share of the files, without copying the old one', async ($, on) => {
+  engine(on)
+  on('turn.complete', () => ({ text: '' }))
+  on('session.end', ($, e) => ({ sessionId: e.sessionId }))
+  const files = new Map<string, string>()
+  on('fs.write', ($, e) => {
+    const w = e as { path: string; text: string }
+    files.set(w.path.replace(/\\/g, '/').split('/').pop() ?? '', w.text)
+    return { value: undefined } as never
+  })
+  await startSession($, on, { store: files })
+  await step($, 'claude-opus-5-5', 'high', undefined, 'before')
+  await $.turn.complete({ turnId: 'before', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+  await $.session.end({ reason: 'clear', sessionId: 'abc' } as never)
+  sessionId = 'def'
+  await step($, 'claude-opus-5-5', 'high', undefined, 'after')
+  await $.turn.complete({ turnId: 'after', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
+  await clock.advance(5100)
+  const turns = (JSON.parse(files.get('the-index-turns.json') ?? '{}') as { turns: { id: string; session: string }[] }).turns
+  expect(turns.map(t => [t.id, t.session])).toEqual([
+    ['before', 'abc'],
+    ['after', 'def'],
+  ])
+  const days = (JSON.parse(files.get('the-index-usage.json') ?? '{}') as { days: Record<string, Record<string, { tokens: number }>> }).days
+  const today = Object.values(days)[0] ?? {}
+  expect(today['abc']?.tokens).toBe(10_200)
+  expect(today['def']?.tokens).toBe(10_200)
+})
+
+test('an open row follows new props: a pinned effort row picks for the subagent whose transcript opened', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  await step($, 'claude-sonnet-5-5', 'low', 'a1')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ press: true }, { in: 'effort-chip' })
+  await band.redraw(props('a1'))
+  expect((await band.find({ key: 'effort-row' }))?.props['props']).toMatchObject({ target: 'a1' })
+  await band.pointer({ type: 'up', x: TITLE_WIDTH + ROW_GAP + 'low'.length + ROW_GAP, y: 0, button: 'left', in: 'effort-row' })
+  await band.unmount()
+  expect(commands).toEqual([])
+  await step($, 'claude-sonnet-5-5', 'low', 'a1')
+  expect(seenEfforts[seenEfforts.length - 1]).toBe('medium')
+})
+
+test('a hovered row fading out keeps fading while the pointer rests on a different pinned row', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ press: true }, { in: 'model-chip' })
+  await band.post({ hover: false }, { in: 'model-chip' })
+  await band.post({ hover: true }, { in: 'effort-chip' })
+  await clock.advance(110)
+  await band.post({ hover: false }, { in: 'effort-chip' })
+  await band.post({ hover: true }, { in: 'model-row' })
+  expect((await band.find({ key: 'effort-row' }))?.props['props']).toMatchObject({ closing: true })
+  await band.unmount()
 })

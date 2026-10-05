@@ -28,6 +28,8 @@ const SYM_CR = '⤓'
 const SYM_TPS = '↯'
 const SYM_CALL = 'Δ'
 const SYM_TOT = 'Σ'
+const SYM_CALLS = '⇄'
+const SYM_TURNS = '⟳'
 const SYM_5H = ['◷', '◶', '◵', '◴'] as const
 const FIVE_HOURS_MS = 5 * 3_600_000
 const SYM_7D = '⧈'
@@ -420,7 +422,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     let bits: Seg[][]
     if (noData || !turn) {
       bits = [
-        [seg(`${SHADE} calls`, v)],
+        [icon(SYM_CALLS), seg(SHADE, v)],
         [icon(SYM_IN), seg(SHADE.repeat(2), v)],
         [icon(SYM_CC), seg(SHADE.repeat(4), v)],
         [icon(SYM_CR), seg(SHADE.repeat(4), v)],
@@ -435,7 +437,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
       const totalIn = turn.input + turn.cacheWrite + turn.cacheRead
       const hit = hitPct(turn.cacheRead, totalIn)
       bits = [
-        [seg(`${turn.calls} ${turn.calls === 1 ? 'call' : 'calls'}`, v)],
+        [icon(SYM_CALLS), seg(String(turn.calls), v)],
         [icon(SYM_IN), seg(fmtNum(totalIn), v)],
         [icon(SYM_CC), seg(fmtNum(turn.cacheWrite), v)],
         [icon(SYM_CR), seg(fmtNum(turn.cacheRead), v)],
@@ -458,6 +460,8 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     let bits: Seg[][]
     if (noData) {
       bits = [
+        [icon(SYM_TURNS), seg(SHADE, v)],
+        [icon(SYM_CALLS), seg(SHADE, v)],
         [icon(SYM_IN), seg(SHADE.repeat(3), v)],
         [icon(SYM_CC), seg(SHADE.repeat(5), v)],
         [icon(SYM_CR), seg(SHADE.repeat(5), v)],
@@ -476,6 +480,8 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
       const few = t.requests < 3
       const cost = usage?.costUsd
       bits = [
+        [icon(SYM_TURNS), seg(t.turns === undefined ? SHADE : String(t.turns), v)],
+        [icon(SYM_CALLS), seg(String(t.requests), v)],
         [icon(SYM_IN), seg(fmtNum(t.input + t.cacheWrite + t.cacheRead), v)],
         [icon(SYM_CC), seg(fmtNum(t.cacheWrite), v)],
         [icon(SYM_CR), seg(fmtNum(t.cacheRead), v)],
@@ -609,6 +615,11 @@ export function normPath(p: string): string {
   return q
 }
 
+export function createdLines(content: string): number {
+  if (content === '') return 0
+  return content.split('\n').length - (content.endsWith('\n') ? 1 : 0)
+}
+
 export function patchLineCounts(
   patch: readonly { lines: readonly string[] }[] | undefined,
 ): { added: number; removed: number } {
@@ -625,6 +636,7 @@ export function patchLineCounts(
 
 export const EMPTY_TOTALS: IndexTotals = {
   requests: 0,
+  turns: 0,
   input: 0,
   output: 0,
   tpsSum: 0,

@@ -14,6 +14,7 @@ import {
   fmtMs,
   fmtNum,
   fmtUntil,
+  createdLines,
   gitLinks,
   lineText,
   mergeRateLimit,
@@ -77,6 +78,12 @@ describe('formatters match statusline.py', () => {
     expect(repoWebFromRemote('/srv/repo')).toBe('')
   })
 
+  test('a created file counts each of its lines', () => {
+    expect(createdLines('a\nb\nc\n')).toBe(3)
+    expect(createdLines('a\nb')).toBe(2)
+    expect(createdLines('')).toBe(0)
+  })
+
   test('patch hunks count added and removed lines', () => {
     expect(patchLineCounts([{ lines: [' a', '-b', '+c', '+d'] }, { lines: ['-e'] }])).toEqual({ added: 2, removed: 2 })
   })
@@ -106,7 +113,7 @@ describe('band lines', () => {
     expect(lines).toHaveLength(2)
     expect(lineText(lines[0] ?? [])).toBe('Unknown ░░ | ☀ ░░m ○ ░░% ◷ ░░% ░h░░m ⧈ ░░% ░d░░h')
     expect(lineText(lines[1] ?? [])).toBe(
-      'Δ ░ calls ↑░░ ⤒░░░░ ⤓░░░░ ↓░░░░ ↯░░ ⌖░░% ≡+░░ -░░ ⏱ ░░s $░.░░ | Σ ↑░░░ ⤒░░░░░ ⤓░░░░░ ↓░░░░ ↯░░ ⌖░░% ░░% ≡+░░░ -░░░ ⏱ ░░m░░s $░.░░',
+      'Δ ⇄░ ↑░░ ⤒░░░░ ⤓░░░░ ↓░░░░ ↯░░ ⌖░░% ≡+░░ -░░ ⏱ ░░s $░.░░ | Σ ⟳░ ⇄░ ↑░░░ ⤒░░░░░ ⤓░░░░░ ↓░░░░ ↯░░ ⌖░░% ░░% ≡+░░░ -░░░ ⏱ ░░m░░s $░.░░',
     )
   })
 
@@ -152,6 +159,7 @@ describe('band lines', () => {
       totals: {
         ...EMPTY_TOTALS,
         requests: 5,
+        turns: 2,
         input: 100,
         output: 3000,
         tpsSum: 300,
@@ -196,7 +204,7 @@ describe('band lines', () => {
       'Claude Opus 5.5 ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ◵ 23% 2h0m ⧈ ░░% ░d░░h',
     )
     expect(lineText(lines[1] ?? [])).toBe(
-      'Δ 3 calls ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50',
+      'Δ ⇄3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ⟳2 ⇄5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50',
     )
     expect(lineText(lines[2] ?? [])).toBe('□ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ origin/main ◻ 0 4 0 ≡ +50 -9')
     expect(gitLinks(snap.git)).toEqual({

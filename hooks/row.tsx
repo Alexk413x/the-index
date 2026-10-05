@@ -52,33 +52,35 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
         }
       }
     })
-    surface.onPointer(e => {
-      const state = surface.state ?? IDLE
-      if (e.type === 'enter') {
-        surface.post({ hover: true })
-      } else if (e.type === 'leave') {
-        surface.setState({ ...state, hovered: null })
-        surface.post({ hover: false })
-      } else if (e.type === 'move') {
-        const hovered = hoverKey(itemAt(props.lines, props.gap, e.x, e.y))
-        if (hovered !== state.hovered) surface.setState({ ...state, hovered })
-      } else if (e.type === 'up' && e.button === 'left') {
-        const pick = itemAt(props.lines, props.gap, e.x, e.y)?.pick
-        if (pick) surface.post({ pick, target: props.target })
-      }
-    })
-    surface.onKey(k => {
-      const state = surface.state ?? IDLE
-      if (picks.length === 0) return
-      if (k.key === 'right' || k.key === 'left') {
-        const focus = (state.focus + (k.key === 'right' ? 1 : picks.length - 1)) % picks.length
-        surface.setState({ ...state, focus, hovered: picks[focus] ?? null })
-      } else if (k.key === 'return' || k.key === ' ') {
-        const pick = picks[state.focus]
-        if (pick) surface.post({ pick, target: props.target })
-      }
-    })
   }
+  // Set on every call, not once: a call with new props would otherwise leave the listeners
+  // reading the first props (an old target, stale picks and links).
+  surface.onPointer(e => {
+    const state = surface.state ?? IDLE
+    if (e.type === 'enter') {
+      surface.post({ hover: true })
+    } else if (e.type === 'leave') {
+      surface.setState({ ...state, hovered: null })
+      surface.post({ hover: false })
+    } else if (e.type === 'move') {
+      const hovered = hoverKey(itemAt(props.lines, props.gap, e.x, e.y))
+      if (hovered !== state.hovered) surface.setState({ ...state, hovered })
+    } else if (e.type === 'up' && e.button === 'left') {
+      const pick = itemAt(props.lines, props.gap, e.x, e.y)?.pick
+      if (pick) surface.post({ pick, target: props.target })
+    }
+  })
+  surface.onKey(k => {
+    const state = surface.state ?? IDLE
+    if (picks.length === 0) return
+    if (k.key === 'right' || k.key === 'left') {
+      const focus = (state.focus + (k.key === 'right' ? 1 : picks.length - 1)) % picks.length
+      surface.setState({ ...state, focus, hovered: picks[focus] ?? null })
+    } else if (k.key === 'return' || k.key === ' ') {
+      const pick = picks[state.focus]
+      if (pick) surface.post({ pick, target: props.target })
+    }
+  })
 
   const state = surface.state ?? first
   const goal = props.closing ? 0 : FADE_STEPS

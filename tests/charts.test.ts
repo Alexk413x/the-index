@@ -253,6 +253,8 @@ describe('turn history', () => {
     const disk = [record('o1', 'other', now - 1000), record('old', 'other', now - HISTORY_MS - 1), record('m1', 'me', now - 5000)]
     const merged = mergeTurns(disk, 'me', [record('m2', 'me', now - 100)], now)
     expect(merged.map(t => t.id)).toEqual(['o1', 'm2'])
+    const cleared = mergeTurns([record('m2', 'me', now - 100)], 'new', [record('m2', 'me', now - 100), record('n1', 'new', now - 50)], now)
+    expect(cleared.map(t => t.id)).toEqual(['m2', 'n1'])
     expect(parseTurns(JSON.parse(serializeTurns(merged)))).toEqual(merged)
     expect(parseTurns({ version: 1, turns: [{ id: 'x', session: 's', at: 'nope' }] })).toEqual([])
     expect(parseTurns({ version: 2, turns: [] })).toEqual([])

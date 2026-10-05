@@ -1,6 +1,6 @@
 import type { RowItem } from './panels'
 
-export type Series = { values: readonly number[]; color: string; max?: number; xs?: readonly number[] }
+export type Series = { values: readonly number[]; color: string; max?: number }
 
 const BRAILLE_BASE = 0x2800
 // Braille dot bits by [column][row from the top] of a 2×4 cell.
@@ -15,14 +15,14 @@ export function dotColumn(index: number, count: number, width: number): number {
   return count <= 1 ? Math.floor((cols - 1) / 2) : Math.round((index * (cols - 1)) / (count - 1))
 }
 
-function plot(values: readonly number[], width: number, height: number, ceiling?: number, xs?: readonly number[]): Uint8Array {
+function plot(values: readonly number[], width: number, height: number, ceiling?: number): Uint8Array {
   const cols = width * 2
   const rows = height * 4
   const grid = new Uint8Array(cols * rows)
   const max = ceiling ?? Math.max(0, ...values)
   if (values.length === 0 || max <= 0) return grid
   const point = (i: number): [number, number] => [
-    xs ? Math.round(Math.min(1, Math.max(0, xs[i] ?? 0)) * (cols - 1)) : dotColumn(i, values.length, width),
+    dotColumn(i, values.length, width),
     rows - 1 - Math.round((Math.min(max, Math.max(0, values[i] ?? 0)) / max) * (rows - 1)),
   ]
   let [x0, y0] = point(0)
@@ -64,7 +64,7 @@ function cellsToItems(cells: readonly Cell[], blank: string): RowItem[] {
 }
 
 export function lineChart(series: readonly Series[], width: number, height: number, blank: string): RowItem[][] {
-  const grids = series.map(s => plot(s.values, width, height, s.max, s.xs))
+  const grids = series.map(s => plot(s.values, width, height, s.max))
   const cols = width * 2
   const lines: RowItem[][] = []
   for (let row = 0; row < height; row += 1) {

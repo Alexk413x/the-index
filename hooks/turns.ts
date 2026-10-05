@@ -82,7 +82,8 @@ export function mergeTurns(
   mine: readonly IndexTurnRecord[],
   now: number,
 ): IndexTurnRecord[] {
-  const kept = onDisk.filter(t => t.session !== session)
+  const ids = new Set(mine.map(t => t.id))
+  const kept = onDisk.filter(t => t.session !== session && !ids.has(t.id))
   return [...kept, ...mine].filter(t => now - t.at <= HISTORY_MS).sort((a, b) => a.at - b.at)
 }
 

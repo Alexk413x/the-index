@@ -22,6 +22,7 @@ import {
   modelLabel,
   nextChangeMs,
   normPath,
+  createdLines,
   patchLineCounts,
   projectName,
   cacheLeftMs,
@@ -324,7 +325,6 @@ async function nextTickDelay($: EngineInterface, cfg: Config): Promise<number> {
 }
 
 async function refreshHost($: EngineInterface): Promise<void> {
-  void loadAgentColors($)
   const [cwd, id, settings, dir, version] = await Promise.all([
     $.session.cwd(),
     $.session.id(),
@@ -332,7 +332,7 @@ async function refreshHost($: EngineInterface): Promise<void> {
     configDir($),
     $.session.version(),
   ])
-  const [entry, ide] = await Promise.all([sessionEntry($, dir, id), detectIde($, dir, cwd)])
+  const [entry, ide] = await Promise.all([sessionEntry($, dir, id), detectIde($, dir, cwd), loadAgentColors($)])
   const agentSetting = settings['agent']
   await update($, host, () => ({
     sessionName: entry.name,
@@ -423,9 +423,13 @@ async function loadAgentColors($: EngineInterface): Promise<void> {
   if (JSON.stringify(before) !== JSON.stringify(found)) await update($, agentColors, () => found)
 }
 
-async function refreshHostUntilLinked($: EngineInterface): Promise<void> {
-  if ((await read($, host))?.bridged) return
-  await refreshHost($)
+async function refreshLinkUntilLinked($: EngineInterface): Promise<void> {
+  const current = await read($, host)
+  if (!current || current.bridged) return
+  const [dir, id] = await Promise.all([configDir($), $.session.id()])
+  const entry = await sessionEntry($, dir, id)
+  if (!entry.bridged && entry.name === current.sessionName) return
+  await update($, host, prev => (prev ? { ...prev, sessionName: entry.name, bridged: entry.bridged, bridgeId: entry.bridgeId } : prev))
 }
 
 // Shares claude-statusline-ratelimits.json with statusline.py: same path and
@@ -482,14 +486,16 @@ async function refreshCompactThreshold($: EngineInterface): Promise<void> {
 async function recordEdit($: EngineInterface, result: unknown, isMainLoop: boolean, path: string | undefined): Promise<void> {
   if (!isRecord(result) || result['staged'] === true) return
   const patch = Array.isArray(result['structuredPatch']) ? (result['structuredPatch'] as { lines: string[] }[]) : []
-  const { added, removed } = patchLineCounts(patch)
+  const counted = patchLineCounts(patch)
+  const created = result['type'] === 'create' && patch.length === 0 && typeof result['content'] === 'string'
+  const added = created ? createdLines(String(result['content'])) : counted.added
+  const removed = counted.removed
   if (!added && !removed) return
   await update($, totals, prev => ({
     ...prev,
     linesAdded: prev.linesAdded + added,
     linesRemoved: prev.linesRemoved + removed,
   }))
-  if (!isMainLoop) return
   await update($, turn, prev =>
     prev
       ? {
@@ -500,6 +506,7 @@ async function recordEdit($: EngineInterface, result: unknown, isMainLoop: boole
         }
       : prev,
   )
+  if (!isMainLoop) return
   await update($, callLog, prev => {
     const last = prev[prev.length - 1]
     if (!last) return prev
@@ -519,6 +526,7 @@ const LEDGER_WRITE_MS = 5000
 const LEDGER_FILE = 'the-index-usage.json'
 const TURNS_FILE = 'the-index-turns.json'
 let turnsMine: IndexTurnRecord[] = []
+let turnsDirty = false
 let turnsLoaded = false
 const ledgerMine: Record<string, LedgerEntry> = {}
 let ledgerCost: number | null = null
@@ -548,8 +556,20 @@ async function syncLedger($: EngineInterface): Promise<void> {
     turnsMine = [...turnsOnDisk.filter(t => t.session === sessionId && !known.has(t.id)), ...turnsMine]
   }
   const turns = mergeTurns(turnsOnDisk, sessionId, turnsMine, now)
-  if (turnsMine.length > 0) await $.fs.write(turnsPath, serializeTurns(turns)).catch(() => undefined)
+  if (turnsDirty) {
+    turnsDirty = false
+    await $.fs.write(turnsPath, serializeTurns(turns)).catch(() => undefined)
+  }
   await update($, turnHistory, () => turns)
+}
+
+async function startSessionShare($: EngineInterface): Promise<void> {
+  for (const day of Object.keys(ledgerMine)) delete ledgerMine[day]
+  turnsMine = []
+  ledgerLoaded = false
+  turnsLoaded = false
+  ledgerCost = (await $.session.usage()).cost?.usd ?? null
+  await update($, turn, () => null)
 }
 
 async function recordTurn($: EngineInterface, turnId: string): Promise<void> {
@@ -558,6 +578,7 @@ async function recordTurn($: EngineInterface, turnId: string): Promise<void> {
   const [session, measured] = await Promise.all([$.session.id(), $.session.usage()])
   const record = turnToRecord(live, session, measured.cost?.usd ?? null)
   turnsMine = [...turnsMine.filter(t => t.id !== record.id), record]
+  turnsDirty = true
   await update($, turnHistory, prev => [...prev.filter(t => t.id !== record.id), record])
   syncLedgerSoon($)
 }
@@ -650,9 +671,9 @@ function hoverOpenSoon($: EngineInterface, panel: IndexPanel): void {
   })
 }
 
-function hoverKeep($: EngineInterface): void {
+function hoverKeep($: EngineInterface, panel: IndexPanel): void {
   hoverTimer?.cancel()
-  void update($, hover, h => (h?.closing ? { ...h, closing: false } : h))
+  void update($, hover, h => (h?.closing && h.panel === panel ? { ...h, closing: false } : h))
 }
 
 function hoverCloseSoon($: EngineInterface): void {
@@ -791,7 +812,7 @@ export const register: Register = (on, options) => {
       })
     })
     $.clock.every(GIT_STAT_EVERY_MS, () => {
-      void refreshHostUntilLinked($)
+      void refreshLinkUntilLinked($)
     })
     $.clock.every(GIT_FULL_EVERY_MS, () => {
       refreshGitSoon($)
@@ -813,7 +834,7 @@ export const register: Register = (on, options) => {
     if (data['hover'] === true) {
       pointerOver.add(e.element)
       if (isName && (await read($, hover))?.panel !== panel) hoverOpenSoon($, panel)
-      else hoverKeep($)
+      else hoverKeep($, panel)
     } else if (data['hover'] === false) {
       pointerOver.delete(e.element)
       if (![...pointerOver].some(key => key.startsWith(`${panel}-`))) hoverCloseSoon($)
@@ -832,6 +853,16 @@ export const register: Register = (on, options) => {
     await setPinned($, 'effort', true)
     await placeSlot($, 'effort')
     return { text: 'The effort row is open above the band. To set a level directly, run /effort.' }
+  })
+
+  on('session.end', async ($, e, next) => {
+    if (e.reason === 'clear') {
+      ledgerTimer?.cancel()
+      await syncLedger($)
+    }
+    const result = await next(e)
+    if (e.reason === 'clear') await startSessionShare($)
+    return result
   })
 
   on('session.compact', async ($, e, next) => {
@@ -924,6 +955,7 @@ export const register: Register = (on, options) => {
     const apiMs = endedAt - startedAt
     const cost = (await $.session.usage()).cost?.usd ?? null
     const callCost = cost === null || costBefore === null ? null : Math.max(0, cost - costBefore)
+    const newTurn = (await read($, turn))?.turnId !== e.turnId
     const totalIn = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens
     const hitFrac = totalIn > 0 ? u.cache_read_input_tokens / totalIn : 0
 
@@ -931,6 +963,7 @@ export const register: Register = (on, options) => {
       return {
         ...prev,
         requests: prev.requests + 1,
+        ...(prev.turns === undefined ? {} : { turns: prev.turns + (newTurn ? 1 : 0) }),
         input: prev.input + u.input_tokens,
         // Totals kept from an earlier build stay without the counts it lacked: a count from mid-session would read low.
         output: prev.output === undefined ? undefined : prev.output + u.output_tokens,
@@ -1003,8 +1036,7 @@ export const register: Register = (on, options) => {
     const r = await next(e)
     if (r.deny !== undefined) return r
     if ((e.tool === 'Edit' || e.tool === 'Write') && !r.isError) {
-      const path = (e as { file_path?: unknown }).file_path
-      await recordEdit($, r.result, e.agentId === undefined, typeof path === 'string' ? path : undefined)
+      await recordEdit($, r.result, e.agentId === undefined, e.file_path)
     }
     if (e.tool === 'Edit' || e.tool === 'Write' || e.tool === 'Bash') refreshGitSoon($)
     return r
@@ -1018,7 +1050,7 @@ export const register: Register = (on, options) => {
     const now = await $.clock.now()
     if (now - hostAt >= HOST_MIN_GAP_MS) {
       hostAt = now
-      await refreshHost($)
+      void refreshHost($)
     }
     return result
   })

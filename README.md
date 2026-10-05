@@ -14,18 +14,20 @@ type and status instead of the main session's.
 
 ```
 ● peer | Claude Opus 5.5 high | VS Code | ☼ 50m 💥 ◑ 45% 1h2m ◵ 23% 2h5m ⧈ 61% 3d4h
-Δ ↑12 ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ⤒20k ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50
+Δ ⇄3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ⟳2 ⇄5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50
 □ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ #42 origin/main ◻ 0 4 0 ≡ +50 -9
 ```
 
 - **Line 1:** Remote Control status (`●` connected, `○` not connected), session name,
   harness, agent, model and effort, IDE, prompt-cache timer, compaction tally, context fill, uptime, and the 5-hour and 7-day rate limits.
-- **Line 2:** the current turn (Δ) and the session totals (Σ), each with tokens sent,
-  cache writes, cache reads, output, tokens per second, cache hit, lines, API time and
-  cost. Δ adds up the turn's calls as they land and counts them (`3 calls`); its cost is
-  the whole turn's, subagents included. Σ's cost is the session's total, and its tokens
+- **Line 2:** the current turn (Δ) and the session totals (Σ), each with tokens sent (↑),
+  cache writes (⤒), cache reads (⤓), output (↓), tokens per second (↯), cache hit (⌖),
+  lines (≡), API time (⏱) and cost. Δ adds up the turn's calls as they land and counts
+  them (`⇄3`); its cost and lines are the whole turn's, subagents included. Σ counts the
+  session's turns (`⟳`) and calls (`⇄`); its cost is the session's total, and its tokens
   per second is the average of each call's own rate, so idle time and a few long calls
-  don't skew it.
+  don't skew it. Σ shows two cache hits: the whole session's, then a recent one that
+  weights the last few calls most.
 - **Line 3:** the folder, then two sections:
   - **The checked-out branch:** what the next commit would hold, the working tree against
     `HEAD` (files added, changed and deleted, and lines).
@@ -48,7 +50,8 @@ pointer is on the name or the row. When the pointer leaves both, the row fades o
 a slip or overshoot doesn't lose it. Click a choice to pick it. While a row has the keyboard,
 Left and Right move between its choices and Enter picks one.
 
-Click a name to pin its row open; a pinned name stays inverted (orange background).
+Click a name to pin its row open; a pinned name stays inverted (orange background), and a
+pinned section of several colours stays underlined.
 Pinned rows stack above the band, the most recently pinned at the bottom next to the
 band. The orange `■` at the start of a pinned row unpins it; `□` on a hovered row pins
 it. A row keeps its place while it's open: unpinning it with the pointer still on it
@@ -231,7 +234,7 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
   cache writes (⤒) and cache reads (⤓) together.
 - **Turn cost and lines.** A turn's cost is how much the session's cost rose from its
   first call to its latest, so subagents it ran count. Its lines are the `Edit` and
-  `Write` changes it asked for. Each call is also kept on its own in the band's call log.
+  `Write` changes it and its subagents made; a file `Write` creates counts all its lines.
 - **Session totals.** The script's Σ shows cache writes and hit rates. The band's Σ also
   shows tokens sent, cache reads, output and the average tokens per second, as Δ does.
 - **Cache glyph.** The script shows `☼` while warm and `❅` when cold. The band
@@ -258,8 +261,8 @@ minute), a rate-limit reset's next minute, or at most 60 s later.
   aren't in the API, so they keep the primary colour.
 - **Compactions.** The `💥` tally counts Claude Code's compaction event, not a 30-point
   drop in the context fill, so a `/clear` no longer counts.
-- **Working-tree chart.** The band samples the working tree when it refreshes git, so
-  the chart starts at the first sample after the last commit, or after the band loaded.
+- **`/clear`.** The session continues under a new id. The band writes the old id's share
+  of the usage and turn files, then starts the new id's share from zero.
 - **Fix share.** A fix is a commit or PR whose subject starts with a fix word. It's an
   estimate of rework, not a measure of it.
 - **Daily usage.** Claude Code keeps no daily history a mod can read. The band counts

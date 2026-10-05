@@ -24,6 +24,7 @@ export type IndexTurn = {
 
 export type IndexTotals = {
   requests: number
+  turns?: number
   input: number
   output?: number
   tpsSum?: number
