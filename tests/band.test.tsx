@@ -725,13 +725,14 @@ test('the git rows hold the GitHub links as buttons, which open over https only'
   const firstLine = async (key: string) =>
     ((await band.find({ key }))?.props['props'] as { lines: { text: string; pick?: string }[][] }).lines[0] ?? []
   const view = (await firstLine('branch-row')).find(i => i.pick)
-  expect(view).toMatchObject({ text: 'View branch ↗', pick: 'https://github.com/acme/app/tree/feat%2Fx' })
-  expect((await firstLine('base-row')).find(i => i.pick)).toMatchObject({
-    text: 'Create PR ↗',
-    pick: 'https://github.com/acme/app/compare/main...feat%2Fx?expand=1',
-  })
+  expect(view).toMatchObject({ text: 'View Branch ↗', pick: 'https://github.com/acme/app/tree/feat%2Fx' })
+  expect((await firstLine('base-row')).filter(i => i.pick).map(i => [i.text, i.pick])).toEqual([
+    ['Open Repo ↗', 'https://github.com/acme/app/tree/main'],
+    ['Create PR ↗', 'https://github.com/acme/app/compare/main...feat%2Fx?expand=1'],
+    ['View PRs ↗', 'https://github.com/acme/app/pulls'],
+  ])
   await band.pointer({ type: 'move', x: TITLE_WIDTH + ROW_GAP, y: 0, in: 'branch-row' })
-  const underlined = await band.find({ in: 'branch-row', type: 'Text', text: /View branch/ })
+  const underlined = await band.find({ in: 'branch-row', type: 'Text', text: /View Branch/ })
   expect(underlined?.props['underline']).toBe(true)
   await band.post({ pick: 'http://example.com/x', target: 'main' }, { in: 'branch-row' })
   await band.post({ pick: 'file:///C:/Windows', target: 'main' }, { in: 'branch-row' })
@@ -893,7 +894,7 @@ test('hovering the branch and base sections charts the branch commits and the me
   await clock.advance(310)
   const base = ((await band.find({ key: 'base-row' }))?.props['props'] as { lines: { text: string; pick?: string }[][] }).lines
   expect(base.map(l => l[0]?.text.trim())).toEqual(['PRs', 'Size', 'Merge', 'Fix?', ''])
-  expect(base[0]?.filter(i => i.pick).map(i => i.text)).toEqual(['#9 Other work ↗'])
+  expect(base[0]?.filter(i => i.pick).map(i => i.text)).toEqual(['Open Repo ↗', 'View PRs ↗', 'PR #9 ↗'])
   expect(base.map(l => l.at(-1)?.text)).toContain('1 of 1 PR is a fix (100%)')
   await band.post({ hover: false }, { in: 'base-chip' })
   await band.post({ hover: true }, { in: 'branch-chip' })

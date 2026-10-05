@@ -116,17 +116,19 @@ describe('commit log', () => {
     expect(lines.at(-1)?.at(-1)).toMatchObject({ footer: true })
   })
 
-  test('the commits row lists the open PRs into the base as buttons after the branch link', () => {
+  test('the commits row puts the repo, base link and PR list first, then each other open PR after a dot', () => {
     const basePrs = [
       { number: 42, title: 'Add charts', url: 'https://github.com/acme/app/pull/42', branch: 'feat/x' },
       { number: 43, title: 'A very long pull request title that runs on', url: 'https://github.com/acme/app/pull/43', branch: 'feat/y' },
     ]
-    const links = { base: { label: 'View PR #42', url: 'https://github.com/acme/app/pull/42' } }
-    const actions = panelLines('base', view({ basePrs, links }))[0]?.filter(i => i.pick) ?? []
-    expect(actions.map(i => [i.text, i.pick])).toEqual([
-      ['View PR #42 ↗', 'https://github.com/acme/app/pull/42'],
-      ['#43 A very long pull reques… ↗', 'https://github.com/acme/app/pull/43'],
-    ])
+    const links = {
+      repo: 'https://github.com/acme/app/tree/main',
+      pulls: 'https://github.com/acme/app/pulls',
+      base: { label: 'View PR #42', url: 'https://github.com/acme/app/pull/42' },
+    }
+    const first = panelLines('base', view({ basePrs, links }))[0] ?? []
+    expect(first.slice(1).map(i => i.text)).toEqual(['Open Repo ↗', 'View PR #42 ↗', 'View PRs ↗', '·', 'PR #43 ↗'])
+    expect(first.at(-1)).toMatchObject({ pick: 'https://github.com/acme/app/pull/43', detail: '#43 A very long pull request title that runs on' })
     const many = Array.from({ length: 8 }, (_, i) => ({ number: i, title: 'Fix the thing', url: `https://github.com/acme/app/pull/${i}`, branch: `b${i}` }))
     const lines = panelLines('base', view({ basePrs: many }))
     expect(lines.length).toBeGreaterThan(CHART_HEIGHT + 1)
@@ -143,7 +145,7 @@ describe('commit log', () => {
       ['@c3\t10800\tFix overlap', '2\t30\ta.ts', '@c2\t3600\tAdd hover', '40\t5\ta.ts', '1\t0\tb.ts', '@c1\t0\tStart charts', '100\t0\tc.ts'].join('\n'),
     )
     const lines = panelLines('branch', view({ branchCommits, links: { branch: 'https://github.com/a/b/tree/x' } }))
-    expect(lines[0]?.map(i => i.text.trim())).toEqual(['Branch', 'View branch ↗'])
+    expect(lines[0]?.map(i => i.text.trim())).toEqual(['Branch', 'View Branch ↗'])
     const notes = lines.map(l => l.at(-1)?.text)
     expect(notes).toContain('+143 lines added')
     expect(notes).toContain('-35 lines removed')

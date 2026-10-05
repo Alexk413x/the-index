@@ -545,7 +545,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   return [line1, line2, line3].filter(l => l.length > 0)
 }
 
-export type GitLinks = { branch?: string; base?: { label: string; url: string } }
+export type GitLinks = { repo?: string; pulls?: string; branch?: string; base?: { label: string; url: string } }
 
 export function cacheLeftMs(totals: IndexTotals, cfg: Config, now: number): number | null {
   if (totals.lastResponseAt === null) return null
@@ -555,10 +555,12 @@ export function cacheLeftMs(totals: IndexTotals, cfg: Config, now: number): numb
 export function gitLinks(git: IndexGit | null): GitLinks {
   if (!git?.branch || !git.repoWeb) return {}
   const branchUrl = encodeURIComponent(git.branch)
-  const links: GitLinks = git.branchPushed ? { branch: `${git.repoWeb}/tree/${branchUrl}` } : {}
+  const repo = git.prBaseName ? `${git.repoWeb}/tree/${encodeURIComponent(git.prBaseName)}` : git.repoWeb
+  const shared: GitLinks = { repo, pulls: `${git.repoWeb}/pulls` }
+  const links: GitLinks = git.branchPushed ? { ...shared, branch: `${git.repoWeb}/tree/${branchUrl}` } : shared
   if (!git.prBaseRef) return links
   if (git.prLink && git.prNumber) return { ...links, base: { label: `View PR #${git.prNumber}`, url: git.prLink } }
-  if (git.branch === git.prBaseName) return { ...links, base: { label: 'View commits', url: `${git.repoWeb}/commits/${branchUrl}` } }
+  if (git.branch === git.prBaseName) return { ...links, base: { label: 'View Commits', url: `${git.repoWeb}/commits/${branchUrl}` } }
   if (!git.branchPushed) return links
   const compare = `${git.repoWeb}/compare/${encodeURIComponent(git.prBaseName)}...${branchUrl}?expand=1`
   return { ...links, base: { label: 'Create PR', url: compare } }

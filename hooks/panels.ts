@@ -196,8 +196,12 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   const baseActions = (): RowItem[] => {
     const base = view.links.base
     return [
+      ...(view.links.repo ? [action('Open Repo', view.links.repo)] : []),
       ...(base ? [action(base.label, base.url)] : []),
-      ...view.basePrs.filter(pr => pr.url !== base?.url).map(pr => action(clip(`#${pr.number} ${pr.title}`, PR_TITLE_MAX + 4), pr.url)),
+      ...(view.links.pulls ? [action('View PRs', view.links.pulls)] : []),
+      ...view.basePrs
+        .filter(pr => pr.url !== base?.url)
+        .flatMap(pr => [note('·'), { ...action(`PR #${pr.number}`, pr.url), detail: clip(`#${pr.number} ${pr.title}`, PR_TITLE_MAX + 40) }]),
     ]
   }
 
@@ -377,7 +381,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   if (panel === 'branch') {
     const pending = view.uncommitted
     const commits = [...view.branchCommits].reverse().slice(-(BRANCH_SLOTS - (pending ? 1 : 0)))
-    const actions = view.links.branch ? [action('View branch', view.links.branch)] : []
+    const actions = view.links.branch ? [action('View Branch', view.links.branch)] : []
     const head: RowItem[][] = [[title('Branch'), ...(actions.length ? actions : [note(`ahead of ${view.baseRef || 'the base branch'}`)])]]
     if (commits.length === 0 && !pending) return [...head, [blankTitle(), note(`no commits ahead of ${view.baseRef || 'the base branch'}`)]]
     const barWidth = Math.floor(MIDDLE_WIDTH / BRANCH_SLOTS) - 1

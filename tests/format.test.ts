@@ -208,6 +208,8 @@ describe('band lines', () => {
     )
     expect(lineText(lines[2] ?? [])).toBe('□ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ origin/main ◻ 0 4 0 ≡ +50 -9')
     expect(gitLinks(snap.git)).toEqual({
+      repo: 'https://github.com/acme/app/tree/main',
+      pulls: 'https://github.com/acme/app/pulls',
       branch: 'https://github.com/acme/app/tree/feat%2Fx',
       base: { label: 'Create PR', url: 'https://github.com/acme/app/compare/main...feat%2Fx?expand=1' },
     })
@@ -244,14 +246,19 @@ describe('git links', () => {
   }
   const host = { sessionName: '', bridged: false, ide: '', agent: '', project: 'app' }
 
-  test('an unpushed branch has no links', () => {
-    expect(gitLinks({ ...base, branchPushed: false })).toEqual({})
+  test('an unpushed branch has only the repo and PR list links', () => {
+    expect(gitLinks({ ...base, branchPushed: false })).toEqual({
+      repo: 'https://github.com/acme/app/tree/main',
+      pulls: 'https://github.com/acme/app/pulls',
+    })
   })
 
   test('on the base branch, the base link views its commit history', () => {
     expect(gitLinks({ ...base, branch: 'main', branchPushed: true })).toEqual({
+      repo: 'https://github.com/acme/app/tree/main',
+      pulls: 'https://github.com/acme/app/pulls',
       branch: 'https://github.com/acme/app/tree/main',
-      base: { label: 'View commits', url: 'https://github.com/acme/app/commits/main' },
+      base: { label: 'View Commits', url: 'https://github.com/acme/app/commits/main' },
     })
   })
 
