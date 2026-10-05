@@ -3,11 +3,12 @@ import type { ClientModule } from 'claude-code'
 import type { RowItem } from './panels'
 
 type RowProps = { lines: RowItem[][]; gap: number; hoverColor: string; fade: boolean; closing?: boolean; target: string }
-type RowState = { step: number; goal: number; skip: boolean; hovered: string | null; focus: number }
+type RowState = { step: number; goal: number; hovered: string | null; focus: number }
 
 const FADE_STEPS = 10
 const FADE_FRAME_MS = 30
-const IDLE: RowState = { step: FADE_STEPS, goal: FADE_STEPS, skip: false, hovered: null, focus: 0 }
+const FADE_OUT_STEP = Math.ceil(FADE_STEPS / 3)
+const IDLE: RowState = { step: FADE_STEPS, goal: FADE_STEPS, hovered: null, focus: 0 }
 
 function fadeColor(hex: string, amount: number): string {
   const m = /^#([0-9a-f]{6})$/i.exec(hex)
@@ -43,13 +44,9 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
       if (state.step < state.goal) {
         surface.setState({ ...state, step: state.step + 1 })
       } else if (state.step > state.goal) {
-        if (state.skip) {
-          surface.setState({ ...state, skip: false })
-        } else {
-          const step = state.step - 1
-          surface.setState({ ...state, step, skip: true })
-          if (step === 0) surface.post({ faded: true })
-        }
+        const step = Math.max(state.goal, state.step - FADE_OUT_STEP)
+        surface.setState({ ...state, step })
+        if (step === 0) surface.post({ faded: true })
       }
     })
   }
@@ -89,21 +86,34 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
   }
   const amount = state.step / FADE_STEPS
   const detail = state.hovered === null ? undefined : props.lines.flat().find(item => hoverKey(item) === state.hovered && item.detail)?.detail
+  const partsFor = (item: RowItem) => (item.footer && state.hovered !== null ? item.details?.[state.hovered] : undefined)
   return (
     <Box flexDirection="column">
       {props.lines.map((line, y) => (
         <Box key={`line${y}`} flexDirection="row">
-          {line.map((item, i) => (
-            <Text
-              key={`item${y}-${i}`}
-              color={fadeColor(hoverKey(item) !== null && hoverKey(item) === state.hovered ? props.hoverColor : item.color, amount)}
-              underline={item.link === true && item.pick === state.hovered}
-            >
-              {i > 0 && !item.tight ? ' '.repeat(props.gap) : ''}
-              {item.footer && detail !== undefined ? detail : item.text}
-              {' '.repeat(item.pad ?? 0)}
-            </Text>
-          ))}
+          {line.flatMap((item, i) => {
+            const parts = partsFor(item)
+            const body = parts
+              ? parts.map((part, p) => (
+                  <Text key={`part${y}-${i}-${p}`} color={fadeColor(part.color, amount)}>
+                    {part.text}
+                  </Text>
+                ))
+              : [
+                  <Text
+                    key={`item${y}-${i}`}
+                    color={fadeColor(hoverKey(item) !== null && hoverKey(item) === state.hovered ? props.hoverColor : item.color, amount)}
+                    underline={item.link === true && item.pick === state.hovered}
+                  >
+                    {item.footer && detail !== undefined ? detail : item.text}
+                  </Text>,
+                ]
+            return [
+              <Text key={`gap${y}-${i}`}>{i > 0 && !item.tight ? ' '.repeat(props.gap) : ''}</Text>,
+              ...body,
+              <Text key={`pad${y}-${i}`}>{' '.repeat(item.pad ?? 0)}</Text>,
+            ]
+          })}
         </Box>
       ))}
     </Box>

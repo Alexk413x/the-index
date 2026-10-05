@@ -38,9 +38,9 @@ const SYM_CTX = ['○', '◔', '◑', '◕', '●'] as const
 const NERD_CTX_EMPTY = 0xf0766
 const NERD_CTX_SLICE_1 = 0xf0a9e
 const SYM_BR = '⎇'
-const SYM_LINES = '≡'
+export const SYM_LINES = '≡'
 const SYM_HIT = '⌖'
-const SYM_FILES = '◻'
+export const SYM_FILES = '◻'
 // VS Code and other terminals draw U+23F1 two cells wide while the layout counts
 // one; the trailing space gives it the second cell so the value isn't drawn over it.
 const SYM_AT = '⏱ '

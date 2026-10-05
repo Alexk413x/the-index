@@ -44,13 +44,14 @@ With a subagent transcript open, line 1's model segment reads
 
 The harness name, the model name, the effort and the session name each open a row
 above the band. Rest
-the pointer on a name for a moment and its row fades in over 300 ms; it stays while the
-pointer is on the name or the row. When the pointer leaves both, the row fades out over
-600 ms and then closes; coming back during the fade restores it at full brightness, so
-a slip or overshoot doesn't lose it. Click a choice to pick it. While a row has the keyboard,
+the pointer on a name for 300 ms and its row fades in over 300 ms, so a pointer passing
+over the band opens nothing. The row stays while the pointer is on the name or the row.
+When the pointer leaves both for 300 ms, the row fades out over about 100 ms and then closes;
+coming back during the fade restores it at full brightness, so a slip or overshoot
+doesn't lose it. Click a choice to pick it. While a row has the keyboard,
 Left and Right move between its choices and Enter picks one.
 
-Click a name to pin its row open; a pinned name stays inverted (orange background), and a
+Click a name to pin its row open at once, without the pause; a pinned name stays inverted (orange background), and a
 pinned section of several colours stays underlined.
 Pinned rows stack above the band, the most recently pinned at the bottom next to the
 band. The orange `■` at the start of a pinned row unpins it; `□` on a hovered row pins
@@ -99,6 +100,7 @@ The list is a table in `hooks/format.ts`. Mods can't read the `/model` picker's 
 Hover the session name for a table of the session name and full id with its start
 time, the agent and its colour, the Remote Control session id and attached clients when
 linked, and the folder with the Claude Code version.
+Click the session name in that table to copy it to the clipboard; a toast confirms the copy.
 
 ## Charts and cards
 
@@ -129,13 +131,16 @@ when it beats your average and red when it's worse; everything else stays grey.
 **Line 3, how the code is going.** These read git history, so they show data at once.
 
 - **The checked-out branch:** each commit on your branch that isn't on the base branch,
-  lines added up in green and removed down in red, with a `×` under commits whose subject
+  lines added up in green and removed down in red, files added, modified and deleted
+  stacked below them, with a `×` under commits whose subject
   reads as a fix (`fix`, `bug`, `hotfix`, `revert`). The notes give the totals, the average
-  time between commits, and the share of fixes. Hover a column for the commit. Its
+  time between commits, and the share of fixes. Uncommitted changes in the working tree
+  join as a last column marked `○`. Hover a column for the commit. Its
   `View branch ↗` button opens the branch on GitHub once it's pushed.
 - **`origin/main`:** the last 10 PRs merged into the base branch, from the `gh` CLI: each
   PR's size, time from open to merge, and a `×` for fix PRs, with the medians. Without
-  `gh` it charts the last 10 commits on the base branch instead. Its first button opens
+  `gh` it charts the last 10 commits on the base branch instead, with the same `×` row
+  for fix commits. Its first button opens
   your branch's PR (`View PR #42 ↗`), GitHub's create-PR page when your branch differs
   and has none (`Create PR ↗`), or on `main` itself the commit history
   (`View commits ↗`). The other open PRs into the base branch follow as buttons.

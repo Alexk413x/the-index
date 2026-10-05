@@ -26,7 +26,7 @@ import {
 } from './charts'
 import { isFix, isRecord } from './git'
 import { otherSessionAverages, sessionTotals, turnAverages, turnToRecord, type Averages, type SessionTotals } from './turns'
-import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
+import { MAIN, MODEL_CHOICES, SYM_FILES, SYM_LINES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
 
 export type RowItem = {
   text: string
@@ -37,8 +37,11 @@ export type RowItem = {
   hoverId?: string
   detail?: string
   footer?: boolean
+  details?: Readonly<Record<string, readonly DetailPart[]>>
   link?: boolean
 }
+
+export type DetailPart = { text: string; color: string }
 
 export const PANELS: readonly IndexPanel[] = [
   'harness',
@@ -133,6 +136,7 @@ export type PanelView = {
   baseCommits: readonly IndexCommit[]
   baseRef: string
   branchCommits: readonly IndexCommit[]
+  uncommitted: { added: number; removed: number; filesAdded: number; filesModified: number; filesDeleted: number } | null
   mergedPrs: readonly IndexMergedPr[]
   turnHistory: readonly IndexTurnRecord[]
   links: GitLinks
@@ -205,7 +209,9 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     fileBars: (StackedBar | null)[],
     barWidth: number,
     totals: { added: number; removed: number; filesAdded: number; filesModified: number; filesDeleted: number } | null,
+    fixRow: RowItem[] | null,
     hint: string,
+    details: Record<string, DetailPart[]>,
   ): RowItem[][] => {
     const opening = actions.length ? actions : header ? [note(header)] : []
     const head = opening.length ? chartRows(label, [], [], opening) : []
@@ -216,13 +222,10 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       blank: cfg.colors.icons,
     })
     const lineNotes: (RowItem | null)[] = Array.from({ length: GIT_LINES_HALF * 2 + 1 }, () => null)
-    const fileNotes: (RowItem | null)[] = Array.from({ length: GIT_FILES_HEIGHT }, () => null)
+    const fileNotes = totals ? fileNotesFor(totals.filesAdded, totals.filesModified, totals.filesDeleted) : Array.from({ length: GIT_FILES_HEIGHT }, () => null)
     if (totals) {
       lineNotes[0] = colored(`+${fmtNum(totals.added)} lines added`, cfg.colors.good)
       lineNotes[GIT_LINES_HALF * 2] = colored(`-${fmtNum(totals.removed)} lines removed`, cfg.colors.bad)
-      fileNotes[0] = colored(`+${totals.filesAdded} files added`, cfg.colors.good)
-      fileNotes[1] = colored(`~${totals.filesModified} files modified`, cfg.colors.warn)
-      fileNotes[2] = colored(`-${totals.filesDeleted} files deleted`, cfg.colors.bad)
     }
     const block = (title_: string, chart: RowItem[][], notes: readonly (RowItem | null)[]) =>
       chart.map((row, r) => [r === 0 ? title(title_) : blankTitle(), ...row, ...(notes[r] ? [notes[r]] : [])])
@@ -231,7 +234,8 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       ...block('Lines', linesChart, lineNotes),
       [blankTitle()],
       ...block('Files', stackedBars(fileBars, barWidth, GIT_FILES_HEIGHT, cfg.colors.icons), fileNotes),
-      [blankTitle(), { text: hint, color: cfg.colors.icons, footer: true }],
+      ...(fixRow ? [fixRow] : []),
+      [blankTitle(), { text: hint, color: cfg.colors.icons, footer: true, details }],
     ]
   }
   const fileParts = (added: number, modified: number, deleted: number) => [
@@ -240,6 +244,49 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     { value: deleted, color: cfg.colors.bad },
   ]
   const fileText = (added: number, modified: number, deleted: number) => `files +${added} ~${modified} -${deleted}`
+  const split = (c: IndexCommit) => {
+    const added = c.filesAdded ?? 0
+    const deleted = c.filesDeleted ?? 0
+    return { added, deleted, modified: Math.max(0, c.files - added - deleted) }
+  }
+  const commitParts = (
+    files: { added: number; modified: number; deleted: number },
+    added: number,
+    removed: number,
+    label: string,
+    labelColor: string,
+    after = '',
+  ): DetailPart[] => [
+    { text: `${SYM_FILES} `, color: cfg.colors.icons },
+    { text: `${files.added} `, color: cfg.colors.good },
+    { text: `${files.modified} `, color: cfg.colors.warn },
+    { text: `${files.deleted} `, color: cfg.colors.bad },
+    { text: `${SYM_LINES} `, color: cfg.colors.icons },
+    { text: `+${added} `, color: cfg.colors.good },
+    { text: `-${removed}  `, color: cfg.colors.bad },
+    { text: label, color: labelColor },
+    ...(after ? [{ text: after, color: cfg.colors.icons }] : []),
+  ]
+  const partsOf = (bars: readonly ({ id: string } | null)[], make: (i: number) => DetailPart[]) =>
+    Object.fromEntries(bars.flatMap((bar, i) => (bar ? [[bar.id, make(i)]] : [])))
+  const fileNotesFor = (added: number, modified: number, deleted: number): (RowItem | null)[] => {
+    const notes: (RowItem | null)[] = Array.from({ length: GIT_FILES_HEIGHT }, () => null)
+    notes[0] = colored(`+${added} files added`, cfg.colors.good)
+    notes[1] = colored(`~${modified} files modified`, cfg.colors.warn)
+    notes[2] = colored(`-${deleted} files deleted`, cfg.colors.bad)
+    return notes
+  }
+  const fixMark = (subject: string, id: string, detail: string) => ({
+    char: isFix(subject) ? '×' : '·',
+    color: isFix(subject) ? cfg.colors.bad : cfg.colors.icons,
+    id,
+    detail,
+  })
+  const fixShare = (subjects: readonly string[], one: string, many: string): RowItem => {
+    const count = subjects.filter(isFix).length
+    const text = `${count} of ${subjects.length} ${subjects.length === 1 ? one : many} (${Math.round((count / subjects.length) * 100)}%)`
+    return colored(text, count ? cfg.colors.bad : cfg.colors.icons)
+  }
 
   if (panel === 'base' && view.mergedPrs.length > 0) {
     const prs = [...view.mergedPrs].reverse().slice(-COMMIT_SLOTS)
@@ -264,14 +311,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       cfg.colors.icons,
     )[0] ?? []
     const fixes = markColumns(
-      pad(
-        prs.map((pr, i) => ({
-          char: isFix(pr.title) ? '×' : '·',
-          color: isFix(pr.title) ? cfg.colors.bad : cfg.colors.icons,
-          id: `pr-${pr.number}`,
-          detail: details[i] ?? '',
-        })),
-      ),
+      pad(prs.map((pr, i) => fixMark(pr.title, `pr-${pr.number}`, details[i] ?? ''))),
       barWidth,
       cfg.colors.icons,
     )
@@ -280,29 +320,19 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       const mid = Math.floor(sorted.length / 2)
       return sorted.length % 2 ? (sorted[mid] ?? 0) : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2
     }
-    const fixCount = prs.filter(pr => isFix(pr.title)).length
     const actions = baseActions()
     const head = actions.length ? chartRows('PRs', [], [], actions) : [[title('PRs'), note(`merged into ${view.baseRef}`)]]
     return [
       ...head,
       [title('Size'), ...size, colored(`median +${fmtNum(Math.round(median(prs.map(p => p.added))))} -${fmtNum(Math.round(median(prs.map(p => p.removed))))} per PR`, tokensColor)],
       [title('Merge'), ...merge, colored(`median ${fmtDur(median(prs.map(p => p.mergedAt - p.openedAt)) / 1000)} to merge`, cfg.colors.warn)],
-      [
-        title('Fix?'),
-        ...fixes,
-        colored(`${fixCount} of ${prs.length} ${prs.length === 1 ? 'PR is a fix' : 'PRs are fixes'} (${Math.round((fixCount / prs.length) * 100)}%)`, fixCount ? cfg.colors.bad : cfg.colors.icons),
-      ],
+      [title('Fix?'), ...fixes, fixShare(prs.map(pr => pr.title), 'PR is a fix', 'PRs are fixes')],
       [blankTitle(), { text: 'hover a column for its PR', color: cfg.colors.icons, footer: true }],
     ]
   }
 
   if (panel === 'base') {
     const commits = [...view.baseCommits].reverse().slice(-COMMIT_SLOTS)
-    const split = (c: IndexCommit) => {
-      const added = c.filesAdded ?? 0
-      const deleted = c.filesDeleted ?? 0
-      return { added, deleted, modified: Math.max(0, c.files - added - deleted) }
-    }
     const pad = <T,>(list: T[]) => padSlots(list, COMMIT_SLOTS)
     const lineBars = pad(
       commits.map(c => {
@@ -330,14 +360,26 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
         }
       : null
     const barWidth = Math.floor(MIDDLE_WIDTH / COMMIT_SLOTS) - 1
-    return gitRows('Commits', actions, header, lineBars, fileBars, barWidth, totals, commits.length ? 'hover a bar for its commit' : '')
+    const fixRow = commits.length
+      ? [
+          title('Fix?'),
+          ...markColumns(pad(commits.map((c, i) => fixMark(c.subject, `commit-${c.sha}`, lineBars[i]?.detail ?? ''))), barWidth, cfg.colors.icons),
+          fixShare(commits.map(c => c.subject), 'commit is a fix', 'commits are fixes'),
+        ]
+      : null
+    const details = partsOf(lineBars, i => {
+      const c = commits[i]
+      return c ? commitParts(split(c), c.added, c.removed, clip(c.subject, 40), cfg.colors.branch) : []
+    })
+    return gitRows('Commits', actions, header, lineBars, fileBars, barWidth, totals, fixRow, commits.length ? 'hover a bar for its commit' : '', details)
   }
 
   if (panel === 'branch') {
-    const commits = [...view.branchCommits].reverse().slice(-BRANCH_SLOTS)
+    const pending = view.uncommitted
+    const commits = [...view.branchCommits].reverse().slice(-(BRANCH_SLOTS - (pending ? 1 : 0)))
     const actions = view.links.branch ? [action('View branch', view.links.branch)] : []
     const head: RowItem[][] = [[title('Branch'), ...(actions.length ? actions : [note(`ahead of ${view.baseRef || 'the base branch'}`)])]]
-    if (commits.length === 0) return [...head, [blankTitle(), note(`no commits ahead of ${view.baseRef || 'the base branch'}`)]]
+    if (commits.length === 0 && !pending) return [...head, [blankTitle(), note(`no commits ahead of ${view.baseRef || 'the base branch'}`)]]
     const barWidth = Math.floor(MIDDLE_WIDTH / BRANCH_SLOTS) - 1
     const pad = <T,>(list: T[]) => padSlots(list, BRANCH_SLOTS)
     const details = commits.map((c, i) => {
@@ -346,30 +388,65 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       const subject = clip(c.subject, 40)
       return `${subject} · +${c.added} -${c.removed} · ${c.files} ${c.files === 1 ? 'file' : 'files'}${gap}`
     })
-    const lineBars = pad(commits.map((c, i) => ({ up: c.added, down: c.removed, id: `commit-${c.sha}`, detail: details[i] ?? '' })))
-    const fixes = pad(
-      commits.map((c, i) => ({
-        char: isFix(c.subject) ? '×' : '·',
-        color: isFix(c.subject) ? cfg.colors.bad : cfg.colors.icons,
-        id: `commit-${c.sha}`,
-        detail: details[i] ?? '',
-      })),
-    )
+    const pendingFiles = pending ? pending.filesAdded + pending.filesModified + pending.filesDeleted : 0
+    const pendingDetail = pending
+      ? `uncommitted changes · +${pending.added} -${pending.removed} · ${pendingFiles} ${pendingFiles === 1 ? 'file' : 'files'}`
+      : ''
+    const lineBars = pad([
+      ...commits.map((c, i) => ({ up: c.added, down: c.removed, id: `commit-${c.sha}`, detail: details[i] ?? '' })),
+      ...(pending ? [{ up: pending.added, down: pending.removed, id: 'uncommitted', detail: pendingDetail }] : []),
+    ])
+    const fixes = pad([
+      ...commits.map((c, i) => fixMark(c.subject, `commit-${c.sha}`, details[i] ?? '')),
+      ...(pending ? [{ char: '○', color: cfg.colors.warn, id: 'uncommitted', detail: pendingDetail }] : []),
+    ])
     const chart = splitBars(lineBars, barWidth, GIT_LINES_HALF, { up: cfg.colors.good, down: cfg.colors.bad, axis: cfg.colors.icons, blank: cfg.colors.icons })
     const notes: (RowItem | null)[] = Array.from({ length: GIT_LINES_HALF * 2 + 1 }, () => null)
-    notes[0] = colored(`+${fmtNum(commits.reduce((sum, c) => sum + c.added, 0))} lines added`, cfg.colors.good)
+    notes[0] = colored(`+${fmtNum(commits.reduce((sum, c) => sum + c.added, 0) + (pending?.added ?? 0))} lines added`, cfg.colors.good)
     const first = commits[0]
     const last = commits[commits.length - 1]
     if (first && last && commits.length > 1) notes[GIT_LINES_HALF] = note(`avg ${fmtDur((last.at - first.at) / (commits.length - 1) / 1000)} between commits`)
-    notes[GIT_LINES_HALF * 2] = colored(`-${fmtNum(commits.reduce((sum, c) => sum + c.removed, 0))} lines removed`, cfg.colors.bad)
-    const fixCount = commits.filter(c => isFix(c.subject)).length
+    notes[GIT_LINES_HALF * 2] = colored(`-${fmtNum(commits.reduce((sum, c) => sum + c.removed, 0) + (pending?.removed ?? 0))} lines removed`, cfg.colors.bad)
+    const fileBars = pad([
+      ...commits.map((c, i) => {
+        const f = split(c)
+        return { parts: fileParts(f.added, f.modified, f.deleted), id: `commit-${c.sha}`, detail: details[i] ?? '' }
+      }),
+      ...(pending ? [{ parts: fileParts(pending.filesAdded, pending.filesModified, pending.filesDeleted), id: 'uncommitted', detail: pendingDetail }] : []),
+    ])
+    const fileSum = (pick: (f: { added: number; modified: number; deleted: number }) => number) =>
+      commits.reduce((sum, c) => sum + pick(split(c)), 0) +
+      (pending ? pick({ added: pending.filesAdded, modified: pending.filesModified, deleted: pending.filesDeleted }) : 0)
+    const fileNotes = fileNotesFor(fileSum(f => f.added), fileSum(f => f.modified), fileSum(f => f.deleted))
+    const filesChart = stackedBars(fileBars, barWidth, GIT_FILES_HEIGHT, cfg.colors.icons)
+    const detailParts = partsOf(lineBars, i => {
+      const c = commits[i]
+      if (c) {
+        const previous = commits[i - 1]
+        const gap = previous ? ` · ${fmtDur((c.at - previous.at) / 1000)} after the previous` : ''
+        return commitParts(split(c), c.added, c.removed, clip(c.subject, 40), cfg.colors.branch, gap)
+      }
+      return pending
+        ? commitParts(
+            { added: pending.filesAdded, modified: pending.filesModified, deleted: pending.filesDeleted },
+            pending.added,
+            pending.removed,
+            'uncommitted',
+            cfg.colors.warn,
+          )
+        : []
+    })
     return [
       ...head,
       ...chart.map((row, r) => [r === 0 ? title('Lines') : blankTitle(), ...row, ...(notes[r] ? [notes[r]] : [])]),
-      [title('Fix?'), markColumns(fixes, barWidth, cfg.colors.icons)].flat().concat([
-        colored(`${fixCount} of ${commits.length} ${commits.length === 1 ? 'commit is a fix' : 'commits are fixes'} (${Math.round((fixCount / commits.length) * 100)}%)`, fixCount ? cfg.colors.bad : cfg.colors.icons),
-      ]),
-      [blankTitle(), { text: 'hover a column for its commit', color: cfg.colors.icons, footer: true }],
+      [blankTitle()],
+      ...filesChart.map((row, r) => [r === 0 ? title('Files') : blankTitle(), ...row, ...(fileNotes[r] ? [fileNotes[r]] : [])]),
+      [
+        title('Fix?'),
+        ...markColumns(fixes, barWidth, cfg.colors.icons),
+        commits.length ? fixShare(commits.map(c => c.subject), 'commit is a fix', 'commits are fixes') : note('no commits yet'),
+      ],
+      [blankTitle(), { text: pending ? 'hover a column for its commit; ○ is uncommitted' : 'hover a column for its commit', color: cfg.colors.icons, footer: true, details: detailParts }],
     ]
   }
 
@@ -567,7 +644,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   const rows: [string, RowItem[], RowItem | null][] = [
     [
       'Session',
-      [value(host.sessionName || 'unnamed'), note('·'), value(host.sessionId ?? '')],
+      [host.sessionName ? { ...value(host.sessionName), pick: 'name', link: true } : value('unnamed'), note('·'), value(host.sessionId ?? '')],
       view.startedAt === null ? null : note(`started ${clockTime(view.startedAt)}`),
     ],
   ]

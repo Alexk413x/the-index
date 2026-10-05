@@ -2,6 +2,32 @@
 
 All notable changes to the the-index plugin. Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/); versioning is [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.13.0] - 2026-10-05
+
+### Added
+
+- Click the session name in the session table to copy it to the clipboard. The name
+  underlines on hover, and a toast confirms the copy or says why it failed.
+- The branch row shows uncommitted changes as a last column marked `○`, so it has
+  something to show before the first commit, and charts files added, modified and
+  deleted below the lines.
+- The `origin/main` commits row has a `Fix?` row like the branch row's.
+- Hovering a commit column shows its files, lines and message in colour, with the band's
+  icons; the uncommitted column reads `uncommitted`.
+- `displayName` "The Index" in the manifest.
+
+### Changed
+
+- A row opens after the pointer rests on its name for 300 ms, and starts fading out 300 ms
+  after the pointer leaves, so a passing pointer doesn't flash rows. A click pins at once.
+- The fade-out takes about 100 ms instead of 600 ms. A pinned row fades in too.
+
+### Fixed
+
+- A row stayed open after the pointer moved from it straight onto another name, because
+  the row taken off the band never reported the pointer leaving.
+- The hover underline in rows no longer covers the spaces around a link.
+
 ## [0.12.0] - 2026-10-04
 
 ### Fixed

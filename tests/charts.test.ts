@@ -107,6 +107,15 @@ describe('commit log', () => {
     expect(lines.flat().some(i => i.hoverId === 'commit-b' && i.color === cfg.colors.warn)).toBe(true)
   })
 
+  test('the commits row marks fixes on the base branch', () => {
+    const baseCommits = parseCommitLog(['@b\t2\tFix overlap', '3\t1\ta.ts', '@a\t1\tFirst', '4\t1\ta.ts'].join('\n'))
+    const lines = panelLines('base', view({ baseCommits }))
+    const fixRow = lines.find(l => l[0]?.text.trim() === 'Fix?') ?? []
+    expect(fixRow.filter(i => i.text.includes('×')).map(i => i.hoverId)).toEqual(['commit-b'])
+    expect(fixRow.at(-1)?.text).toBe('1 of 2 commits are fixes (50%)')
+    expect(lines.at(-1)?.at(-1)).toMatchObject({ footer: true })
+  })
+
   test('the commits row lists the open PRs into the base as buttons after the branch link', () => {
     const basePrs = [
       { number: 42, title: 'Add charts', url: 'https://github.com/acme/app/pull/42', branch: 'feat/x' },
@@ -144,6 +153,24 @@ describe('commit log', () => {
     expect(fixRow.filter(i => i.text.includes('×')).map(i => i.hoverId)).toEqual(['commit-c3'])
     expect(lines.flat().find(i => i.hoverId === 'commit-c2')?.detail).toBe('Add hover · +41 -5 · 2 files · 1h0m after the previous')
     expect(panelLines('branch', view({})).flat().some(i => i.text === 'no commits ahead of origin/main')).toBe(true)
+  })
+
+  test('the branch row adds uncommitted changes as a last column, with or without commits', () => {
+    const uncommitted = { added: 12, removed: 3, filesAdded: 1, filesModified: 1, filesDeleted: 0 }
+    const alone = panelLines('branch', view({ uncommitted }))
+    expect(alone.flat().some(i => i.text.startsWith('no commits ahead'))).toBe(false)
+    expect(alone.flat().find(i => i.hoverId === 'uncommitted')?.detail).toBe('uncommitted changes · +12 -3 · 2 files')
+    expect(alone.map(l => l.at(-1)?.text)).toContain('no commits yet')
+    expect(alone.map(l => l.at(-1)?.text)).toContain('+12 lines added')
+
+    const branchCommits = parseCommitLog(['@c1\t0\tStart charts', '100\t0\tc.ts'].join('\n'))
+    const lines = panelLines('branch', view({ branchCommits, uncommitted }))
+    const fixRow = lines.find(l => l[0]?.text.trim() === 'Fix?') ?? []
+    expect([...new Set(fixRow.filter(i => i.hoverId).map(i => i.hoverId))]).toEqual(['commit-c1', 'uncommitted'])
+    expect(fixRow.at(-1)?.text).toBe('0 of 1 commit is a fix (0%)')
+    expect(lines.map(l => l.at(-1)?.text)).toContain('+112 lines added')
+    expect(lines.findIndex(l => l[0]?.text.trim() === 'Files')).toBeGreaterThan(lines.findIndex(l => l[0]?.text.trim() === 'Lines'))
+    expect(lines.map(l => l.at(-1)?.text)).toEqual(expect.arrayContaining(['+1 files added', '~2 files modified', '-0 files deleted']))
   })
 
   test('merged PRs read from gh JSON with their size, commits and time open', () => {
@@ -343,6 +370,7 @@ const view = (over: Partial<PanelView>): PanelView => ({
     baseCommits: [],
     baseRef: 'origin/main',
     branchCommits: [],
+    uncommitted: null,
     mergedPrs: [],
     turnHistory: [],
     links: {},

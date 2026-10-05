@@ -645,7 +645,8 @@ function setPinned($: EngineInterface, panel: IndexPanel, isPinned: boolean): Pr
   })
 }
 
-const HOVER_OPEN_MS = 100
+const HOVER_OPEN_MS = 300
+const HOVER_CLOSE_MS = 300
 const FADE_OUT_FALLBACK_MS = 1000
 let hoverTimer: Timer | undefined
 const pointerOver = new Set<string>()
@@ -654,15 +655,23 @@ function forgetPointer(panel: IndexPanel): void {
   for (const key of [...pointerOver]) if (key.startsWith(`${panel}-`)) pointerOver.delete(key)
 }
 
+// A row taken off the band never posts its leave, so its pointer keys would keep the panel open.
+function forgetRow(panel: IndexPanel): void {
+  pointerOver.delete(`${panel}-row`)
+  pointerOver.delete(`${panel}-pin`)
+}
+
 async function placeSlot($: EngineInterface, panel: IndexPanel): Promise<void> {
   const pinnedList = await read($, pinned)
   await update($, slots, list => {
     const live = list.filter(p => p === panel || pinnedList.includes(p))
+    for (const p of list) if (!live.includes(p)) forgetRow(p)
     return live.includes(panel) ? live : [...live, panel]
   })
 }
 
 function dropSlot($: EngineInterface, panel: IndexPanel): Promise<unknown> {
+  forgetRow(panel)
   return update($, slots, list => list.filter(p => p !== panel))
 }
 
@@ -673,16 +682,20 @@ function hoverOpenSoon($: EngineInterface, panel: IndexPanel): void {
   })
 }
 
-function hoverKeep($: EngineInterface, panel: IndexPanel): void {
+async function hoverKeep($: EngineInterface, panel: IndexPanel): Promise<void> {
+  const h = await read($, hover)
+  if (h && h.panel !== panel) return
   hoverTimer?.cancel()
-  void update($, hover, h => (h?.closing && h.panel === panel ? { ...h, closing: false } : h))
+  if (h?.closing) await update($, hover, () => ({ ...h, closing: false }))
 }
 
 function hoverCloseSoon($: EngineInterface): void {
   hoverTimer?.cancel()
-  void update($, hover, h => (h && !h.closing ? { ...h, closing: true } : h))
-  hoverTimer = $.clock.after(FADE_OUT_FALLBACK_MS, () => {
-    void hoverClose($)
+  hoverTimer = $.clock.after(HOVER_CLOSE_MS, () => {
+    void update($, hover, h => (h && !h.closing ? { ...h, closing: true } : h))
+    hoverTimer = $.clock.after(FADE_OUT_FALLBACK_MS, () => {
+      void hoverClose($)
+    })
   })
 }
 
@@ -836,7 +849,7 @@ export const register: Register = (on, options) => {
     if (data['hover'] === true) {
       pointerOver.add(e.element)
       if (isName && (await read($, hover))?.panel !== panel) hoverOpenSoon($, panel)
-      else hoverKeep($, panel)
+      else await hoverKeep($, panel)
     } else if (data['hover'] === false) {
       pointerOver.delete(e.element)
       if (![...pointerOver].some(key => key.startsWith(`${panel}-`))) hoverCloseSoon($)
@@ -845,6 +858,12 @@ export const register: Register = (on, options) => {
     } else if (data['faded'] === true && e.element === `${panel}-row`) {
       const h = await read($, hover)
       if (h?.closing && h.panel === panel) await hoverClose($)
+    } else if (panel === 'session' && data['pick'] === 'name' && e.element === `${panel}-row`) {
+      const name = (await read($, host))?.sessionName
+      if (name) {
+        const copied = await $.ui.copy({ text: name, surface: e.surface })
+        $.ui.toast(copied.isCopied ? `Copied: ${name}` : `Could not copy ${name}: ${copied.reason}`)
+      }
     } else if (typeof data['pick'] === 'string' && e.element === `${panel}-row`) {
       await applyPick($, panel, typeof data['target'] === 'string' ? data['target'] : MAIN, data['pick'])
     }
@@ -1148,6 +1167,10 @@ export const register: Register = (on, options) => {
       baseCommits: commits,
       baseRef: repo?.prBaseRef ?? '',
       branchCommits: branchLog,
+      uncommitted:
+        repo && repo.linesAdded + repo.linesRemoved + repo.filesAdded + repo.filesModified + repo.filesDeleted > 0
+          ? { added: repo.linesAdded, removed: repo.linesRemoved, filesAdded: repo.filesAdded, filesModified: repo.filesModified, filesDeleted: repo.filesDeleted }
+          : null,
       mergedPrs: merged,
       turnHistory: history,
       links: gitLinks(repo),
@@ -1180,7 +1203,7 @@ export const register: Register = (on, options) => {
               lines: rows,
               gap: ROW_GAP,
               hoverColor: look.colors.model,
-              fade: !isPinnedRow,
+              fade: true,
               closing: !isPinnedRow && hovering?.panel === panel && hovering.closing,
               target,
             }}

@@ -40,6 +40,7 @@ function view(over: Partial<PanelView> = {}): PanelView {
     baseCommits: [],
     baseRef: 'origin/main',
     branchCommits: [],
+    uncommitted: null,
     mergedPrs: [],
     turnHistory: [],
     links: {},
@@ -179,6 +180,7 @@ describe('row layout', () => {
     expect(plain.map(l => l[0]?.text)).toEqual(['Session', 'Agent', 'Folder'])
     expect(plain[1]?.map(i => i.text.trim())).toEqual(['Agent', 'none'])
     expect(plain[0]?.at(-1)?.text).toBe('started 09:05')
+    expect(plain[0]?.find(i => i.pick === 'name')).toMatchObject({ text: expect.stringContaining(HOST.sessionName), link: true })
     const linked = panelLines(
       'session',
       view({ host: { ...HOST, agent: 'reviewer', bridged: true, bridgeId: 'cse_1' }, agentColor: 'blue', attached: 2, startedAt: 0 }),
