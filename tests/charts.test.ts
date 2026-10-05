@@ -2,7 +2,7 @@ import { describe, expect, test } from 'claude-code/testing'
 
 import { barChart, divergingBars, lineChart, markerRow } from '../hooks/charts'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type Ledger } from '../hooks/ledger'
-import { parseCommitLog } from '../hooks/git'
+import { isFix, parseCommitLog, parseMergedPrs } from '../hooks/git'
 import { readConfig } from '../hooks/format'
 import {
   CHART_HEIGHT,
@@ -125,23 +125,69 @@ describe('commit log', () => {
     expect(lines.slice(0, lines.length - CHART_HEIGHT).flat().filter(i => i.pick)).toHaveLength(8)
   })
 
-  test('the changes row plots the working tree since the last commit, with its rate', () => {
-    const worktree = {
-      head: 'abc',
-      since: 0,
-      points: [
-        { at: 1_800_000, added: 40, removed: 10, files: 2 },
-        { at: 3_600_000, added: 120, removed: 30, files: 5 },
-      ],
-    }
-    const lines = panelLines('branch', view({ worktree, now: 7_200_000 }))
+  test('fix subjects read as fixes, other subjects do not', () => {
+    for (const subject of ['Fix the tooltip', 'fix: overlap', 'Hotfix login', 'Revert "Add x"', 'bugfix(ui): y']) expect(isFix(subject)).toBe(true)
+    for (const subject of ['Add charts', 'Prefix names', 'Refactor fixtures']) expect(isFix(subject)).toBe(false)
+  })
+
+  test('the branch row bars each commit ahead of the base, marks fixes, and gives the pace', () => {
+    const branchCommits = parseCommitLog(
+      ['@c3\t10800\tFix overlap', '2\t30\ta.ts', '@c2\t3600\tAdd hover', '40\t5\ta.ts', '1\t0\tb.ts', '@c1\t0\tStart charts', '100\t0\tc.ts'].join('\n'),
+    )
+    const lines = panelLines('branch', view({ branchCommits, links: { branch: 'https://github.com/a/b/tree/x' } }))
+    expect(lines[0]?.map(i => i.text.trim())).toEqual(['Branch', 'View branch ↗'])
     const notes = lines.map(l => l.at(-1)?.text)
-    expect(lines[0]?.map(i => i.text.trim())).toEqual(['Changes', '2h0m since the last commit'])
-    expect(notes).toEqual(expect.arrayContaining(['+120 lines added', '1.3 lines/min', '-30 lines removed', '~5 files modified']))
-    expect(lines.flat().filter(i => i.hoverId === 'slot-0')).toEqual([])
-    expect(lines.flat().find(i => i.hoverId === 'slot-4')?.detail).toBe('30m0s after the commit · +40 -10 · files +0 ~2 -0')
-    expect(lines.flat().find(i => i.hoverId === 'slot-19')?.detail).toBe('2h0m after the commit · +120 -30 · files +0 ~5 -0')
-    expect(panelLines('branch', view({})).flat().some(i => i.text === 'no commit yet')).toBe(true)
+    expect(notes).toContain('+143 lines added')
+    expect(notes).toContain('-35 lines removed')
+    expect(notes).toContain('avg 1h30m between commits')
+    expect(notes).toContain('1 of 3 commits are fixes (33%)')
+    const fixRow = lines.find(l => l[0]?.text.trim() === 'Fix?') ?? []
+    expect(fixRow.filter(i => i.text.includes('×')).map(i => i.hoverId)).toEqual(['commit-c3'])
+    expect(lines.flat().find(i => i.hoverId === 'commit-c2')?.detail).toBe('Add hover · +41 -5 · 2 files · 1h0m after the previous')
+    expect(panelLines('branch', view({})).flat().some(i => i.text === 'no commits ahead of origin/main')).toBe(true)
+  })
+
+  test('merged PRs read from gh JSON with their size, commits and time open', () => {
+    const prs = parseMergedPrs([
+      {
+        number: 8,
+        title: 'Hover rows',
+        url: 'https://github.com/a/b/pull/8',
+        additions: 310,
+        deletions: 45,
+        changedFiles: 6,
+        createdAt: '2026-10-01T10:00:00Z',
+        mergedAt: '2026-10-01T15:06:00Z',
+        commits: [{}, {}, {}],
+      },
+      { number: 9, url: 'u', createdAt: 'nope', mergedAt: 'nope' },
+    ])
+    expect(prs).toEqual([
+      { number: 8, title: 'Hover rows', url: 'https://github.com/a/b/pull/8', added: 310, removed: 45, files: 6, commits: 3, openedAt: Date.parse('2026-10-01T10:00:00Z'), mergedAt: Date.parse('2026-10-01T15:06:00Z') },
+    ])
+  })
+
+  test('the PRs row bars size and time to merge per merged PR, marks fixes, and gives medians', () => {
+    const pr = (number: number, title: string, added: number, removed: number, hours: number) => ({
+      number,
+      title,
+      url: `https://github.com/a/b/pull/${number}`,
+      added,
+      removed,
+      files: 2,
+      commits: 2,
+      openedAt: 0,
+      mergedAt: hours * 3_600_000,
+    })
+    const mergedPrs = [pr(3, 'Fix crash', 10, 4, 1), pr(2, 'Add band', 300, 50, 6), pr(1, 'Start', 100, 0, 2)]
+    const lines = panelLines('base', view({ mergedPrs, links: { base: { label: 'Create PR', url: 'https://github.com/a/b/compare/x' } } }))
+    expect(lines.map(l => l[0]?.text.trim())).toEqual(['PRs', 'Size', 'Merge', 'Fix?', ''])
+    const notes = lines.map(l => l.at(-1)?.text)
+    expect(notes).toContain('median +100 -4 per PR')
+    expect(notes).toContain('median 2h0m to merge')
+    expect(notes).toContain('1 of 3 PRs are fixes (33%)')
+    expect(lines.flat().find(i => i.hoverId === 'pr-2')?.detail).toBe('#2 Add band · +300 -50 · 2 commits · 6h0m open')
+    expect(lines[0]?.filter(i => i.pick).map(i => i.text)).toEqual(['Create PR ↗'])
   })
 })
 
@@ -251,7 +297,8 @@ const view = (over: Partial<PanelView>): PanelView => ({
     contextLimit: null,
     baseCommits: [],
     baseRef: 'origin/main',
-    worktree: null,
+    branchCommits: [],
+    mergedPrs: [],
     links: {},
     basePrs: [],
     cacheLeftMs: null,

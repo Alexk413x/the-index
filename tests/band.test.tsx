@@ -830,20 +830,21 @@ test('hovering the context shows its fill over time, the compaction threshold an
   await band.unmount()
 })
 
-test('hovering the branch and base sections charts the working tree and the base branch commits', async ($, on) => {
+test('hovering the branch and base sections charts the branch commits and the merged PRs', async ($, on) => {
   engine(on)
-  const committed = Math.floor((START + 60_000 - 3_600_000) / 1000)
+  const merged = [
+    { number: 7, title: 'Fix crash', url: 'https://github.com/acme/app/pull/7', additions: 10, deletions: 2, changedFiles: 1, createdAt: '2026-10-01T10:00:00Z', mergedAt: '2026-10-01T11:00:00Z', commits: [{}] },
+  ]
+  const open = [{ number: 9, title: 'Other work', url: 'https://github.com/acme/app/pull/9', headRefName: 'other' }]
   await startSession($, on, {
     run: argv => {
       if (argv.includes('status')) return { exitCode: 0, stdout: '# branch.oid abc\n# branch.head feat/x\n1 .M N... 100644 100644 100644 a a a.ts' }
-      if (argv.includes('diff') && argv.includes('HEAD')) return { exitCode: 0, stdout: '12\t3\ta.ts' }
       if (argv.includes('for-each-ref')) return { exitCode: 0, stdout: 'refs/remotes/origin/main\t' }
-      if (argv.includes('-1')) return { exitCode: 0, stdout: `abc\t${committed}` }
-      if (argv.includes('-10')) return { exitCode: 0, stdout: '@m2\t200\tSecond\n5\t1\tx.ts\n@m1\t100\tFirst\n2\t0\ty.ts' }
+      if (argv.includes('origin/main..HEAD')) return { exitCode: 0, stdout: '@b2\t200\tFix hover\n3\t9\tx.ts\n@b1\t100\tAdd hover\n40\t0\tx.ts' }
+      if (argv.includes('-10')) return { exitCode: 0, stdout: '@m2\t200\tSecond\n5\t1\tx.ts' }
       if (argv.includes('config')) return { exitCode: 0, stdout: 'git@github.com:acme/app.git' }
-      if (argv[0] === 'gh' && argv.includes('list')) {
-        return { exitCode: 0, stdout: JSON.stringify([{ number: 9, title: 'Other work', url: 'https://github.com/acme/app/pull/9', headRefName: 'other' }]) }
-      }
+      if (argv[0] === 'gh' && argv.includes('merged')) return { exitCode: 0, stdout: JSON.stringify(merged) }
+      if (argv[0] === 'gh' && argv.includes('list')) return { exitCode: 0, stdout: JSON.stringify(open) }
       return { exitCode: argv[0] === 'git' ? 0 : 1 }
     },
   })
@@ -851,14 +852,16 @@ test('hovering the branch and base sections charts the working tree and the base
   await band.post({ hover: true }, { in: 'base-chip' })
   await clock.advance(110)
   const base = ((await band.find({ key: 'base-row' }))?.props['props'] as { lines: { text: string; pick?: string }[][] }).lines
-  expect(base[0]?.[0]?.text.trim()).toBe('Commits')
+  expect(base.map(l => l[0]?.text.trim())).toEqual(['PRs', 'Size', 'Merge', 'Fix?', ''])
   expect(base[0]?.filter(i => i.pick).map(i => i.text)).toEqual(['#9 Other work ↗'])
+  expect(base.map(l => l.at(-1)?.text)).toContain('1 of 1 PR is a fix (100%)')
   await band.post({ hover: false }, { in: 'base-chip' })
   await band.post({ hover: true }, { in: 'branch-chip' })
   await clock.advance(110)
   const branch = ((await band.find({ key: 'branch-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
-  expect(branch.map(l => l.at(-1)?.text)).toContain('+12 lines added')
-  expect(branch.flat().some(i => i.text === '1h0m since the last commit')).toBe(true)
+  const notes = branch.map(l => l.at(-1)?.text)
+  expect(notes).toContain('+43 lines added')
+  expect(notes).toContain('1 of 2 commits are fixes (50%)')
   await band.unmount()
 })
 

@@ -129,19 +129,19 @@ export type IndexCommit = {
   filesDeleted?: number
 }
 
-export type IndexWorktreePoint = {
-  at: number
+export type IndexPullRequest = { number: number; title: string; url: string; branch: string }
+
+export type IndexMergedPr = {
+  number: number
+  title: string
+  url: string
   added: number
   removed: number
   files: number
-  filesAdded?: number
-  filesModified?: number
-  filesDeleted?: number
+  commits: number
+  openedAt: number
+  mergedAt: number
 }
-
-export type IndexPullRequest = { number: number; title: string; url: string; branch: string }
-
-export type IndexWorktreeLog = { head: string; since: number; points: readonly IndexWorktreePoint[] }
 
 export type IndexDayTotal = { date: string; tokens: number; costUsd: number | null }
 
@@ -172,7 +172,8 @@ declare module 'claude-code' {
       contextLog: readonly IndexContextPoint[]
       contextLimit: IndexContextLimit | null
       baseCommits: readonly IndexCommit[]
-      worktreeLog: IndexWorktreeLog | null
+      branchCommits: readonly IndexCommit[]
+      mergedPrs: readonly IndexMergedPr[]
       basePrs: readonly IndexPullRequest[]
       usageSummary: IndexUsageSummary | null
     }

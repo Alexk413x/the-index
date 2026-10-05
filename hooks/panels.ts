@@ -8,13 +8,23 @@ import type {
   IndexHarness,
   IndexHost,
   IndexPanel,
+  IndexMergedPr,
   IndexPullRequest,
-  IndexWorktreeLog,
-  IndexWorktreePoint,
 } from '../types'
-import { barChart, columnBars, divergingBars, lineChart, markerRow, splitBars, stackedBars, type SplitBar, type StackedBar } from './charts'
+import {
+  barChart,
+  columnBars,
+  divergingBars,
+  lineChart,
+  markColumns,
+  markerRow,
+  splitBars,
+  stackedBars,
+  type SplitBar,
+  type StackedBar,
+} from './charts'
+import { isFix, isRecord } from './git'
 import { MAIN, MODEL_CHOICES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
-import { isRecord } from './git'
 import type { UsageSummary } from './ledger'
 
 export type RowItem = {
@@ -50,7 +60,7 @@ export const CHART_HEIGHT = 6
 export const GIT_LINES_HALF = 2
 export const GIT_FILES_HEIGHT = 3
 export const COMMIT_SLOTS = 10
-export const CHANGE_SLOTS = 20
+export const BRANCH_SLOTS = 20
 export const ACTION_WIDTH = 90
 export const PR_TITLE_MAX = 24
 export const TURN_SLOTS = 20
@@ -204,7 +214,8 @@ export type PanelView = {
   contextLimit: IndexContextLimit | null
   baseCommits: readonly IndexCommit[]
   baseRef: string
-  worktree: IndexWorktreeLog | null
+  branchCommits: readonly IndexCommit[]
+  mergedPrs: readonly IndexMergedPr[]
   links: GitLinks
   basePrs: readonly IndexPullRequest[]
   cacheLeftMs: number | null
@@ -298,6 +309,67 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   ]
   const fileText = (added: number, modified: number, deleted: number) => `files +${added} ~${modified} -${deleted}`
 
+  if (panel === 'base' && view.mergedPrs.length > 0) {
+    const prs = [...view.mergedPrs].reverse().slice(-COMMIT_SLOTS)
+    const barWidth = Math.floor(MIDDLE_WIDTH / COMMIT_SLOTS) - 1
+    const pad = <T,>(list: T[]) => [...list, ...Array<null>(Math.max(0, COMMIT_SLOTS - list.length)).fill(null)]
+    const details = prs.map(pr => {
+      const titleText = pr.title.length > 34 ? `${pr.title.slice(0, 33)}…` : pr.title
+      return `#${pr.number} ${titleText} · +${pr.added} -${pr.removed} · ${pr.commits} ${pr.commits === 1 ? 'commit' : 'commits'} · ${fmtDur((pr.mergedAt - pr.openedAt) / 1000)} open`
+    })
+    const size = columnBars(
+      prs.map((pr, i) => ({ value: pr.added + pr.removed, color: tokensColor, id: `pr-${pr.number}`, detail: details[i] ?? '' })),
+      COMMIT_SLOTS,
+      barWidth,
+      1,
+      cfg.colors.icons,
+    )[0] ?? []
+    const merge = columnBars(
+      prs.map((pr, i) => ({ value: Math.max(1, pr.mergedAt - pr.openedAt), color: cfg.colors.warn, id: `pr-${pr.number}`, detail: details[i] ?? '' })),
+      COMMIT_SLOTS,
+      barWidth,
+      1,
+      cfg.colors.icons,
+    )[0] ?? []
+    const fixes = markColumns(
+      pad(
+        prs.map((pr, i) => ({
+          char: isFix(pr.title) ? '×' : '·',
+          color: isFix(pr.title) ? cfg.colors.bad : cfg.colors.icons,
+          id: `pr-${pr.number}`,
+          detail: details[i] ?? '',
+        })),
+      ),
+      barWidth,
+      cfg.colors.icons,
+    )
+    const median = (values: number[]) => {
+      const sorted = [...values].sort((x, y) => x - y)
+      const mid = Math.floor(sorted.length / 2)
+      return sorted.length % 2 ? (sorted[mid] ?? 0) : ((sorted[mid - 1] ?? 0) + (sorted[mid] ?? 0)) / 2
+    }
+    const fixCount = prs.filter(pr => isFix(pr.title)).length
+    const base = view.links.base
+    const actions = [
+      ...(base ? [action(base.label, base.url)] : []),
+      ...view.basePrs
+        .filter(pr => pr.url !== base?.url)
+        .map(pr => action(`#${pr.number} ${pr.title.length > PR_TITLE_MAX ? `${pr.title.slice(0, PR_TITLE_MAX - 1)}…` : pr.title}`, pr.url)),
+    ]
+    const head = actions.length ? chartRows('PRs', [], [], actions) : [[title('PRs'), note(`merged into ${view.baseRef}`)]]
+    return [
+      ...head,
+      [title('Size'), ...size, colored(`median +${fmtNum(Math.round(median(prs.map(p => p.added))))} -${fmtNum(Math.round(median(prs.map(p => p.removed))))} per PR`, tokensColor)],
+      [title('Merge'), ...merge, colored(`median ${fmtDur(median(prs.map(p => p.mergedAt - p.openedAt)) / 1000)} to merge`, cfg.colors.warn)],
+      [
+        title('Fix?'),
+        ...fixes,
+        colored(`${fixCount} of ${prs.length} ${prs.length === 1 ? 'PR is a fix' : 'PRs are fixes'} (${Math.round((fixCount / prs.length) * 100)}%)`, fixCount ? cfg.colors.bad : cfg.colors.icons),
+      ],
+      [blankTitle(), { text: 'hover a column for its PR', color: cfg.colors.icons, footer: true }],
+    ]
+  }
+
   if (panel === 'base') {
     const commits = [...view.baseCommits].reverse().slice(-COMMIT_SLOTS)
     const split = (c: IndexCommit) => {
@@ -342,56 +414,43 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   }
 
   if (panel === 'branch') {
-    const log = view.worktree
+    const commits = [...view.branchCommits].reverse().slice(-BRANCH_SLOTS)
     const actions = view.links.branch ? [action('View branch', view.links.branch)] : []
-    if (!log) return gitRows('Changes', actions, 'no commit yet', [], [], 2, null, null, '')
-    const span = Math.max(1, view.now - log.since)
-    const slotMs = span / CHANGE_SLOTS
-    const filesOf = (p: IndexWorktreePoint) => ({
-      added: p.filesAdded ?? 0,
-      modified: p.filesModified ?? p.files,
-      deleted: p.filesDeleted ?? 0,
+    const head: RowItem[][] = [[title('Branch'), ...(actions.length ? actions : [note(`ahead of ${view.baseRef || 'the base branch'}`)])]]
+    if (commits.length === 0) return [...head, [blankTitle(), note(`no commits ahead of ${view.baseRef || 'the base branch'}`)]]
+    const barWidth = Math.floor(MIDDLE_WIDTH / BRANCH_SLOTS) - 1
+    const pad = <T,>(list: T[]) => [...list, ...Array<null>(Math.max(0, BRANCH_SLOTS - list.length)).fill(null)]
+    const details = commits.map((c, i) => {
+      const previous = commits[i - 1]
+      const gap = previous ? ` · ${fmtDur((c.at - previous.at) / 1000)} after the previous` : ''
+      const subject = c.subject.length > 40 ? `${c.subject.slice(0, 39)}…` : c.subject
+      return `${subject} · +${c.added} -${c.removed} · ${c.files} ${c.files === 1 ? 'file' : 'files'}${gap}`
     })
-    const slots = Array.from({ length: CHANGE_SLOTS }, (_, i) => {
-      const end = log.since + (i + 1) * slotMs
-      const point = [...log.points].reverse().find(p => p.at <= end)
-      return point ?? null
-    })
-    const lineBars = slots.map((p, i) => {
-      if (!p) return null
-      const f = filesOf(p)
-      const detail = `${fmtDur(((i + 1) * slotMs) / 1000)} after the commit · +${p.added} -${p.removed} · ${fileText(f.added, f.modified, f.deleted)}`
-      return { up: p.added, down: p.removed, id: `slot-${i}`, detail }
-    })
-    const fileBars = slots.map((p, i) => {
-      if (!p) return null
-      const f = filesOf(p)
-      return { parts: fileParts(f.added, f.modified, f.deleted), id: `slot-${i}`, detail: lineBars[i]?.detail ?? '' }
-    })
-    const latest = log.points[log.points.length - 1]
-    const minutes = Math.max(1, span / 60_000)
-    const rate = latest ? (latest.added + latest.removed) / minutes : 0
-    const totals = latest
-      ? {
-          added: latest.added,
-          removed: latest.removed,
-          filesAdded: filesOf(latest).added,
-          filesModified: filesOf(latest).modified,
-          filesDeleted: filesOf(latest).deleted,
-        }
-      : null
-    const barWidth = Math.floor(MIDDLE_WIDTH / CHANGE_SLOTS) - 1
-    return gitRows(
-      'Changes',
-      actions,
-      `${fmtDur(span / 1000)} since the last commit`,
-      lineBars,
-      fileBars,
-      barWidth,
-      totals,
-      note(`${rate < 10 ? rate.toFixed(1) : fmtNum(Math.round(rate))} lines/min`),
-      latest ? 'hover a bar for the working tree then' : 'no changes since the last commit',
+    const lineBars = pad(commits.map((c, i) => ({ up: c.added, down: c.removed, id: `commit-${c.sha}`, detail: details[i] ?? '' })))
+    const fixes = pad(
+      commits.map((c, i) => ({
+        char: isFix(c.subject) ? '×' : '·',
+        color: isFix(c.subject) ? cfg.colors.bad : cfg.colors.icons,
+        id: `commit-${c.sha}`,
+        detail: details[i] ?? '',
+      })),
     )
+    const chart = splitBars(lineBars, barWidth, GIT_LINES_HALF, { up: cfg.colors.good, down: cfg.colors.bad, axis: cfg.colors.icons, blank: cfg.colors.icons })
+    const notes: (RowItem | null)[] = Array.from({ length: GIT_LINES_HALF * 2 + 1 }, () => null)
+    notes[0] = colored(`+${fmtNum(commits.reduce((sum, c) => sum + c.added, 0))} lines added`, cfg.colors.good)
+    const first = commits[0]
+    const last = commits[commits.length - 1]
+    if (first && last && commits.length > 1) notes[GIT_LINES_HALF] = note(`avg ${fmtDur((last.at - first.at) / (commits.length - 1) / 1000)} between commits`)
+    notes[GIT_LINES_HALF * 2] = colored(`-${fmtNum(commits.reduce((sum, c) => sum + c.removed, 0))} lines removed`, cfg.colors.bad)
+    const fixCount = commits.filter(c => isFix(c.subject)).length
+    return [
+      ...head,
+      ...chart.map((row, r) => [r === 0 ? title('Lines') : blankTitle(), ...row, ...(notes[r] ? [notes[r]] : [])]),
+      [title('Fix?'), markColumns(fixes, barWidth, cfg.colors.icons)].flat().concat([
+        colored(`${fixCount} of ${commits.length} ${commits.length === 1 ? 'commit is a fix' : 'commits are fixes'} (${Math.round((fixCount / commits.length) * 100)}%)`, fixCount ? cfg.colors.bad : cfg.colors.icons),
+      ]),
+      [blankTitle(), { text: 'hover a column for its commit', color: cfg.colors.icons, footer: true }],
+    ]
   }
 
   if (panel === 'context') {
@@ -399,7 +458,6 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const limit = view.contextLimit
     const thresholdPct = limit?.threshold ? Math.min(100, (limit.threshold / limit.window) * 100) : null
     const series = [{ values: log.map(p => p.percent), color: tokensColor, max: 100 }]
-    if (thresholdPct !== null) series.push({ values: [thresholdPct, thresholdPct], color: cfg.colors.warn, max: 100 })
     const marked = log.flatMap((p, i) => (p.compaction ? [i] : []))
     const chart = [
       ...lineChart(series, MIDDLE_WIDTH, CHART_HEIGHT - 1, cfg.colors.icons),

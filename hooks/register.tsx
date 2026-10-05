@@ -7,6 +7,7 @@ import type {
   IndexHarness,
   IndexPanel,
   IndexGit,
+  IndexMergedPr,
   IndexPullRequest,
   IndexRateLimit,
   IndexUsage,
@@ -52,6 +53,7 @@ import {
   numstatTotals,
   parseCommitLog,
   parseJson,
+  parseMergedPrs,
   parsePullRequests,
   parseSharedLimits,
   serializeSharedLimits,
@@ -80,12 +82,14 @@ const usageSummary = atom({ plugin: 'the-index', key: 'usageSummary' } as const,
 const contextLog = atom({ plugin: 'the-index', key: 'contextLog' } as const, [])
 const contextLimit = atom({ plugin: 'the-index', key: 'contextLimit' } as const, null)
 const baseCommits = atom({ plugin: 'the-index', key: 'baseCommits' } as const, [])
-const worktreeLog = atom({ plugin: 'the-index', key: 'worktreeLog' } as const, null)
+const branchCommits = atom({ plugin: 'the-index', key: 'branchCommits' } as const, [])
+const mergedPrs = atom({ plugin: 'the-index', key: 'mergedPrs' } as const, [])
 const basePrs = atom({ plugin: 'the-index', key: 'basePrs' } as const, [])
 
 const EWMA_ALPHA = 0.3
 const CONTEXT_LOG_MAX = 500
-const WORKTREE_LOG_MAX = 500
+const BRANCH_COMMIT_LIMIT = 20
+const MERGED_PR_LIMIT = 10
 const BASE_PR_LIMIT = 10
 const GIT_STAT_EVERY_MS = 30_000
 const GIT_FULL_EVERY_MS = 300_000
@@ -236,6 +240,26 @@ async function openPr($: EngineInterface, cwd: string, branch: string): Promise<
 }
 
 const basePrCache = new Map<string, { at: number; prs: IndexPullRequest[] }>()
+const mergedPrCache = new Map<string, { at: number; prs: IndexMergedPr[] }>()
+
+async function mergedBasePrs($: EngineInterface, cwd: string, base: string): Promise<IndexMergedPr[]> {
+  const now = await $.clock.now()
+  const cached = mergedPrCache.get(base)
+  if (cached && now - cached.at < PR_CACHE_MS) return cached.prs
+  let prs: IndexMergedPr[] = []
+  try {
+    const fields = 'number,title,url,additions,deletions,changedFiles,createdAt,mergedAt,commits'
+    const r = await $.process.run(
+      ['gh', 'pr', 'list', '--base', base, '--state', 'merged', '--limit', String(MERGED_PR_LIMIT), '--json', fields],
+      { cwd, timeoutMs: 15_000 },
+    )
+    prs = r.exitCode === 0 ? parseMergedPrs(parseJson(r.stdout)) : []
+  } catch {
+    prs = []
+  }
+  mergedPrCache.set(base, { at: now, prs })
+  return prs
+}
 
 async function openBasePrs($: EngineInterface, cwd: string, base: string): Promise<IndexPullRequest[]> {
   const now = await $.clock.now()
@@ -259,40 +283,20 @@ async function refreshGit($: EngineInterface): Promise<void> {
   const cwd = await $.session.cwd()
   const snap = await gitSnapshot($, cwd)
   await update($, git, () => snap)
-  const [headLine, baseLog, now] = await Promise.all([
-    runGit($, cwd, ['log', '-1', '--format=%H%x09%ct']),
-    snap?.prBaseRef
-      ? runGit($, cwd, ['log', snap.prBaseRef, '-10', '--numstat', '--summary', `--format=${COMMIT_FORMAT}`])
+  const base = snap?.prBaseRef ?? ''
+  const onBase = !snap || snap.branch === snap.prBaseName
+  const [baseLog, branchLog] = await Promise.all([
+    base ? runGit($, cwd, ['log', base, '-10', '--numstat', '--summary', `--format=${COMMIT_FORMAT}`]) : Promise.resolve(''),
+    base && !onBase
+      ? runGit($, cwd, ['log', `${base}..HEAD`, `-${BRANCH_COMMIT_LIMIT}`, '--numstat', '--summary', `--format=${COMMIT_FORMAT}`])
       : Promise.resolve(''),
-    $.clock.now(),
   ])
   await update($, baseCommits, () => parseCommitLog(baseLog))
-  const prs = snap?.prBaseName && snap.repoWeb.includes('github') ? await openBasePrs($, cwd, snap.prBaseName) : []
+  await update($, branchCommits, () => parseCommitLog(branchLog))
+  const onGithub = Boolean(snap?.prBaseName && snap.repoWeb.includes('github'))
+  const [prs, merged] = onGithub && snap ? await Promise.all([openBasePrs($, cwd, snap.prBaseName), mergedBasePrs($, cwd, snap.prBaseName)]) : [[], []]
   await update($, basePrs, () => prs)
-  const [head = '', committedAt = ''] = headLine.split('\t')
-  if (!snap || !head) return
-  const point = {
-    at: now,
-    added: snap.linesAdded,
-    removed: snap.linesRemoved,
-    files: snap.filesAdded + snap.filesModified + snap.filesDeleted,
-    filesAdded: snap.filesAdded,
-    filesModified: snap.filesModified,
-    filesDeleted: snap.filesDeleted,
-  }
-  await update($, worktreeLog, prev => {
-    if (!prev || prev.head !== head) return { head, since: (parseInt(committedAt, 10) || 0) * 1000 || now, points: [point] }
-    const last = prev.points[prev.points.length - 1]
-    const same =
-      last &&
-      last.added === point.added &&
-      last.removed === point.removed &&
-      last.filesAdded === point.filesAdded &&
-      last.filesModified === point.filesModified &&
-      last.filesDeleted === point.filesDeleted
-    if (same) return prev
-    return { ...prev, points: [...prev.points.slice(-(WORKTREE_LOG_MAX - 1)), point] }
-  })
+  await update($, mergedPrs, () => merged)
 }
 
 async function gitStamp($: EngineInterface, gitDir: string): Promise<string> {
@@ -960,7 +964,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary, contextPoints, limit, commits, worktree, prs] =
+    const [agentSteps, lastCall, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, calls, summary, contextPoints, limit, commits, branchLog, merged, prs] =
       await Promise.all([
         read($, agents),
         read($, call),
@@ -983,7 +987,8 @@ export const register: Register = (on, options) => {
         read($, contextLog),
         read($, contextLimit),
         read($, baseCommits),
-        read($, worktreeLog),
+        read($, branchCommits),
+        read($, mergedPrs),
         read($, basePrs),
       ])
     const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
@@ -1040,7 +1045,8 @@ export const register: Register = (on, options) => {
       contextLimit: limit,
       baseCommits: commits,
       baseRef: repo?.prBaseRef ?? '',
-      worktree,
+      branchCommits: branchLog,
+      mergedPrs: merged,
       links: gitLinks(repo),
       basePrs: prs,
       cacheLeftMs: cfg.show.cache ? cacheLeftMs(sums, cfg, now) : null,

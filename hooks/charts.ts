@@ -211,6 +211,21 @@ export function stackedBars(bars: readonly (StackedBar | null)[], barWidth: numb
   return rows
 }
 
+export type Mark = { char: string; color: string; id: string; detail: string }
+
+export function markColumns(marks: readonly (Mark | null)[], barWidth: number, blank: string): RowItem[] {
+  const cells: Cell[] = []
+  const left = Math.floor((barWidth - 1) / 2)
+  for (const mark of marks) {
+    const tag = mark ? { hoverId: mark.id, detail: mark.detail } : {}
+    for (let w = 0; w < barWidth; w += 1) {
+      cells.push(mark && w === left ? { char: mark.char, color: mark.color, ...tag } : { char: ' ', color: blank, ...tag })
+    }
+    cells.push({ char: ' ', color: blank })
+  }
+  return cellsToItems(cells, blank)
+}
+
 export type ColumnBar = { value: number; color: string; id: string; detail: string }
 
 export function columnBars(bars: readonly ColumnBar[], slots: number, barWidth: number, height: number, blank: string): RowItem[][] {

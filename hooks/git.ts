@@ -1,4 +1,4 @@
-import type { IndexCommit, IndexGit, IndexPullRequest, IndexRateLimit } from '../types'
+import type { IndexCommit, IndexGit, IndexMergedPr, IndexPullRequest, IndexRateLimit } from '../types'
 import { repoWebFromRemote } from './format'
 
 export const BASE_REFS = [
@@ -36,6 +36,36 @@ export function parsePullRequests(data: unknown): IndexPullRequest[] {
         ]
       : [],
   )
+}
+
+const FIX_SUBJECT = /^\s*(fix|fixes|fixed|bug|bugfix|hotfix|revert)\b/i
+
+export function isFix(subject: string): boolean {
+  return FIX_SUBJECT.test(subject)
+}
+
+export function parseMergedPrs(data: unknown): IndexMergedPr[] {
+  if (!Array.isArray(data)) return []
+  return data.flatMap(pr => {
+    if (!isRecord(pr) || typeof pr['number'] !== 'number' || typeof pr['url'] !== 'string') return []
+    const openedAt = Date.parse(String(pr['createdAt'] ?? ''))
+    const mergedAt = Date.parse(String(pr['mergedAt'] ?? ''))
+    if (!Number.isFinite(openedAt) || !Number.isFinite(mergedAt)) return []
+    const num = (key: string) => (typeof pr[key] === 'number' ? (pr[key] as number) : 0)
+    return [
+      {
+        number: pr['number'],
+        title: typeof pr['title'] === 'string' ? pr['title'] : '',
+        url: pr['url'],
+        added: num('additions'),
+        removed: num('deletions'),
+        files: num('changedFiles'),
+        commits: Array.isArray(pr['commits']) ? pr['commits'].length : num('commits'),
+        openedAt,
+        mergedAt,
+      },
+    ]
+  })
 }
 
 export const COMMIT_FORMAT = '@%H%x09%ct%x09%s'
