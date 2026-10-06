@@ -16,8 +16,6 @@ claude plugin marketplace add Alexk413x/marketplace
 claude plugin install the-index@alexk413x
 ```
 
-The repositories are private, so installing needs GitHub access to them.
-
 > **Pre-1.0.** The band runs on function hooks, an early-access Claude Code API that
 > changes between releases.
 
