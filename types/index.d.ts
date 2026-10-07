@@ -76,6 +76,8 @@ export type IndexGit = {
   prBehind: number
 }
 
+export type IndexWorktree = { path: string; name: string; current: boolean; git: IndexGit | null }
+
 export type IndexHost = {
   sessionName: string
   sessionId?: string
@@ -101,6 +103,7 @@ export type IndexPanel =
   | 'usage'
   | 'branch'
   | 'base'
+  | 'worktrees'
 
 export type IndexHarness = { name: string; label: string }
 
@@ -199,6 +202,7 @@ declare module 'claude-code' {
       turnHistory: readonly IndexTurnRecord[]
       mergedPrs: readonly IndexMergedPr[]
       basePrs: readonly IndexPullRequest[]
+      worktrees: readonly IndexWorktree[]
       usageSummary: IndexUsageSummary | null
     }
   }

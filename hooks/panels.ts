@@ -12,6 +12,7 @@ import type {
   IndexTurn,
   IndexTurnRecord,
   IndexUsageSummary,
+  IndexWorktree,
 } from '../types'
 import {
   barChart,
@@ -26,7 +27,20 @@ import {
 } from './charts'
 import { isFix, isRecord } from './git'
 import { otherSessionAverages, sessionTotals, turnAverages, turnToRecord, type Averages, type SessionTotals } from './turns'
-import { MAIN, MODEL_CHOICES, SYM_FILES, SYM_LINES, fmtCost, fmtDur, fmtNum, modelLabel, type Config, type GitLinks } from './format'
+import {
+  MAIN,
+  MODEL_CHOICES,
+  SYM_FILES,
+  SYM_LINES,
+  fmtCost,
+  fmtDur,
+  fmtNum,
+  gitLinks,
+  gitParts,
+  modelLabel,
+  type Config,
+  type GitLinks,
+} from './format'
 
 export type RowItem = {
   text: string
@@ -56,6 +70,7 @@ export const PANELS: readonly IndexPanel[] = [
   'usage',
   'branch',
   'base',
+  'worktrees',
 ]
 export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
 export const ROW_GAP = 2
@@ -141,6 +156,7 @@ export type PanelView = {
   turnHistory: readonly IndexTurnRecord[]
   links: GitLinks
   basePrs: readonly IndexPullRequest[]
+  worktrees?: readonly IndexWorktree[]
   cacheLeftMs: number | null
   now: number
 }
@@ -168,7 +184,44 @@ function clockTime(ms: number): string {
   return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
+export const FOLDER_PICK = 'folder:'
+
+function worktreeLines(view: PanelView): RowItem[][] {
+  const { cfg } = view
+  const note = (text: string): RowItem => ({ text, color: cfg.colors.icons })
+  const title = (text: string): RowItem => ({ ...note(text), pad: Math.max(0, TITLE_WIDTH - text.length) })
+  const blankTitle = (): RowItem => ({ ...note(''), pad: TITLE_WIDTH })
+  const sep = (): RowItem => note('|')
+  const asItems = (segs: readonly { text: string; color: string }[], pick?: string): RowItem[] =>
+    segs.map((s, i) => ({ text: s.text, color: s.color, ...(i > 0 ? { tight: true } : {}), ...(pick ? { pick, link: true } : {}) }))
+  const trees = view.worktrees ?? []
+  const rows = trees.map(tree => {
+    const parts = tree.git?.branch ? gitParts(tree.git, cfg) : null
+    const links = gitLinks(tree.git)
+    return {
+      folder: [{ text: tree.name, color: cfg.colors.project, pick: `${FOLDER_PICK}${tree.path}`, link: true }],
+      branch: parts ? asItems(parts.branch, links.branch) : [note(tree.git ? 'detached' : 'not read yet')],
+      base: parts?.base ? asItems(parts.base, links.base?.url ?? links.repo) : [],
+      current: tree.current,
+    }
+  })
+  const folderWidth = Math.max(0, ...rows.map(r => sectionWidth(r.folder)))
+  const branchWidth = Math.max(0, ...rows.map(r => sectionWidth(r.branch)))
+  return [
+    [title('Worktrees'), note('click a folder to open it, a pushed branch or a base to view it on GitHub')],
+    ...rows.map(r => [
+      blankTitle(),
+      ...padTo(r.folder, folderWidth),
+      sep(),
+      ...(r.base.length ? padTo(r.branch, branchWidth) : r.branch),
+      ...(r.base.length ? [sep(), ...r.base] : []),
+      ...(r.current ? [note('· this session')] : []),
+    ]),
+  ]
+}
+
 export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
+  if (panel === 'worktrees') return worktreeLines(view)
   const { cfg, choices } = view
   const note = (text: string): RowItem => ({ text, color: cfg.colors.icons })
   const title = (text: string): RowItem => ({ ...note(text), pad: Math.max(0, TITLE_WIDTH - text.length) })

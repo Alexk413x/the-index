@@ -40,6 +40,7 @@ import {
   USAGE_DAYS,
   currentChoices,
   mainStep,
+  FOLDER_PICK,
   panelLines,
   rowOrder,
   savedEffortFor,
@@ -58,6 +59,10 @@ import {
   parseMergedPrs,
   parsePullRequests,
   parseSharedLimits,
+  parseWorktrees,
+  samePath,
+  worktreeGitDir,
+  worktreeName,
   serializeSharedLimits,
 } from './git'
 import { agentColorKey, parseAgentFile } from './agents'
@@ -89,6 +94,7 @@ const branchCommits = atom({ plugin: 'the-index', key: 'branchCommits' } as cons
 const mergedPrs = atom({ plugin: 'the-index', key: 'mergedPrs' } as const, [])
 const turnHistory = atom({ plugin: 'the-index', key: 'turnHistory' } as const, [])
 const basePrs = atom({ plugin: 'the-index', key: 'basePrs' } as const, [])
+const worktrees = atom({ plugin: 'the-index', key: 'worktrees' } as const, [])
 
 const EWMA_ALPHA = 0.3
 const CONTEXT_LOG_MAX = 500
@@ -305,6 +311,47 @@ async function refreshGit($: EngineInterface): Promise<void> {
   await update($, baseCommits, () => parseCommitLog(baseLog))
 }
 
+async function refreshWorktrees($: EngineInterface): Promise<void> {
+  const cwd = await $.session.cwd()
+  const [listed, top] = await Promise.all([
+    runGit($, cwd, ['worktree', 'list', '--porcelain']),
+    runGit($, cwd, ['rev-parse', '--show-toplevel']),
+  ])
+  const trees = await Promise.all(
+    parseWorktrees(listed).map(async entry => {
+      const dotGit = await $.fs.read(`${entry.path}/.git`).catch(() => null)
+      return { path: entry.path, current: samePath(entry.path, top), gitDir: worktreeGitDir(entry.path, dotGit) }
+    }),
+  )
+  const others = trees.filter(t => !t.current)
+  worktreeDirs = others.map(t => t.gitDir)
+  const snaps = new Map(await Promise.all(others.map(async t => [t.path, await gitSnapshot($, t.path)] as const)))
+  await update($, worktrees, () =>
+    trees.length > 1 ? trees.map(t => ({ path: t.path, name: worktreeName(t.path), current: t.current, git: snaps.get(t.path) ?? null })) : [],
+  )
+}
+
+async function worktreeStamp($: EngineInterface): Promise<string> {
+  if (!commonDir) return ''
+  const stamps = await Promise.all([
+    $.fs.stat(`${commonDir}/worktrees`).then(
+      st => String(st.mtimeMs),
+      () => '-',
+    ),
+    ...worktreeDirs.map(dir => gitStamp($, dir)),
+  ])
+  return stamps.join(';')
+}
+
+function refreshWorktreesSoon($: EngineInterface): void {
+  worktreeTimer?.cancel()
+  worktreeTimer = $.clock.after(GIT_DEBOUNCE_MS, () => {
+    void refreshWorktrees($).then(async () => {
+      lastWorktreeStamp = await worktreeStamp($)
+    })
+  })
+}
+
 async function gitStamp($: EngineInterface, gitDir: string): Promise<string> {
   if (!gitDir) return ''
   const stamps = await Promise.all(
@@ -396,10 +443,10 @@ async function openUrl($: EngineInterface, href: string): Promise<void> {
   if (url.protocol === 'https:') await shellOpen($, url.href)
 }
 
-async function openFolder($: EngineInterface): Promise<void> {
-  const cwd = await $.session.cwd()
+async function openFolder($: EngineInterface, path?: string): Promise<void> {
+  const dir = path ?? (await $.session.cwd())
   const isWindows = (await $.env.get('OS')) === 'Windows_NT'
-  await shellOpen($, isWindows ? cwd.replace(/\//g, '\\') : cwd)
+  await shellOpen($, isWindows ? dir.replace(/\//g, '\\') : dir)
 }
 
 async function switchMainEffort($: EngineInterface, level: IndexEffort | 'auto'): Promise<void> {
@@ -609,6 +656,10 @@ let tickTimer: Timer | undefined
 let gitTimer: Timer | undefined
 let gitDir = ''
 let lastStamp = ''
+let worktreeTimer: Timer | undefined
+let commonDir = ''
+let worktreeDirs: string[] = []
+let lastWorktreeStamp = ''
 let hostAt = 0
 
 function scheduleTick($: EngineInterface, cfg: Config): void {
@@ -662,6 +713,7 @@ function forgetRow(panel: IndexPanel): void {
 }
 
 async function placeSlot($: EngineInterface, panel: IndexPanel): Promise<void> {
+  if (panel === 'worktrees') refreshWorktreesSoon($)
   const pinnedList = await read($, pinned)
   await update($, slots, list => {
     const live = list.filter(p => p === panel || pinnedList.includes(p))
@@ -765,6 +817,12 @@ async function applyPick($: EngineInterface, panel: IndexPanel, target: string, 
     await openUrl($, pick)
     return
   }
+  if (panel === 'worktrees') {
+    const path = pick.startsWith(FOLDER_PICK) ? pick.slice(FOLDER_PICK.length) : ''
+    if (!path) await openUrl($, pick)
+    else if ((await read($, worktrees)).some(t => t.path === path)) await openFolder($, path)
+    return
+  }
   if (panel === 'effort' && pick === 'ultracode') {
     await toggleUltracode($)
     return
@@ -807,9 +865,11 @@ export const register: Register = (on, options) => {
     await $.command.register({ name: 'index-effort', description: "Open the band's effort row" })
     const cwd = await $.session.cwd()
     gitDir = (await runGit($, cwd, ['rev-parse', '--absolute-git-dir'])).replace(/\\/g, '/')
+    commonDir = (await runGit($, cwd, ['rev-parse', '--path-format=absolute', '--git-common-dir'])).replace(/\\/g, '/')
     await Promise.allSettled([
       refreshHost($),
       refreshGit($),
+      refreshWorktrees($),
       loadHarnesses($),
       $.session.usage().then(u => {
         ledgerCost = u.cost?.usd ?? null
@@ -820,10 +880,14 @@ export const register: Register = (on, options) => {
     ])
     hostAt = await $.clock.now()
     lastStamp = await gitStamp($, gitDir)
+    lastWorktreeStamp = await worktreeStamp($)
     scheduleTick($, cfg)
     $.clock.every(GIT_STAT_EVERY_MS, () => {
       void gitStamp($, gitDir).then(stamp => {
         if (stamp !== lastStamp) refreshGitSoon($)
+      })
+      void worktreeStamp($).then(stamp => {
+        if (stamp !== lastWorktreeStamp) refreshWorktreesSoon($)
       })
     })
     $.clock.every(GIT_STAT_EVERY_MS, () => {
@@ -831,6 +895,7 @@ export const register: Register = (on, options) => {
     })
     $.clock.every(GIT_FULL_EVERY_MS, () => {
       refreshGitSoon($)
+      refreshWorktreesSoon($)
       void syncLedger($)
       void refreshCompactThreshold($)
     })
@@ -1084,7 +1149,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history] =
+    const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history, trees] =
       await Promise.all([
         read($, agents),
         read($, turn),
@@ -1110,6 +1175,7 @@ export const register: Register = (on, options) => {
         read($, mergedPrs),
         read($, basePrs),
         read($, turnHistory),
+        read($, worktrees),
       ])
     const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
     const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
@@ -1142,6 +1208,7 @@ export const register: Register = (on, options) => {
         clients: attached,
         agentEfforts: efforts,
         agentModels: models,
+        worktrees: trees.length,
       },
       look,
       viewed,
@@ -1175,6 +1242,7 @@ export const register: Register = (on, options) => {
       turnHistory: history,
       links: gitLinks(repo),
       basePrs: prs,
+      worktrees: trees.map(t => (t.current ? { ...t, git: repo } : t)),
       cacheLeftMs: cfg.show.cache ? cacheLeftMs(sums, cfg, now) : null,
       now,
     }

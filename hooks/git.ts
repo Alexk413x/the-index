@@ -195,6 +195,43 @@ export function applyPr(snap: IndexGit, raw: string, leftRight: string): void {
   }
 }
 
+export type WorktreeEntry = { path: string; branch: string }
+
+export function parseWorktrees(porcelain: string): WorktreeEntry[] {
+  const entries: WorktreeEntry[] = []
+  for (const block of porcelain.split(/\r?\n\s*\r?\n/)) {
+    let path = ''
+    let branch = ''
+    let skip = false
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith('worktree ')) path = line.slice('worktree '.length).trim().replace(/\\/g, '/')
+      else if (line.startsWith('branch ')) branch = line.slice('branch '.length).trim().replace(/^refs\/heads\//, '')
+      else if (line === 'bare' || line.startsWith('prunable')) skip = true
+    }
+    if (path && !skip) entries.push({ path, branch })
+  }
+  return entries
+}
+
+export function worktreeName(path: string): string {
+  return path.replace(/\/+$/, '').split('/').pop() ?? path
+}
+
+export function samePath(a: string, b: string): boolean {
+  const norm = (p: string) => {
+    const slashed = p.replace(/\\/g, '/').replace(/\/+$/, '')
+    return /^[a-z]:/i.test(slashed) ? slashed.toLowerCase() : slashed
+  }
+  return norm(a) === norm(b)
+}
+
+export function worktreeGitDir(path: string, dotGit: string | null): string {
+  const m = dotGit ? /^gitdir:\s*(.+)$/m.exec(dotGit) : null
+  const target = m?.[1]?.trim().replace(/\\/g, '/')
+  if (!target) return `${path}/.git`
+  return /^([a-z]:)?\//i.test(target) ? target : `${path}/${target}`
+}
+
 export function isRecord(v: unknown): v is Record<string, unknown> {
   return typeof v === 'object' && v !== null && !Array.isArray(v)
 }

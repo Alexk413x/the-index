@@ -27,6 +27,10 @@ claude plugin install the-index@alexk413x
   tokens, cache hits, speed and dollars, so expensive turns stand out.
 - **Git state.** See what your next commit and your next PR hold, so you don't need to
   run `git status` or open GitHub.
+- **Worktrees.** When the repo has more than one git worktree, the band shows ⑂ and
+  the count after the folder name. Hover it to list each worktree with its branch diff
+  and its diff against the base branch. Click a folder name to open it, or a pushed
+  branch to view it on GitHub.
 - **Charts on hover.** Hover a section for a chart: context over time, daily usage,
   turn and session scorecards, and commit history with uncommitted changes. Click to
   pin it.
@@ -50,11 +54,13 @@ The band works on your machine only. It sends nothing to any server of its own a
 collects no telemetry.
 
 - **Runs:**
-  - `git` in the session folder, for status, diffs and commit history;
+  - `git` in the session folder, for status, diffs and commit history, and in the
+    repo's other worktree folders, for their status and diffs;
   - `gh` in the session folder, when installed, to look up pull requests on GitHub with
     your existing `gh` sign-in;
   - PowerShell's `Shell.Application`, `open` or `xdg-open`, only when you click the
-    folder name or a GitHub button, to open that folder or `https://` link;
+    folder name, a worktree name or a GitHub button, to open that folder or `https://`
+    link;
   - Claude Code's own `/model` and `/effort` commands, when you pick a model or effort.
 - **Reads:**
   - the session registry (`~/.claude/sessions`), for the session name and Remote Control
@@ -83,8 +89,9 @@ Change settings in the `/config` menu. Every setting is optional.
   - Line 1: `show_remote`, `show_session`, `show_model`, `show_ide`, `show_cache`,
     `show_context`, `show_uptime`, `show_rate_limits`, `show_agent_view`.
   - Line 2: `show_calls` (the Δ turn), `show_totals` (the Σ session).
-  - Line 3: `show_project`, `show_commit_diff` (the branch), `show_pr_diff` (the base
-    branch).
+  - Line 3: `show_project`, `show_worktrees` (the ⑂ count of git worktrees, drawn only
+    when the repo has more than one), `show_commit_diff` (the branch), `show_pr_diff`
+    (the base branch).
 - **Colours** (hex values)
   - `color_primary`: the band's main colour, orange `#d75f00` by default.
   - Values: `color_session`, `color_model`, `color_ide`, `color_uptime`,

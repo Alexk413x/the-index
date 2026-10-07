@@ -50,6 +50,7 @@ const SYM_BOOM = '💥'
 const SYM_CACHE = ['☀', '☼', '❅'] as const
 const SYM_COLD = '❄'
 const SYM_FOLDER = '□'
+const SYM_WT = '⑂'
 const SYM_REMOTE_ON = '●'
 const SYM_REMOTE_OFF = '○'
 const SYM_AGENT = '⤷'
@@ -66,6 +67,7 @@ const SEGMENTS = [
   'calls',
   'totals',
   'project',
+  'worktrees',
   'commit_diff',
   'pr_diff',
   'agent_view',
@@ -275,6 +277,7 @@ export type Snapshot = {
   clients: number
   agentEfforts: Readonly<Record<string, IndexEffort>>
   agentModels: Readonly<Record<string, string>>
+  worktrees?: number
 }
 
 export type ViewedAgent = {
@@ -489,60 +492,62 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   if (cfg.show.project && host?.project) {
     line3.push([icon(SYM_FOLDER), sp, { text: host.project, color: c.project, menu: 'project' }])
   }
+  if (cfg.show.worktrees && (snap.worktrees ?? 0) > 1) {
+    line3.push(withMenu([icon(SYM_WT), sp, seg(String(snap.worktrees), c.branch)], 'worktrees'))
+  }
   const git = snap.git
   if (git?.branch) {
-    if (cfg.show.commit_diff) {
-      line3.push(withMenu([
-        icon(SYM_BR),
-        sp,
-        seg(git.branch, c.branch),
-        sp,
-        icon(SYM_FILES),
-        sp,
-        seg(String(git.filesAdded), c.good),
-        sp,
-        seg(String(git.filesModified), c.warn),
-        sp,
-        seg(String(git.filesDeleted), c.bad),
-        sp,
-        icon(SYM_LINES),
-        sp,
-        seg(`+${git.linesAdded}`, c.good),
-        sp,
-        seg(`-${git.linesRemoved}`, c.bad),
-      ], 'branch'))
-    }
-    if (cfg.show.pr_diff && git.prBaseRef) {
-      const label = git.prBaseRef
-      line3.push(withMenu([
-        icon(SYM_AHEAD),
-        seg(String(git.prAhead), c.good),
-        sp,
-        icon(SYM_BEHIND),
-        seg(String(git.prBehind), c.bad),
-        sp,
-        icon(SYM_BR),
-        sp,
-        seg(git.prNumber ? `#${git.prNumber} ${label}` : label, c.branch),
-        sp,
-        icon(SYM_FILES),
-        sp,
-        seg(String(git.prFilesAdded), c.good),
-        sp,
-        seg(String(git.prFilesModified), c.warn),
-        sp,
-        seg(String(git.prFilesDeleted), c.bad),
-        sp,
-        icon(SYM_LINES),
-        sp,
-        seg(`+${git.prLinesAdded}`, c.good),
-        sp,
-        seg(`-${git.prLinesRemoved}`, c.bad),
-      ], 'base'))
-    }
+    const parts = gitParts(git, cfg)
+    if (cfg.show.commit_diff) line3.push(withMenu(parts.branch, 'branch'))
+    if (cfg.show.pr_diff && parts.base) line3.push(withMenu(parts.base, 'base'))
   }
 
   return [line1, line2, line3].filter(l => l.length > 0)
+}
+
+export function gitParts(git: IndexGit, cfg: Config): { branch: Seg[]; base: Seg[] | null } {
+  const c = cfg.colors
+  const seg = (text: string, color: string): Seg => ({ text, color })
+  const icon = (text: string) => seg(text, c.icons)
+  const sp = seg(' ', c.icons)
+  const diff = (added: number, modified: number, deleted: number, plus: number, minus: number): Seg[] => [
+    icon(SYM_FILES),
+    sp,
+    seg(String(added), c.good),
+    sp,
+    seg(String(modified), c.warn),
+    sp,
+    seg(String(deleted), c.bad),
+    sp,
+    icon(SYM_LINES),
+    sp,
+    seg(`+${plus}`, c.good),
+    sp,
+    seg(`-${minus}`, c.bad),
+  ]
+  const branch = [
+    icon(SYM_BR),
+    sp,
+    seg(git.branch, c.branch),
+    sp,
+    ...diff(git.filesAdded, git.filesModified, git.filesDeleted, git.linesAdded, git.linesRemoved),
+  ]
+  if (!git.prBaseRef) return { branch, base: null }
+  const label = git.prBaseRef
+  const base = [
+    icon(SYM_AHEAD),
+    seg(String(git.prAhead), c.good),
+    sp,
+    icon(SYM_BEHIND),
+    seg(String(git.prBehind), c.bad),
+    sp,
+    icon(SYM_BR),
+    sp,
+    seg(git.prNumber ? `#${git.prNumber} ${label}` : label, c.branch),
+    sp,
+    ...diff(git.prFilesAdded, git.prFilesModified, git.prFilesDeleted, git.prLinesAdded, git.prLinesRemoved),
+  ]
+  return { branch, base }
 }
 
 export type GitLinks = { repo?: string; pulls?: string; branch?: string; base?: { label: string; url: string } }

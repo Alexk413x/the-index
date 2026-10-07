@@ -1,10 +1,12 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { MAIN, readConfig } from '../hooks/format'
+import { emptyGit } from '../hooks/git'
 import {
   MIDDLE_WIDTH,
   ROW_GAP,
   TITLE_WIDTH,
+  FOLDER_PICK,
   currentChoices,
   mainStep,
   padTo,
@@ -202,5 +204,47 @@ describe('row order', () => {
     ])
     expect(rowOrder(['model', 'effort'], ['model'], null, ['effort', 'model'])).toEqual(['model'])
     expect(rowOrder(['model', 'harness'], ['model', 'harness'], null, ['model'])).toEqual(['model'])
+  })
+})
+
+describe('worktrees panel', () => {
+  const text = (line: readonly RowItem[]) =>
+    line.map((i, n) => `${n > 0 && !i.tight ? ' '.repeat(ROW_GAP) : ''}${i.text}${' '.repeat(i.pad ?? 0)}`).join('')
+  const git = (branch: string, pushed: boolean) => ({
+    ...emptyGit('git@github.com:acme/app.git'),
+    branch,
+    branchPushed: pushed,
+    filesModified: 1,
+    linesAdded: 5,
+    prBaseRef: 'origin/main',
+    prBaseName: 'main',
+    prAhead: 2,
+  })
+  const worktrees = [
+    { path: 'C:/src/app', name: 'app', current: true, git: git('main', true) },
+    { path: 'C:/src/app-feat', name: 'app-feat', current: false, git: git('feat/x', false) },
+  ]
+
+  test('each worktree draws its folder, branch and base in the band format', () => {
+    const lines = panelLines('worktrees', view({ worktrees }))
+    expect(text(lines[0] ?? [])).toBe('Worktrees   click a folder to open it, a pushed branch or a base to view it on GitHub')
+    expect(text(lines[1] ?? [])).toBe(
+      '            app       |  ⎇ main ◻ 0 1 0 ≡ +5 -0    |  ↑2 ↓0 ⎇ origin/main ◻ 0 0 0 ≡ +0 -0  · this session',
+    )
+    expect(text(lines[2] ?? [])).toBe('            app-feat  |  ⎇ feat/x ◻ 0 1 0 ≡ +5 -0  |  ↑2 ↓0 ⎇ origin/main ◻ 0 0 0 ≡ +0 -0')
+  })
+
+  test('folders link to their path, only a pushed branch links to GitHub, and every base links', () => {
+    const lines = panelLines('worktrees', view({ worktrees }))
+    expect(lines[2]?.find(i => i.text === 'app-feat')?.pick).toBe(`${FOLDER_PICK}C:/src/app-feat`)
+    expect(lines[1]?.find(i => i.text === 'main')?.pick).toBe('https://github.com/acme/app/tree/main')
+    expect(lines[2]?.find(i => i.text === 'feat/x')?.pick).toBeUndefined()
+    expect(lines[1]?.find(i => i.text === 'origin/main')?.pick).toBe('https://github.com/acme/app/commits/main')
+    expect(lines[2]?.find(i => i.text === 'origin/main')?.pick).toBe('https://github.com/acme/app/tree/main')
+  })
+
+  test('a worktree not read yet shows a note instead of figures', () => {
+    const lines = panelLines('worktrees', view({ worktrees: [{ path: 'C:/src/x', name: 'x', current: false, git: null }] }))
+    expect(text(lines[1] ?? [])).toContain('not read yet')
   })
 })

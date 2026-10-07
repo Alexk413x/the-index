@@ -24,7 +24,19 @@ import {
   repoWebFromRemote,
   type Snapshot,
 } from '../hooks/format'
-import { applyBase, applyPr, applyStatus, emptyGit, parsePullRequests, parseSharedLimits, serializeSharedLimits } from '../hooks/git'
+import {
+  applyBase,
+  applyPr,
+  applyStatus,
+  emptyGit,
+  parsePullRequests,
+  parseSharedLimits,
+  parseWorktrees,
+  samePath,
+  serializeSharedLimits,
+  worktreeGitDir,
+  worktreeName,
+} from '../hooks/git'
 
 const NOW = 1_800_000_000_000
 
@@ -369,5 +381,68 @@ describe('redraw schedule', () => {
     expect(nextChangeMs(warm, cfg)).toBe(29_501)
     const last = snapshot({ totals: { ...EMPTY_TOTALS, lastResponseAt: NOW - 250_000 } })
     expect(nextChangeMs(last, cfg)).toBe(1000)
+  })
+})
+
+describe('worktrees', () => {
+  const repo = { ...emptyGit(''), branch: 'main' }
+  const host = { sessionName: '', bridged: false, ide: '', agent: '', project: 'app' }
+
+  test('the count follows the folder when the repo has more than one worktree', () => {
+    const lines = buildLines(snapshot({ git: repo, host, worktrees: 3 }), readConfig({}))
+    expect(lineText(lines[lines.length - 1] ?? [])).toBe('□ app | ⑂ 3 | ⎇ main ◻ 0 0 0 ≡ +0 -0')
+  })
+
+  test('a repo with only its main worktree draws no count', () => {
+    for (const worktrees of [undefined, 0, 1]) {
+      const lines = buildLines(snapshot({ git: repo, host, worktrees }), readConfig({}))
+      expect(lineText(lines[lines.length - 1] ?? [])).toBe('□ app | ⎇ main ◻ 0 0 0 ≡ +0 -0')
+    }
+  })
+
+  test('show_worktrees off hides the count', () => {
+    const lines = buildLines(snapshot({ git: repo, host, worktrees: 2 }), readConfig({ show_worktrees: false }))
+    expect(lineText(lines[lines.length - 1] ?? [])).not.toContain('⑂')
+  })
+
+  test('the porcelain list keeps checked-out worktrees and drops bare and prunable ones', () => {
+    const porcelain = [
+      'worktree C:/src/app',
+      'HEAD 1111111',
+      'branch refs/heads/main',
+      '',
+      'worktree C:/src/app-feat',
+      'HEAD 2222222',
+      'branch refs/heads/feat/x',
+      '',
+      'worktree C:/src/app-detached',
+      'HEAD 3333333',
+      'detached',
+      '',
+      'worktree C:/src/app-gone',
+      'HEAD 4444444',
+      'branch refs/heads/old',
+      'prunable gitdir file points to non-existent location',
+      '',
+      'worktree C:/src/bare.git',
+      'bare',
+    ].join('\r\n')
+    expect(parseWorktrees(porcelain)).toEqual([
+      { path: 'C:/src/app', branch: 'main' },
+      { path: 'C:/src/app-feat', branch: 'feat/x' },
+      { path: 'C:/src/app-detached', branch: '' },
+    ])
+  })
+
+  test('a linked worktree reads its git dir from its .git file', () => {
+    expect(worktreeGitDir('C:/src/app-feat', 'gitdir: C:\\src\\app\\.git\\worktrees\\app-feat\n')).toBe('C:/src/app/.git/worktrees/app-feat')
+    expect(worktreeGitDir('/src/app-feat', 'gitdir: ../app/.git/worktrees/app-feat')).toBe('/src/app-feat/../app/.git/worktrees/app-feat')
+    expect(worktreeGitDir('C:/src/app', null)).toBe('C:/src/app/.git')
+  })
+
+  test('paths compare across slash styles, and drive letters ignore case', () => {
+    expect(samePath('C:\\src\\app\\', 'c:/src/app')).toBe(true)
+    expect(samePath('/src/App', '/src/app')).toBe(false)
+    expect(worktreeName('C:/src/app-feat/')).toBe('app-feat')
   })
 })

@@ -1,7 +1,7 @@
 {
   "name": "the-index",
   "displayName": "The Index",
-  "version": "0.13.2",
+  "version": "0.14.0",
   "description": "A band above the prompt that shows the status line: session, model, context, cache, rate limits, per-call and session telemetry, and git diffs. With a subagent transcript open, it shows that agent's model, effort, type and status.",
   "author": {
     "name": "Alexk413x",
@@ -113,6 +113,12 @@
       "type": "boolean",
       "title": "Show: Project folder",
       "description": "Draw the project folder segment.",
+      "default": true
+    },
+    "show_worktrees": {
+      "type": "boolean",
+      "title": "Show: Worktree count",
+      "description": "Draw the count of the repo's git worktrees when it has more than one.",
       "default": true
     },
     "show_commit_diff": {
