@@ -32,9 +32,10 @@ before you push, or acknowledge the drift explicitly. In a repo that is kept
 current no file is stale and this hook is silent.
 
 When the gate would block, the hook first tries to fix the cause: it runs
-`claude -p "/codebase-kg:refresh"` headless in the repo root, with a narrow
-`--allowedTools` list that matches the refresh skill's own `allowed-tools`. It
-does this only when all of these hold:
+`claude -p "/codebase-kg:refresh"` headless in the repo root. The run reads
+the repo, runs read-only git, and writes only through the graph's MCP write
+tools: no `Write`, `Edit` or CLI runner, and a minimal environment. It does this
+only when all of these hold:
 
   * `claude` is on `PATH`;
   * `KG_AUTO_REFRESH` is not `0`, and `KG_REFRESHING` is not set (the recursion
@@ -766,7 +767,11 @@ def acknowledged(stale: list[str]) -> bool:
     return ack.isdigit() and int(ack) == len(stale)
 
 
-REFRESH_PROMPT = "/codebase-kg:refresh"
+REFRESH_PROMPT = (
+    "/codebase-kg:refresh This run is unattended. Write the graph only through the kg_* "
+    "write tools (kg_upsert_node, kg_delete_node and the link and reference tools). Do not "
+    "export, edit or build .kg-export.json, and do not run the CLI runner."
+)
 REFRESH_TIMEOUT = 900
 
 _REFRESH_MCP_TOOLS = (
@@ -775,21 +780,40 @@ _REFRESH_MCP_TOOLS = (
     "kg_add_reference", "kg_remove_reference", "kg_neighborhood",
 )
 
-# The tools skills/refresh/SKILL.md lists in `allowed-tools`, plus the two git
-# reads its scoping step names (`status`, `merge-base`). Both server names are
-# listed: the host prefixes the plugin's server one way and a direct install
-# another.
+# Unattended, so narrower than the skill's own `allowed-tools`: the run reads the
+# repo, runs read-only git, and writes only through the MCP write tools, which
+# validate each change and touch nothing but the graph. No Write, Edit or CLI
+# runner, so text in the repo cannot steer the run into writing or executing
+# anything else. Both server names are listed: the host prefixes the plugin's
+# server one way and a direct install another.
 REFRESH_TOOLS = [
     f"{prefix}{name}"
     for prefix in ("mcp__codebase-kg__", "mcp__plugin_codebase-kg_codebase-kg__")
     for name in _REFRESH_MCP_TOOLS
 ] + [
-    "Read", "Grep", "Glob", "Write", "Edit",
+    "Read(./**)", "Grep", "Glob",
     "Bash(git diff:*)", "Bash(git log:*)", "Bash(git ls-files:*)",
     "Bash(git status:*)", "Bash(git merge-base:*)",
-    "Bash(rm .kg-export.json)",
-    "Bash(uv run --no-project --quiet *kg_cli.py *)",
 ]
+
+# Git exports GIT_DIR, GIT_INDEX_FILE and friends into hooks; passed on, they
+# point the nested run's git at the pushing process's state. Everything else the
+# run needs to start, authenticate and reach the API is named here.
+_REFRESH_ENV = (
+    "PATH", "PATHEXT", "HOME", "USERPROFILE", "HOMEDRIVE", "HOMEPATH", "USER", "USERNAME",
+    "APPDATA", "LOCALAPPDATA", "PROGRAMDATA", "PROGRAMFILES", "SYSTEMROOT", "SYSTEMDRIVE",
+    "WINDIR", "COMSPEC", "TEMP", "TMP", "TMPDIR", "LANG", "LC_ALL", "TERM",
+    "XDG_CONFIG_HOME", "XDG_CACHE_HOME", "XDG_DATA_HOME",
+    "CLAUDE_CONFIG_DIR", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "CLAUDE_CODE_OAUTH_TOKEN",
+    "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE", "NODE_EXTRA_CA_CERTS",
+)
+
+
+def refresh_env() -> dict[str, str]:
+    upper = {k.upper(): v for k, v in os.environ.items()}
+    env = {name: upper[name] for name in _REFRESH_ENV if name in upper}
+    env["KG_REFRESHING"] = "1"
+    return env
 
 
 def can_auto_refresh(refs: list[tuple[str, str, str, str]], graph_rel: str) -> bool:
@@ -826,7 +850,7 @@ def _run_claude(claude: str, repo: Path) -> str | None:
             capture_output=True,
             text=True,
             timeout=REFRESH_TIMEOUT,
-            env={**os.environ, "KG_REFRESHING": "1"},
+            env=refresh_env(),
             check=False,
         )
     except subprocess.TimeoutExpired:
@@ -882,8 +906,9 @@ def auto_refresh(repo: Path, graph_rel: str, root: str) -> str | None:
     except Exception as exc:  # noqa: BLE001 - the block message still follows
         return f"the refresh raised: {exc}"
     sys.stderr.write(
-        f"[codebase-kg] Graph refreshed and committed as {sha}. Run git push again: "
-        "a pre-push hook cannot add a commit to the push in progress.\n"
+        f"[codebase-kg] Graph refreshed and committed as {sha}. Review it with "
+        f"`git show {sha}`, then run git push again: a pre-push hook cannot add a commit "
+        "to the push in progress.\n"
     )
     return None
 
@@ -951,7 +976,7 @@ def _run() -> int:
     if blocked and _may_auto_refresh(refs, graph_rel):
         sys.stderr.write(
             f"[codebase-kg] The graph is stale ({len(split.stale)} mapped file(s)). Running "
-            f'`claude -p "{REFRESH_PROMPT}"` to refresh it. This can take a few minutes and '
+            '`claude -p "/codebase-kg:refresh"` to refresh it. This can take a few minutes and '
             "costs one headless model run. Set KG_AUTO_REFRESH=0 to turn it off.\n"
         )
         failure = auto_refresh(repo, graph_rel, root)
