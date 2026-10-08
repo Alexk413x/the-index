@@ -92,6 +92,8 @@ export type IndexHost = {
   ide: string
   agent: string
   project: string
+  messages?: boolean
+  title?: string
 }
 
 export type IndexPanel =
@@ -192,6 +194,7 @@ declare module 'claude-code' {
       clients: Readonly<Record<string, string>>
       agentEfforts: Readonly<Record<string, Exclude<IndexEffort, 'auto'>>>
       agentModels: Readonly<Record<string, string>>
+      seenModels: Readonly<Record<string, string>>
       pinned: readonly IndexPanel[]
       slots: readonly IndexPanel[]
       hover: IndexHover | null

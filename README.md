@@ -36,17 +36,22 @@ claude plugin install the-index@alexk413x
   turn and session scorecards, and commit history with uncommitted changes. Click to
   pin it.
 - **Switch from the band.** Change the model or effort with one click, for the main
-  session or a subagent.
+  session or a subagent. Each model shows the newest version the band has seen, from
+  your sessions and settings, so a new model release needs no plugin update.
 - **Subagent view.** Open a subagent's transcript and the band shows that agent's model,
   effort and status.
 - **GitHub buttons.** Open the repo, the branch, the commits, your PR or the open PR
   list from the git rows.
 - **Copy the session name.** Click it in the session table.
+- **Session title.** The session table's first row shows the session's title, the one
+  Remote Control and the session list show.
 
 ## Works with
 
 - **ide-agent-tabs plugin:** when installed, hover the harness name at the start of
-  line 1 to open Codex, Gemini CLI or another agent CLI in a new tab.
+  line 1 to open Codex, Gemini CLI or another agent CLI in a new tab. The session
+  table's first row also gets an **Open Messages** button that opens the Agent Tabs
+  Messages pane.
 - **`gh` CLI:** when installed, the band shows your open PRs and charts merged PRs.
 
 ## What it runs, reads and writes
@@ -69,6 +74,8 @@ collects no telemetry.
 - **Reads:**
   - the session registry (`~/.claude/sessions`), for the session name and Remote Control
     link;
+  - the session's transcript (`~/.claude/projects`), for the session title, when the
+    band starts and when you hover or click the session name;
   - the session repo's worktree list (`.git/worktrees`), for the ⑂ count;
   - IDE lock files (`~/.claude/ide`), for the connected IDE;
   - agent files in `~/.claude/agents` and `.claude/agents`, for agent colours;
@@ -77,7 +84,7 @@ collects no telemetry.
   - `the-index-usage.json` and `the-index-turns.json` in your Claude config folder;
   - `claude-statusline-ratelimits.json` in the temp folder, shared with other sessions.
 - **Calls:** the ide-agent-tabs plugin's tools, when installed, to list agent CLIs and
-  open one in a new tab.
+  open one in a new tab, and to open the Agent Tabs Messages pane.
 - **Changes:** the prompt draft, only when you click `ultracode`, to add or remove that
   word.
 

@@ -359,6 +359,7 @@ const view = (over: Partial<PanelView>): PanelView => ({
     cfg: readConfig({}),
     choices: { model: '', effort: undefined, modelIsDefault: true, effortIsDefault: true },
     harnesses: null,
+    modelIds: {},
     ultracode: false,
     contextTokens: null,
     host: null,

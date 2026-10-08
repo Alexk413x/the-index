@@ -14,12 +14,9 @@ import type {
 
 export const MAIN = 'main'
 
-export const MODEL_CHOICES = [
-  { alias: 'fable', id: 'claude-fable-5-1' },
-  { alias: 'opus', id: 'claude-opus-5-5' },
-  { alias: 'sonnet', id: 'claude-sonnet-5-5' },
-  { alias: 'haiku', id: 'claude-haiku-4-5-20251001' },
-] as const
+export const MODEL_FAMILIES = ['fable', 'opus', 'sonnet', 'haiku'] as const
+
+const MODEL_ID = /^claude-([a-z]+)-(\d+)-(\d+)(?:-\d{8})?(\[1m\])?$/i
 
 const SHADE = '░'
 const SYM_IN = '↑'
@@ -157,11 +154,33 @@ export function tint(cfg: Config, color: string | undefined): Config {
   return { ...cfg, colors }
 }
 
+export function familyLabel(family: string): string {
+  return family.charAt(0).toUpperCase() + family.slice(1).toLowerCase()
+}
+
 export function modelLabel(id: string): string {
-  const m = /^claude-([a-z]+)-(\d+)-(\d+)(?:-\d{8})?(\[1m\])?$/i.exec(id.trim())
+  const m = MODEL_ID.exec(id.trim())
   if (!m?.[1]) return id
-  const family = m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase()
-  return `${family} ${m[2]}.${m[3]}${m[4] ? ' (1M context)' : ''}`
+  return `${familyLabel(m[1])} ${m[2]}.${m[3]}${m[4] ? ' (1M context)' : ''}`
+}
+
+export function modelFamily(id: string): string | undefined {
+  return MODEL_ID.exec(id.trim())?.[1]?.toLowerCase()
+}
+
+export function learnModels(known: Readonly<Record<string, string>>, ids: readonly unknown[]): Record<string, string> {
+  const out = { ...known }
+  for (const raw of ids) {
+    if (typeof raw !== 'string') continue
+    const id = raw.trim().replace(/\[1m\]$/i, '')
+    const m = MODEL_ID.exec(id)
+    if (!m?.[1]) continue
+    const family = m[1].toLowerCase()
+    const held = out[family] ? MODEL_ID.exec(out[family]) : null
+    const isNewer = !held || Number(m[2]) > Number(held[2]) || (Number(m[2]) === Number(held[2]) && Number(m[3]) > Number(held[3]))
+    if (isNewer) out[family] = id
+  }
+  return out
 }
 
 function effortLabel(effort: IndexEffort | undefined): string {

@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren, Timer, SessionContextUsage, SessionCost, SessionRateLimit } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren, Timer, ToolCallArgs, SessionContextUsage, SessionCost, SessionRateLimit } from 'claude-code'
 
 import type {
   IndexAgentStep,
@@ -17,7 +17,8 @@ import {
   EMPTY_TOTALS,
   MAIN,
   buildLines,
-  MODEL_CHOICES,
+  MODEL_FAMILIES,
+  learnModels,
   mergeRateLimit,
   modelLabel,
   nextChangeMs,
@@ -39,8 +40,11 @@ import {
   ROW_GAP,
   USAGE_DAYS,
   currentChoices,
+  knownModels,
   mainStep,
   FOLDER_PICK,
+  MESSAGES_PICK,
+  transcriptTitle,
   panelLines,
   worktreePaths,
   rowOrder,
@@ -87,6 +91,7 @@ const tick = atom({ plugin: 'the-index', key: 'tick' } as const, 0)
 const clients = atom({ plugin: 'the-index', key: 'clients' } as const, {})
 const agentEfforts = atom({ plugin: 'the-index', key: 'agentEfforts' } as const, {})
 const agentModels = atom({ plugin: 'the-index', key: 'agentModels' } as const, {})
+const seenModels = atom({ plugin: 'the-index', key: 'seenModels' } as const, {})
 const pinned = atom({ plugin: 'the-index', key: 'pinned' } as const, [])
 const slots = atom({ plugin: 'the-index', key: 'slots' } as const, [])
 const hover = atom({ plugin: 'the-index', key: 'hover' } as const, null)
@@ -422,7 +427,13 @@ async function refreshHost($: EngineInterface): Promise<void> {
     configDir($),
     $.session.version(),
   ])
-  const [entry, ide] = await Promise.all([sessionEntry($, dir, id), detectIde($, dir, cwd), loadAgentColors($)])
+  const [entry, ide, tools, title] = await Promise.all([
+    sessionEntry($, dir, id),
+    detectIde($, dir, cwd),
+    $.tool.list().catch(() => []),
+    sessionTitle($),
+    loadAgentColors($),
+  ])
   const agentSetting = settings['agent']
   await update($, host, () => ({
     sessionName: entry.name,
@@ -434,6 +445,8 @@ async function refreshHost($: EngineInterface): Promise<void> {
     ide,
     agent: typeof agentSetting === 'string' ? agentSetting : '',
     project: projectName(cwd),
+    messages: tools.some(t => t.name === MESSAGES_TOOL),
+    title,
   }))
 }
 
@@ -441,15 +454,22 @@ function commandText(result: unknown): string {
   return typeof result === 'object' && result !== null && 'text' in result ? String(result.text ?? '') : ''
 }
 
-async function switchMainModel($: EngineInterface, alias: string, id: string | undefined): Promise<void> {
+async function switchMainModel($: EngineInterface, alias: string): Promise<void> {
   const text = commandText(await $.command.run({ command: 'model', args: alias }))
   if (text) $.ui.toast(text.replace(/`/g, ''))
-  const named = /`([^`]+?)(?: \(default\))?`/.exec(text)?.[1]
-  const shown = id ?? named
-  if (shown) await followModel($, shown)
+  const model = await $.session.model().catch(() => '')
+  if (model) await followModel($, model)
+}
+
+async function seeModels($: EngineInterface, ids: readonly unknown[]): Promise<void> {
+  await update($, seenModels, prev => {
+    const next = learnModels(prev, ids)
+    return Object.keys(next).some(k => next[k] !== prev[k]) ? next : prev
+  })
 }
 
 async function followModel($: EngineInterface, model: string): Promise<void> {
+  await seeModels($, [model])
   const effort = savedEffortFor(await $.settings.read(), model)
   await update($, agents, prev => ({ ...prev, [MAIN]: { model, effort: effort ?? prev[MAIN]?.effort } }))
 }
@@ -727,6 +747,7 @@ function refreshGitSoon($: EngineInterface): void {
 }
 
 const AGENT_TABS = 'plugin:ide-agent-tabs:ide-agent-tabs'
+const MESSAGES_TOOL: string = 'mcp__ide-agent-tabs__open_agent_messages'
 const ULTRACODE = /\bultracode\b/i
 const PIN_ON = '■'
 const PIN_OFF = '□'
@@ -849,6 +870,33 @@ async function openHarness($: EngineInterface, name: string): Promise<void> {
   }
 }
 
+// The transcript is the CLI's own file, not part of the mod API: the remote title is its
+// last `ai-title` entry, or a `custom-title` one after a rename.
+async function sessionTitle($: EngineInterface): Promise<string> {
+  try {
+    const [dir, root, id] = await Promise.all([configDir($), $.session.root(), $.session.id()])
+    return transcriptTitle(await $.fs.read(`${dir}/projects/${root.replace(/[^a-zA-Z0-9]/g, '-')}/${id}.jsonl`))
+  } catch {
+    return ''
+  }
+}
+
+async function refreshSessionRow($: EngineInterface): Promise<void> {
+  const [tools, title] = await Promise.all([$.tool.list().catch(() => []), sessionTitle($)])
+  const messages = tools.some(t => t.name === MESSAGES_TOOL)
+  await update($, host, prev => (prev && (prev.messages !== messages || prev.title !== title) ? { ...prev, messages, title } : prev))
+}
+
+async function openMessages($: EngineInterface): Promise<void> {
+  try {
+    // The generated types list only the tools known when they were written; Agent Tabs registers this one at runtime.
+    const { text } = await $.tool.call({ tool: MESSAGES_TOOL } as ToolCallArgs)
+    if (text) $.ui.toast(text)
+  } catch {
+    $.ui.toast('Could not open Messages: agent tabs is not available')
+  }
+}
+
 async function toggleUltracode($: EngineInterface): Promise<void> {
   const { text } = await $.prompt.read()
   const next = ULTRACODE.test(text)
@@ -888,13 +936,15 @@ async function applyPick($: EngineInterface, panel: IndexPanel, target: string, 
       })
     }
   } else if (panel === 'model') {
-    const choice = MODEL_CHOICES.find(c => c.alias === pick)
-    if (!choice && pick !== 'default') return
-    if (target === MAIN) await switchMainModel($, choice?.alias ?? 'default', choice?.id)
+    const family = MODEL_FAMILIES.find(f => f === pick)
+    if (!family && pick !== 'default') return
+    if (target === MAIN) await switchMainModel($, family ?? 'default')
     else {
+      const [seen, liveModel, settings] = await Promise.all([read($, seenModels), $.session.model(), $.settings.read()])
+      const id = family ? (knownModels(seen, liveModel, settings)[family] ?? family) : undefined
       await update($, agentModels, prev => {
         const rest = Object.fromEntries(Object.entries(prev).filter(([k]) => k !== target))
-        return choice ? { ...rest, [target]: choice.id } : rest
+        return id ? { ...rest, [target]: id } : rest
       })
     }
   } else {
@@ -969,6 +1019,7 @@ export const register: Register = (on, options) => {
     const panel = PANELS.find(p => e.element.startsWith(`${p}-`))
     if (!panel) return {}
     const isName = e.element === `${panel}-chip`
+    if (panel === 'session' && isName && (data['hover'] === true || data['press'] === true)) await refreshSessionRow($)
     if (data['hover'] === true) {
       pointerOver.add(e.element)
       if (isName && (await read($, hover))?.panel !== panel) hoverOpenSoon($, panel)
@@ -987,6 +1038,8 @@ export const register: Register = (on, options) => {
         const copied = await $.ui.copy({ text: name, surface: e.surface })
         $.ui.toast(copied.isCopied ? `Copied: ${name}` : `Could not copy ${name}: ${copied.reason}`)
       }
+    } else if (panel === 'session' && data['pick'] === MESSAGES_PICK && e.element === `${panel}-row`) {
+      await openMessages($)
     } else if (typeof data['pick'] === 'string' && e.element === `${panel}-row`) {
       await applyPick($, panel, typeof data['target'] === 'string' ? data['target'] : MAIN, data['pick'])
     }
@@ -1079,6 +1132,7 @@ export const register: Register = (on, options) => {
     const sent = chosen === undefined && chosenModel === undefined ? e : { ...e, model, effort }
     const result = yield* next(sent)
     const answeredBy = result.usage?.model
+    await seeModels($, [e.model, answeredBy])
     if (answeredBy) await update($, agents, prev => ({ ...prev, [key]: { model: answeredBy, effort } }))
     if (chosenModel !== undefined && result.stopReason === null && !result.usage) {
       await update($, agentModels, prev => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key)))
@@ -1207,7 +1261,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history, trees, device] =
+    const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, seen, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history, trees, device] =
       await Promise.all([
         read($, agents),
         read($, turn),
@@ -1219,6 +1273,7 @@ export const register: Register = (on, options) => {
         read($, clients),
         read($, agentEfforts),
         read($, agentModels),
+        read($, seenModels),
         read($, pinned),
         read($, slots),
         read($, hover),
@@ -1279,6 +1334,7 @@ export const register: Register = (on, options) => {
       cfg: look,
       choices: currentChoices(target, steps[target], { model: models[target], effort: efforts[target] }, settings),
       harnesses: harnessList,
+      modelIds: knownModels(seen, liveModel, settings),
       ultracode: ultracodeOn,
       contextTokens: measured?.contextTokens ?? null,
       host: hostInfo,
