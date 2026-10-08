@@ -42,17 +42,25 @@ import {
   mainStep,
   FOLDER_PICK,
   panelLines,
+  worktreePaths,
   rowOrder,
   savedEffortFor,
 } from './panels'
 import {
   BASE_REFS,
   COMMIT_FORMAT,
+  GIT_SAFE_ENV,
   applyBase,
   applyPr,
   applyStatus,
+  assembleRepos,
+  belongsToRepo,
+  commonDirAt,
+  deviceTotal,
   emptyGit,
+  gitArgv,
   isRecord,
+  mapLimit,
   numstatTotals,
   parseCommitLog,
   parseJson,
@@ -60,10 +68,14 @@ import {
   parsePullRequests,
   parseSharedLimits,
   parseWorktrees,
+  readRepo,
   samePath,
+  serializeSharedLimits,
+  slashPath,
+  uniqueFolders,
   worktreeGitDir,
   worktreeName,
-  serializeSharedLimits,
+  type GitFs,
 } from './git'
 import { agentColorKey, parseAgentFile } from './agents'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type LedgerEntry } from './ledger'
@@ -95,6 +107,7 @@ const mergedPrs = atom({ plugin: 'the-index', key: 'mergedPrs' } as const, [])
 const turnHistory = atom({ plugin: 'the-index', key: 'turnHistory' } as const, [])
 const basePrs = atom({ plugin: 'the-index', key: 'basePrs' } as const, [])
 const worktrees = atom({ plugin: 'the-index', key: 'worktrees' } as const, [])
+const deviceRepos = atom({ plugin: 'the-index', key: 'deviceRepos' } as const, [])
 
 const EWMA_ALPHA = 0.3
 const CONTEXT_LOG_MAX = 500
@@ -108,6 +121,8 @@ const HOST_MIN_GAP_MS = 300_000
 const PR_CACHE_MS = 300_000
 const prCache = new Map<string, { at: number; pr: { number: number; url: string } | null }>()
 const GIT_STAMP_FILES = ['index', 'HEAD', 'FETCH_HEAD', 'ORIG_HEAD']
+const DEVICE_EVERY_MS = 60_000
+const DEVICE_LANES = 4
 
 type Measured = {
   context: SessionContextUsage
@@ -190,9 +205,7 @@ async function detectIde($: EngineInterface, dir: string, cwd: string): Promise<
 
 async function runGit($: EngineInterface, cwd: string, args: readonly string[]): Promise<string> {
   try {
-    const r = await $.process.run(['git', '-C', cwd, '-c', 'gc.auto=0', '--no-optional-locks', ...args], {
-      timeoutMs: 5000,
-    })
+    const r = await $.process.run(gitArgv(cwd, args), { env: { ...GIT_SAFE_ENV }, timeoutMs: 5000 })
     return r.exitCode === 0 ? r.stdout.trim() : ''
   } catch {
     return ''
@@ -202,7 +215,7 @@ async function runGit($: EngineInterface, cwd: string, args: readonly string[]):
 async function gitSnapshot($: EngineInterface, cwd: string): Promise<IndexGit | null> {
   const [status, diff, refsOut, remote] = await Promise.all([
     runGit($, cwd, ['status', '--porcelain=v2', '--branch']),
-    runGit($, cwd, ['diff', '--numstat', 'HEAD']),
+    runGit($, cwd, ['diff', '--no-ext-diff', '--no-textconv', '--numstat', 'HEAD']),
     runGit($, cwd, ['for-each-ref', '--format=%(refname)\t%(symref)', ...BASE_REFS]),
     runGit($, cwd, ['config', '--get', 'remote.origin.url']),
   ])
@@ -216,7 +229,7 @@ async function gitSnapshot($: EngineInterface, cwd: string): Promise<IndexGit | 
   applyBase(snap, refsOut)
   if (!snap.prBaseRef) return snap
   const [raw, leftRight] = await Promise.all([
-    runGit($, cwd, ['diff', '--raw', '--numstat', `${snap.prBaseRef}...HEAD`]),
+    runGit($, cwd, ['diff', '--no-ext-diff', '--no-textconv', '--raw', '--numstat', `${snap.prBaseRef}...HEAD`]),
     runGit($, cwd, ['rev-list', '--left-right', '--count', `${snap.prBaseRef}...HEAD`]),
   ])
   applyPr(snap, raw, leftRight)
@@ -298,13 +311,13 @@ async function refreshGit($: EngineInterface): Promise<void> {
   const onGithub = Boolean(snap?.prBaseName && snap.repoWeb.includes('github'))
   const [branchLog, prs, merged] = await Promise.all([
     base && !onBase
-      ? runGit($, cwd, ['log', `${base}..HEAD`, `-${BRANCH_COMMIT_LIMIT}`, '--numstat', '--summary', `--format=${COMMIT_FORMAT}`])
+      ? runGit($, cwd, ['log', '--no-ext-diff', '--no-textconv', `${base}..HEAD`, `-${BRANCH_COMMIT_LIMIT}`, '--numstat', '--summary', `--format=${COMMIT_FORMAT}`])
       : Promise.resolve(''),
     onGithub && snap ? openBasePrs($, cwd, snap.prBaseName) : Promise.resolve([]),
     onGithub && snap ? mergedBasePrs($, cwd, snap.prBaseName) : Promise.resolve([]),
   ])
   const baseLog =
-    base && merged.length === 0 ? await runGit($, cwd, ['log', base, '-10', '--numstat', '--summary', `--format=${COMMIT_FORMAT}`]) : ''
+    base && merged.length === 0 ? await runGit($, cwd, ['log', '--no-ext-diff', '--no-textconv', base, '-10', '--numstat', '--summary', `--format=${COMMIT_FORMAT}`]) : ''
   await update($, branchCommits, () => parseCommitLog(branchLog))
   await update($, basePrs, () => prs)
   await update($, mergedPrs, () => merged)
@@ -323,7 +336,7 @@ async function refreshWorktrees($: EngineInterface): Promise<void> {
       return { path: entry.path, current: samePath(entry.path, top), gitDir: worktreeGitDir(entry.path, dotGit) }
     }),
   )
-  const others = trees.filter(t => !t.current)
+  const others = trees.filter(t => !t.current && belongsToRepo(t.gitDir, commonDir))
   worktreeDirs = others.map(t => t.gitDir)
   const snaps = new Map(await Promise.all(others.map(async t => [t.path, await gitSnapshot($, t.path)] as const)))
   await update($, worktrees, () =>
@@ -350,6 +363,43 @@ function refreshWorktreesSoon($: EngineInterface): void {
       lastWorktreeStamp = await worktreeStamp($)
     })
   })
+}
+
+function gitFs($: EngineInterface): GitFs {
+  return {
+    read: path => $.fs.read(path).catch(() => null),
+    kind: path => $.fs.stat(path).then(
+      st => st.kind,
+      () => null,
+    ),
+    dirs: path => $.fs.list(path).then(
+      entries => entries.filter(entry => entry.kind === 'dir').map(entry => entry.name),
+      () => [],
+    ),
+  }
+}
+
+async function refreshDevice($: EngineInterface): Promise<void> {
+  if (deviceBusy) return
+  deviceBusy = true
+  try {
+    const cwd = await $.session.cwd()
+    const fs = gitFs($)
+    const children = (await fs.dirs(cwd)).map(name => `${slashPath(cwd)}/${name}`)
+    const found = await mapLimit(children, DEVICE_LANES, folder => commonDirAt(fs, folder))
+    const reads = await mapLimit(uniqueFolders([commonDir, ...found].filter(Boolean)), DEVICE_LANES, dir => readRepo(fs, dir))
+    await update($, deviceRepos, () => assembleRepos(reads, commonDir))
+  } finally {
+    deviceBusy = false
+  }
+}
+
+async function worktreeListStamp($: EngineInterface): Promise<string> {
+  if (!commonDir) return ''
+  return $.fs.stat(`${commonDir}/worktrees`).then(
+    st => String(st.mtimeMs),
+    () => '-',
+  )
 }
 
 async function gitStamp($: EngineInterface, gitDir: string): Promise<string> {
@@ -660,6 +710,8 @@ let worktreeTimer: Timer | undefined
 let commonDir = ''
 let worktreeDirs: string[] = []
 let lastWorktreeStamp = ''
+let lastListStamp = ''
+let deviceBusy = false
 let hostAt = 0
 
 function scheduleTick($: EngineInterface, cfg: Config): void {
@@ -713,7 +765,10 @@ function forgetRow(panel: IndexPanel): void {
 }
 
 async function placeSlot($: EngineInterface, panel: IndexPanel): Promise<void> {
-  if (panel === 'worktrees') refreshWorktreesSoon($)
+  if (panel === 'worktrees') {
+    refreshWorktreesSoon($)
+    void refreshDevice($)
+  }
   const pinnedList = await read($, pinned)
   await update($, slots, list => {
     const live = list.filter(p => p === panel || pinnedList.includes(p))
@@ -820,7 +875,9 @@ async function applyPick($: EngineInterface, panel: IndexPanel, target: string, 
   if (panel === 'worktrees') {
     const path = pick.startsWith(FOLDER_PICK) ? pick.slice(FOLDER_PICK.length) : ''
     if (!path) await openUrl($, pick)
-    else if ((await read($, worktrees)).some(t => t.path === path)) await openFolder($, path)
+    else if (worktreePaths({ worktrees: await read($, worktrees), deviceRepos: await read($, deviceRepos) }).some(p => samePath(p, path))) {
+      await openFolder($, path)
+    }
     return
   }
   if (panel === 'effort' && pick === 'ultracode') {
@@ -881,6 +938,8 @@ export const register: Register = (on, options) => {
     hostAt = await $.clock.now()
     lastStamp = await gitStamp($, gitDir)
     lastWorktreeStamp = await worktreeStamp($)
+    lastListStamp = await worktreeListStamp($)
+    void refreshDevice($)
     scheduleTick($, cfg)
     $.clock.every(GIT_STAT_EVERY_MS, () => {
       void gitStamp($, gitDir).then(stamp => {
@@ -889,6 +948,14 @@ export const register: Register = (on, options) => {
       void worktreeStamp($).then(stamp => {
         if (stamp !== lastWorktreeStamp) refreshWorktreesSoon($)
       })
+      void worktreeListStamp($).then(stamp => {
+        if (stamp === lastListStamp) return
+        lastListStamp = stamp
+        void refreshDevice($)
+      })
+    })
+    $.clock.every(DEVICE_EVERY_MS, () => {
+      void refreshDevice($)
     })
     $.clock.every(GIT_STAT_EVERY_MS, () => {
       void refreshLinkUntilLinked($)
@@ -1149,7 +1216,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history, trees] =
+    const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history, trees, device] =
       await Promise.all([
         read($, agents),
         read($, turn),
@@ -1176,6 +1243,7 @@ export const register: Register = (on, options) => {
         read($, basePrs),
         read($, turnHistory),
         read($, worktrees),
+        read($, deviceRepos),
       ])
     const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
     const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
@@ -1208,7 +1276,7 @@ export const register: Register = (on, options) => {
         clients: attached,
         agentEfforts: efforts,
         agentModels: models,
-        worktrees: trees.length,
+        worktrees: deviceTotal(device),
       },
       look,
       viewed,
@@ -1243,6 +1311,7 @@ export const register: Register = (on, options) => {
       links: gitLinks(repo),
       basePrs: prs,
       worktrees: trees.map(t => (t.current ? { ...t, git: repo } : t)),
+      deviceRepos: device,
       cacheLeftMs: cfg.show.cache ? cacheLeftMs(sums, cfg, now) : null,
       now,
     }

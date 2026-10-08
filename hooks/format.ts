@@ -37,7 +37,7 @@ const SYM_7D = '⧈'
 const SYM_CTX = ['○', '◔', '◑', '◕', '●'] as const
 const NERD_CTX_EMPTY = 0xf0766
 const NERD_CTX_SLICE_1 = 0xf0a9e
-const SYM_BR = '⎇'
+export const SYM_BR = '⎇'
 export const SYM_LINES = '≡'
 const SYM_HIT = '⌖'
 export const SYM_FILES = '◻'
@@ -50,7 +50,7 @@ const SYM_BOOM = '💥'
 const SYM_CACHE = ['☀', '☼', '❅'] as const
 const SYM_COLD = '❄'
 const SYM_FOLDER = '□'
-const SYM_WT = '⑂'
+export const SYM_WT = '⑂'
 const SYM_REMOTE_ON = '●'
 const SYM_REMOTE_OFF = '○'
 const SYM_AGENT = '⤷'
@@ -492,7 +492,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   if (cfg.show.project && host?.project) {
     line3.push([icon(SYM_FOLDER), sp, { text: host.project, color: c.project, menu: 'project' }])
   }
-  if (cfg.show.worktrees && (snap.worktrees ?? 0) > 1) {
+  if (cfg.show.worktrees && (snap.worktrees ?? 0) > 0) {
     line3.push(withMenu([icon(SYM_WT), sp, seg(String(snap.worktrees), c.branch)], 'worktrees'))
   }
   const git = snap.git

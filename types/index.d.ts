@@ -78,6 +78,10 @@ export type IndexGit = {
 
 export type IndexWorktree = { path: string; name: string; current: boolean; git: IndexGit | null }
 
+export type IndexDeviceTree = { path: string; name: string; branch: string }
+
+export type IndexDeviceRepo = { key: string; name: string; path: string; current: boolean; trees: readonly IndexDeviceTree[] }
+
 export type IndexHost = {
   sessionName: string
   sessionId?: string
@@ -203,6 +207,7 @@ declare module 'claude-code' {
       mergedPrs: readonly IndexMergedPr[]
       basePrs: readonly IndexPullRequest[]
       worktrees: readonly IndexWorktree[]
+      deviceRepos: readonly IndexDeviceRepo[]
       usageSummary: IndexUsageSummary | null
     }
   }

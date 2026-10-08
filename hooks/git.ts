@@ -1,4 +1,4 @@
-import type { IndexCommit, IndexGit, IndexMergedPr, IndexPullRequest, IndexRateLimit } from '../types'
+import type { IndexCommit, IndexDeviceRepo, IndexGit, IndexMergedPr, IndexPullRequest, IndexRateLimit } from '../types'
 import { repoWebFromRemote } from './format'
 
 export const BASE_REFS = [
@@ -217,12 +217,154 @@ export function worktreeName(path: string): string {
   return path.replace(/\/+$/, '').split('/').pop() ?? path
 }
 
+export function slashPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/(.)\/+$/, '$1')
+}
+
+export function folderKey(path: string): string {
+  const slashed = slashPath(path)
+  return /^[a-z]:/i.test(slashed) ? slashed.toLowerCase() : slashed
+}
+
 export function samePath(a: string, b: string): boolean {
-  const norm = (p: string) => {
-    const slashed = p.replace(/\\/g, '/').replace(/\/+$/, '')
-    return /^[a-z]:/i.test(slashed) ? slashed.toLowerCase() : slashed
+  return folderKey(a) === folderKey(b)
+}
+
+export function isUnder(path: string, root: string): boolean {
+  const p = folderKey(dropDots(path))
+  const r = folderKey(dropDots(root))
+  return r !== '' && (p === r || p.startsWith(`${r}/`))
+}
+
+export function belongsToRepo(gitDir: string, commonDir: string): boolean {
+  return isUnder(gitDir, commonDir)
+}
+
+function dropDots(path: string): string {
+  const out: string[] = []
+  for (const part of slashPath(path).split('/')) {
+    if (part === '.') continue
+    if (part === '..' && out.length > 1) out.pop()
+    else out.push(part)
   }
-  return norm(a) === norm(b)
+  return out.join('/')
+}
+
+// These flags turn off fsmonitor, the untracked cache and optional locks, and skip the
+// system config file. Repo-local config still loads: run git only in repos the session trusts.
+export const GIT_SAFE_ENV: Readonly<Record<string, string>> = { GIT_CONFIG_NOSYSTEM: '1' }
+
+export function gitArgv(cwd: string, args: readonly string[]): string[] {
+  return [
+    'git',
+    '-C',
+    cwd,
+    '-c',
+    'gc.auto=0',
+    '-c',
+    'core.fsmonitor=false',
+    '-c',
+    'core.untrackedCache=false',
+    '-c',
+    'core.pager=cat',
+    '--no-optional-locks',
+    ...args,
+  ]
+}
+
+export type GitFs = {
+  read: (path: string) => Promise<string | null>
+  kind: (path: string) => Promise<'file' | 'dir' | 'other' | null>
+  dirs: (path: string) => Promise<string[]>
+}
+
+export function resolveGitPath(base: string, target: string): string {
+  const t = slashPath(target.trim())
+  return dropDots(/^([a-z]:)?\//i.test(t) ? t : `${slashPath(base)}/${t}`)
+}
+
+export function headBranch(head: string | null): string {
+  return /^ref:\s*refs\/heads\/(.+)$/m.exec(head ?? '')?.[1]?.trim() ?? ''
+}
+
+export async function commonDirAt(fs: GitFs, folder: string): Promise<string> {
+  const dotGit = `${slashPath(folder)}/.git`
+  const kind = await fs.kind(dotGit)
+  let gitDir = ''
+  if (kind === 'dir') gitDir = dotGit
+  else if (kind === 'file') {
+    const target = /^gitdir:\s*(.+)$/m.exec((await fs.read(dotGit)) ?? '')?.[1]
+    if (!target) return ''
+    gitDir = resolveGitPath(folder, target)
+  } else return ''
+  const common = (await fs.read(`${gitDir}/commondir`))?.trim()
+  return common ? resolveGitPath(gitDir, common) : gitDir
+}
+
+export type RepoRead = { commonDir: string; main: string; trees: WorktreeEntry[] }
+
+export async function readRepo(fs: GitFs, commonDir: string): Promise<RepoRead> {
+  const common = slashPath(commonDir)
+  const names = await fs.dirs(`${common}/worktrees`)
+  const trees = await Promise.all(
+    names.map(async (name): Promise<WorktreeEntry[]> => {
+      const admin = `${common}/worktrees/${name}`
+      const target = (await fs.read(`${admin}/gitdir`))?.trim()
+      if (!target) return []
+      const dotGit = resolveGitPath(admin, target)
+      if (!(await fs.kind(dotGit))) return []
+      return [{ path: dotGit.replace(/\/\.git$/i, ''), branch: headBranch(await fs.read(`${admin}/HEAD`)) }]
+    }),
+  )
+  return {
+    commonDir: common,
+    main: common.replace(/\/\.git$/i, ''),
+    trees: trees.flat().sort((a, b) => a.path.localeCompare(b.path)),
+  }
+}
+
+export function uniqueFolders(paths: readonly string[]): string[] {
+  const seen = new Map<string, string>()
+  for (const path of paths) {
+    const key = folderKey(path)
+    if (key && !seen.has(key)) seen.set(key, slashPath(path))
+  }
+  return [...seen.values()]
+}
+
+export function deviceRepo(read: RepoRead, current: boolean): IndexDeviceRepo {
+  return {
+    key: folderKey(read.commonDir),
+    name: worktreeName(read.main).replace(/\.git$/i, ''),
+    path: read.main,
+    current,
+    trees: read.trees.map(t => ({ ...t, name: worktreeName(t.path) })),
+  }
+}
+
+export function assembleRepos(reads: readonly RepoRead[], sessionCommonDir: string): IndexDeviceRepo[] {
+  const here = sessionCommonDir ? folderKey(dropDots(sessionCommonDir)) : ''
+  return reads
+    .map(r => deviceRepo(r, here !== '' && folderKey(r.commonDir) === here))
+    .filter(r => r.trees.length > 0)
+    .sort((a, b) => Number(b.current) - Number(a.current) || a.name.localeCompare(b.name))
+}
+
+export function deviceTotal(repos: readonly IndexDeviceRepo[]): number {
+  return repos.reduce((sum, r) => sum + r.trees.length, 0)
+}
+
+export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
+  const out = new Array<R>(items.length)
+  let next = 0
+  const lane = async (): Promise<void> => {
+    while (next < items.length) {
+      const i = next++
+      out[i] = await fn(items[i] as T)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane))
+  return out
 }
 
 export function worktreeGitDir(path: string, dotGit: string | null): string {
