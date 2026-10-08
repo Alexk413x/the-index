@@ -8,6 +8,7 @@ import {
   TITLE_WIDTH,
   FOLDER_PICK,
   MESSAGES_PICK,
+  knownModels,
   transcriptTitle,
   currentChoices,
   mainStep,
@@ -32,6 +33,7 @@ function view(over: Partial<PanelView> = {}): PanelView {
     cfg: readConfig({}),
     choices: { model: 'claude-opus-5-5', effort: 'high', modelIsDefault: true, effortIsDefault: false },
     harnesses: null,
+    modelIds: {},
     ultracode: false,
     contextTokens: null,
     host: HOST,
@@ -157,6 +159,21 @@ describe('row layout', () => {
     expect(effort.find(i => i.text === 'default')?.pick).toBe('default')
     const model = panelLines('model', view())[0] ?? []
     expect(model.filter(i => i.pick).map(i => i.pick)).toEqual(['fable', 'sonnet', 'haiku'])
+  })
+
+  test('the model row names each family by the newest id seen, else by the family alone', () => {
+    const texts = (panelLines('model', view({ modelIds: { opus: 'claude-opus-5-5', haiku: 'claude-haiku-5-5' } }))[0] ?? []).map(i => i.text.trim())
+    expect(texts.slice(1, 5)).toEqual(['Fable', 'Opus 5.5', 'Sonnet', 'Haiku 5.5'])
+  })
+
+  test('known models keep the newest id per family from what was seen, the live model and settings', () => {
+    const settings = { model: 'claude-sonnet-5-5', modelSettings: { 'claude-haiku-4-5-20251001': {}, 'claude-haiku-5-5': {} } }
+    expect(knownModels({ opus: 'claude-opus-5-6' }, 'claude-opus-5-5[1m]', settings)).toEqual({
+      opus: 'claude-opus-5-6',
+      sonnet: 'claude-sonnet-5-5',
+      haiku: 'claude-haiku-5-5',
+    })
+    expect(knownModels({}, 'opus', {})).toEqual({})
   })
 
   test('ultracode lights while the keyword is in the draft', () => {

@@ -36,7 +36,8 @@ claude plugin install the-index@alexk413x
   turn and session scorecards, and commit history with uncommitted changes. Click to
   pin it.
 - **Switch from the band.** Change the model or effort with one click, for the main
-  session or a subagent.
+  session or a subagent. Each model shows the newest version the band has seen, from
+  your sessions and settings, so a new model release needs no plugin update.
 - **Subagent view.** Open a subagent's transcript and the band shows that agent's model,
   effort and status.
 - **GitHub buttons.** Open the repo, the branch, the commits, your PR or the open PR

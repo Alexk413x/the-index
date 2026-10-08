@@ -31,9 +31,9 @@ function engine(on: On) {
   on('command.run', ($, e) => {
     commands.push(`${e.command} ${e.args}`)
     if (e.command === 'model') {
-      const ids: Record<string, string> = { sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-4-5-20251001', default: 'claude-opus-5-5' }
+      const ids: Record<string, string> = { sonnet: 'claude-sonnet-5-5', haiku: 'claude-haiku-5-5', default: 'claude-opus-5-5' }
       sessionModel = ids[e.args] ?? sessionModel
-      const names: Record<string, string> = { sonnet: 'Sonnet 5.5', haiku: 'Haiku 4.5', default: 'Opus 5.5 (default)' }
+      const names: Record<string, string> = { sonnet: 'Sonnet 5.5', haiku: 'Haiku 5.5', default: 'Opus 5.5 (default)' }
       return { text: `Set model to \`${names[e.args] ?? e.args}\` for this session only` }
     }
     return { text: `Set effort level to ${e.args} (this session only): details` }
@@ -345,6 +345,28 @@ test('a pick in the hovered model row runs /model and closes the row', async ($,
   expect(commands).toEqual(['model sonnet'])
 })
 
+test('a model the session switched to keeps its version in the model row after switching away', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  const modelTexts = async () => {
+    await band.post({ hover: false }, { in: 'model-chip' })
+    await clock.advance(400)
+    await band.post({ hover: true }, { in: 'model-chip' })
+    await clock.advance(310)
+    const row = (await band.find({ key: 'model-row' }))?.props['props'] as { lines: { text: string }[][] } | undefined
+    return (row?.lines[0] ?? []).map(i => i.text.trim())
+  }
+  expect(await modelTexts()).toContain('Haiku')
+  await band.post({ pick: 'haiku', target: 'main' }, { in: 'model-row' })
+  expect(await bandText(band)).toContain('Haiku 5.5')
+  await modelTexts()
+  await band.post({ pick: 'sonnet', target: 'main' }, { in: 'model-row' })
+  expect(await modelTexts()).toContain('Haiku 5.5')
+  await band.unmount()
+  expect(commands).toEqual(['model haiku', 'model sonnet'])
+})
+
 test('a subagent model that does not answer falls back to its own model', async ($, on) => {
   engine(on)
   await step($, 'claude-sonnet-5-5', 'low', 'a1')
@@ -518,7 +540,7 @@ test('default has its own column, is orange when in use, and a pick runs the def
   const items = ((await band.find({ key: 'model-row' }))?.props['props'] as { lines: { text: string; pick?: string }[][] })
     .lines[0] ?? []
   const texts = items.map(i => i.text)
-  expect(texts[texts.indexOf('Haiku 4.5') + 1]).toBe('default')
+  expect(texts[texts.indexOf('Haiku') + 1]).toBe('default')
   expect(items.find(i => i.text === 'default')?.pick).toBeUndefined()
 
   await band.post({ hover: true }, { in: 'effort-chip' })

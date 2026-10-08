@@ -30,7 +30,10 @@ import { isFix, isRecord } from './git'
 import { otherSessionAverages, sessionTotals, turnAverages, turnToRecord, type Averages, type SessionTotals } from './turns'
 import {
   MAIN,
-  MODEL_CHOICES,
+  MODEL_FAMILIES,
+  familyLabel,
+  learnModels,
+  modelFamily,
   SYM_BR,
   SYM_FILES,
   SYM_LINES,
@@ -104,6 +107,11 @@ export function savedEffortFor(settings: Settings, model: string): IndexEffort |
   return effortSetting(isRecord(entry) ? entry['effortLevel'] : undefined) ?? effortSetting(settings['effortLevel'])
 }
 
+export function knownModels(seen: Readonly<Record<string, string>>, liveModel: string, settings: Settings): Record<string, string> {
+  const perModel = settings['modelSettings']
+  return learnModels(seen, [liveModel, settings['model'], ...Object.keys(isRecord(perModel) ? perModel : {})])
+}
+
 export function mainStep(liveModel: string, step: IndexAgentStep | undefined, settings: Settings): IndexAgentStep {
   const model = liveModel || step?.model || ''
   return { model, effort: step?.effort ?? savedEffortFor(settings, model) }
@@ -140,6 +148,7 @@ export type PanelView = {
   cfg: Config
   choices: Choices
   harnesses: readonly IndexHarness[] | null
+  modelIds: Readonly<Record<string, string>>
   ultracode: boolean
   contextTokens: number | null
   host: IndexHost | null
@@ -749,7 +758,10 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     return [[title('Effort'), ...middleEndingWith(levels, choice('default', 'default', choices.effortIsDefault)), recache]]
   }
   if (panel === 'model') {
-    const models = MODEL_CHOICES.map(c => choice(modelLabel(c.id), c.alias, c.id === choices.model))
+    const models = MODEL_FAMILIES.map(f => {
+      const id = view.modelIds[f]
+      return choice(id ? modelLabel(id) : familyLabel(f), f, modelFamily(choices.model) === f)
+    })
     return [[title('Model'), ...middleEndingWith(models, choice('default', 'default', choices.modelIsDefault)), recache]]
   }
 
