@@ -27,13 +27,11 @@ claude plugin install the-index@alexk413x
   tokens, cache hits, speed and dollars, so expensive turns stand out.
 - **Git state.** See what your next commit and your next PR hold, so you don't need to
   run `git status` or open GitHub.
-- **Worktrees.** The band shows ⑂ and a count after the folder name: the extra git
-  worktrees of the session's repo and of each repo directly inside the session folder,
-  the same repos VS Code's Source Control finds. It works when the session folder
-  isn't a repo itself, such as a folder of repos. Hover it to list them by repo: the
-  session repo's worktrees with their branch diff and their diff against the base
-  branch, and other repos' worktrees with their branch. Click a folder name to open it,
-  or a pushed branch to view it on GitHub.
+- **Worktrees.** When the session's repo has extra git worktrees, such as the ones
+  Claude Code's agents create, the band shows ⑂ and their count after the folder name.
+  A folder that isn't a repo shows none. Hover it to list each worktree with its branch
+  diff and its diff against the base branch. Click a folder name to open it, or a pushed
+  branch to view it on GitHub.
 - **Charts on hover.** Hover a section for a chart: context over time, daily usage,
   turn and session scorecards, and commit history with uncommitted changes. Click to
   pin it.
@@ -59,10 +57,9 @@ collects no telemetry.
 - **Runs:**
   - `git` in the session folder, for status, diffs and commit history, and in the
     repo's other worktree folders, for their status and diffs;
-  - no `git` in other repos: it counts their worktrees from the files in their `.git`
-    folders. Every git call turns off `core.fsmonitor`, the untracked cache, optional
-    locks, the pager and external diff and textconv drivers, and skips the system git
-    config;
+  - with every git call, `core.fsmonitor`, the untracked cache, optional locks, the
+    pager and external diff and textconv drivers turned off, and the system git config
+    skipped;
   - `gh` in the session folder, when installed, to look up pull requests on GitHub with
     your existing `gh` sign-in;
   - PowerShell's `Shell.Application`, `open` or `xdg-open`, only when you click the
@@ -72,8 +69,7 @@ collects no telemetry.
 - **Reads:**
   - the session registry (`~/.claude/sessions`), for the session name and Remote Control
     link;
-  - the `.git` folders of the session folder's child repos and their worktree list
-    (`.git/worktrees`), about once a minute, for the ⑂ count;
+  - the session repo's worktree list (`.git/worktrees`), for the ⑂ count;
   - IDE lock files (`~/.claude/ide`), for the connected IDE;
   - agent files in `~/.claude/agents` and `.claude/agents`, for agent colours;
   - your Claude Code settings, for the saved model and effort.

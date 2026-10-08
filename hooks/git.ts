@@ -287,20 +287,6 @@ export function headBranch(head: string | null): string {
   return /^ref:\s*refs\/heads\/(.+)$/m.exec(head ?? '')?.[1]?.trim() ?? ''
 }
 
-export async function commonDirAt(fs: GitFs, folder: string): Promise<string> {
-  const dotGit = `${slashPath(folder)}/.git`
-  const kind = await fs.kind(dotGit)
-  let gitDir = ''
-  if (kind === 'dir') gitDir = dotGit
-  else if (kind === 'file') {
-    const target = /^gitdir:\s*(.+)$/m.exec((await fs.read(dotGit)) ?? '')?.[1]
-    if (!target) return ''
-    gitDir = resolveGitPath(folder, target)
-  } else return ''
-  const common = (await fs.read(`${gitDir}/commondir`))?.trim()
-  return common ? resolveGitPath(gitDir, common) : gitDir
-}
-
 export type RepoRead = { commonDir: string; main: string; trees: WorktreeEntry[] }
 
 export async function readRepo(fs: GitFs, commonDir: string): Promise<RepoRead> {
@@ -323,15 +309,6 @@ export async function readRepo(fs: GitFs, commonDir: string): Promise<RepoRead> 
   }
 }
 
-export function uniqueFolders(paths: readonly string[]): string[] {
-  const seen = new Map<string, string>()
-  for (const path of paths) {
-    const key = folderKey(path)
-    if (key && !seen.has(key)) seen.set(key, slashPath(path))
-  }
-  return [...seen.values()]
-}
-
 export function deviceRepo(read: RepoRead, current: boolean): IndexDeviceRepo {
   return {
     key: folderKey(read.commonDir),
@@ -352,19 +329,6 @@ export function assembleRepos(reads: readonly RepoRead[], sessionCommonDir: stri
 
 export function deviceTotal(repos: readonly IndexDeviceRepo[]): number {
   return repos.reduce((sum, r) => sum + r.trees.length, 0)
-}
-
-export async function mapLimit<T, R>(items: readonly T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const out = new Array<R>(items.length)
-  let next = 0
-  const lane = async (): Promise<void> => {
-    while (next < items.length) {
-      const i = next++
-      out[i] = await fn(items[i] as T)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, lane))
-  return out
 }
 
 export function worktreeGitDir(path: string, dotGit: string | null): string {
