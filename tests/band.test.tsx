@@ -1066,7 +1066,7 @@ test('rows open above the lines in the terminal and below them in the desktop ap
   expect(desktop.rule?.props).toMatchObject({ width: '100%', overflow: 'hidden' })
 })
 
-test('in a folder of repos the count covers every child repo, read from files with no git in the children', async ($, on) => {
+test('a folder of repos that is not a repo itself shows no worktree count and runs no git in the children', async ($, on) => {
   engine(on)
   const runs: (readonly string[])[] = []
   await startSession($, on, {
@@ -1093,7 +1093,7 @@ test('in a folder of repos the count covers every child repo, read from files wi
   const text = await bandText(band)
   await band.unmount()
   expect(text).toContain('□ work')
-  expect(text).toContain('⑂ 1')
+  expect(text).not.toContain('⑂')
   expect(runs.filter(argv => argv[0] === 'git' && argv[2] !== 'C:/work')).toEqual([])
   for (const argv of runs.filter(a => a[0] === 'git')) {
     expect(argv).toContain('core.fsmonitor=false')

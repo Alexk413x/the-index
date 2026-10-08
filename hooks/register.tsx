@@ -55,12 +55,10 @@ import {
   applyStatus,
   assembleRepos,
   belongsToRepo,
-  commonDirAt,
   deviceTotal,
   emptyGit,
   gitArgv,
   isRecord,
-  mapLimit,
   numstatTotals,
   parseCommitLog,
   parseJson,
@@ -71,8 +69,6 @@ import {
   readRepo,
   samePath,
   serializeSharedLimits,
-  slashPath,
-  uniqueFolders,
   worktreeGitDir,
   worktreeName,
   type GitFs,
@@ -122,7 +118,6 @@ const PR_CACHE_MS = 300_000
 const prCache = new Map<string, { at: number; pr: { number: number; url: string } | null }>()
 const GIT_STAMP_FILES = ['index', 'HEAD', 'FETCH_HEAD', 'ORIG_HEAD']
 const DEVICE_EVERY_MS = 60_000
-const DEVICE_LANES = 4
 
 type Measured = {
   context: SessionContextUsage
@@ -383,11 +378,7 @@ async function refreshDevice($: EngineInterface): Promise<void> {
   if (deviceBusy) return
   deviceBusy = true
   try {
-    const cwd = await $.session.cwd()
-    const fs = gitFs($)
-    const children = (await fs.dirs(cwd)).map(name => `${slashPath(cwd)}/${name}`)
-    const found = await mapLimit(children, DEVICE_LANES, folder => commonDirAt(fs, folder))
-    const reads = await mapLimit(uniqueFolders([commonDir, ...found].filter(Boolean)), DEVICE_LANES, dir => readRepo(fs, dir))
+    const reads = commonDir ? [await readRepo(gitFs($), commonDir)] : []
     await update($, deviceRepos, () => assembleRepos(reads, commonDir))
   } finally {
     deviceBusy = false
