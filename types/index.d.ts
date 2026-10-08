@@ -92,6 +92,8 @@ export type IndexHost = {
   ide: string
   agent: string
   project: string
+  messages?: boolean
+  title?: string
 }
 
 export type IndexPanel =

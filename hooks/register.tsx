@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Register, RenderChildren, Timer, SessionContextUsage, SessionCost, SessionRateLimit } from 'claude-code'
+import type { EngineInterface, Register, RenderChildren, Timer, ToolCallArgs, SessionContextUsage, SessionCost, SessionRateLimit } from 'claude-code'
 
 import type {
   IndexAgentStep,
@@ -41,6 +41,8 @@ import {
   currentChoices,
   mainStep,
   FOLDER_PICK,
+  MESSAGES_PICK,
+  transcriptTitle,
   panelLines,
   worktreePaths,
   rowOrder,
@@ -422,7 +424,13 @@ async function refreshHost($: EngineInterface): Promise<void> {
     configDir($),
     $.session.version(),
   ])
-  const [entry, ide] = await Promise.all([sessionEntry($, dir, id), detectIde($, dir, cwd), loadAgentColors($)])
+  const [entry, ide, tools, title] = await Promise.all([
+    sessionEntry($, dir, id),
+    detectIde($, dir, cwd),
+    $.tool.list().catch(() => []),
+    sessionTitle($),
+    loadAgentColors($),
+  ])
   const agentSetting = settings['agent']
   await update($, host, () => ({
     sessionName: entry.name,
@@ -434,6 +442,8 @@ async function refreshHost($: EngineInterface): Promise<void> {
     ide,
     agent: typeof agentSetting === 'string' ? agentSetting : '',
     project: projectName(cwd),
+    messages: tools.some(t => t.name === MESSAGES_TOOL),
+    title,
   }))
 }
 
@@ -727,6 +737,7 @@ function refreshGitSoon($: EngineInterface): void {
 }
 
 const AGENT_TABS = 'plugin:ide-agent-tabs:ide-agent-tabs'
+const MESSAGES_TOOL: string = 'mcp__ide-agent-tabs__open_agent_messages'
 const ULTRACODE = /\bultracode\b/i
 const PIN_ON = '■'
 const PIN_OFF = '□'
@@ -846,6 +857,33 @@ async function openHarness($: EngineInterface, name: string): Promise<void> {
     $.ui.toast(isRecord(result) && result['isError'] === true ? `Could not open ${label}` : `Opened ${label} in a new tab`)
   } catch {
     $.ui.toast(`Could not open ${label}: agent tabs is not available`)
+  }
+}
+
+// The transcript is the CLI's own file, not part of the mod API: the remote title is its
+// last `ai-title` entry, or a `custom-title` one after a rename.
+async function sessionTitle($: EngineInterface): Promise<string> {
+  try {
+    const [dir, root, id] = await Promise.all([configDir($), $.session.root(), $.session.id()])
+    return transcriptTitle(await $.fs.read(`${dir}/projects/${root.replace(/[^a-zA-Z0-9]/g, '-')}/${id}.jsonl`))
+  } catch {
+    return ''
+  }
+}
+
+async function refreshSessionRow($: EngineInterface): Promise<void> {
+  const [tools, title] = await Promise.all([$.tool.list().catch(() => []), sessionTitle($)])
+  const messages = tools.some(t => t.name === MESSAGES_TOOL)
+  await update($, host, prev => (prev && (prev.messages !== messages || prev.title !== title) ? { ...prev, messages, title } : prev))
+}
+
+async function openMessages($: EngineInterface): Promise<void> {
+  try {
+    // The generated types list only the tools known when they were written; Agent Tabs registers this one at runtime.
+    const { text } = await $.tool.call({ tool: MESSAGES_TOOL } as ToolCallArgs)
+    if (text) $.ui.toast(text)
+  } catch {
+    $.ui.toast('Could not open Messages: agent tabs is not available')
   }
 }
 
@@ -969,6 +1007,7 @@ export const register: Register = (on, options) => {
     const panel = PANELS.find(p => e.element.startsWith(`${p}-`))
     if (!panel) return {}
     const isName = e.element === `${panel}-chip`
+    if (panel === 'session' && isName && (data['hover'] === true || data['press'] === true)) await refreshSessionRow($)
     if (data['hover'] === true) {
       pointerOver.add(e.element)
       if (isName && (await read($, hover))?.panel !== panel) hoverOpenSoon($, panel)
@@ -987,6 +1026,8 @@ export const register: Register = (on, options) => {
         const copied = await $.ui.copy({ text: name, surface: e.surface })
         $.ui.toast(copied.isCopied ? `Copied: ${name}` : `Could not copy ${name}: ${copied.reason}`)
       }
+    } else if (panel === 'session' && data['pick'] === MESSAGES_PICK && e.element === `${panel}-row`) {
+      await openMessages($)
     } else if (typeof data['pick'] === 'string' && e.element === `${panel}-row`) {
       await applyPick($, panel, typeof data['target'] === 'string' ? data['target'] : MAIN, data['pick'])
     }

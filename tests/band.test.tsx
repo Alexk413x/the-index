@@ -587,7 +587,7 @@ test('the session row is a three-column table with no separators', async ($, on)
   expect(lines.flat().some(i => i.text === '|')).toBe(false)
   const thirdColumn = (line: { text: string; pad?: number }[]) =>
     line.slice(0, -1).reduce((col, item) => col + item.text.length + (item.pad ?? 0) + 2, 0)
-  const withNote = lines.filter(l => l[0]?.text.trim() !== 'Agent')
+  const withNote = lines.filter(l => !['Agent', 'Name'].includes(l[0]?.text.trim() ?? ''))
   expect(withNote.map(l => l[l.length - 1]?.text)).toEqual([expect.stringMatching(/^started /), 'Claude Code 2.1.288'])
   expect(new Set(withNote.map(thirdColumn)).size).toBe(1)
   await band.unmount()

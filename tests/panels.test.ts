@@ -7,6 +7,8 @@ import {
   ROW_GAP,
   TITLE_WIDTH,
   FOLDER_PICK,
+  MESSAGES_PICK,
+  transcriptTitle,
   currentChoices,
   mainStep,
   padTo,
@@ -180,19 +182,36 @@ describe('row layout', () => {
 
   test('the session table adds a Remote row only when linked, and lines up its third column', () => {
     const plain = panelLines('session', view({ startedAt: new Date(2026, 9, 4, 9, 5).getTime() }))
-    expect(plain.map(l => l[0]?.text)).toEqual(['Session', 'Agent', 'Folder'])
-    expect(plain[1]?.map(i => i.text.trim())).toEqual(['Agent', 'none'])
-    expect(plain[0]?.at(-1)?.text).toBe('started 09:05')
-    expect(plain[0]?.find(i => i.pick === 'name')).toMatchObject({ text: expect.stringContaining(HOST.sessionName), link: true })
+    expect(plain.map(l => l[0]?.text)).toEqual(['Name', 'Session', 'Agent', 'Folder'])
+    expect(plain[2]?.map(i => i.text.trim())).toEqual(['Agent', 'none'])
+    expect(plain[1]?.at(-1)?.text).toBe('started 09:05')
+    expect(plain[1]?.find(i => i.pick === 'name')).toMatchObject({ text: expect.stringContaining(HOST.sessionName), link: true })
     const linked = panelLines(
       'session',
-      view({ host: { ...HOST, agent: 'reviewer', bridged: true, bridgeId: 'cse_1' }, agentColor: 'blue', attached: 2, startedAt: 0 }),
+      view({ host: { ...HOST, agent: 'reviewer', bridged: true, bridgeId: 'cse_1', messages: true }, agentColor: 'blue', attached: 2, startedAt: 0 }),
     )
-    expect(linked.map(l => l[0]?.text)).toEqual(['Session', 'Agent', 'Remote', 'Folder'])
-    expect(linked[1]?.at(-1)?.text).toBe('colour blue')
-    expect(linked[2]?.at(-1)?.text).toBe('2 attached')
+    expect(linked.map(l => l[0]?.text)).toEqual(['Name', 'Session', 'Agent', 'Remote', 'Folder'])
+    expect(linked[2]?.at(-1)?.text).toBe('colour blue')
+    expect(linked[3]?.at(-1)?.text).toBe('2 attached')
     expect(new Set(linked.map(l => starts(l).at(-1))).size).toBe(1)
     expect(panelLines('session', view({ host: null }))).toEqual([])
+  })
+
+  test('the Name row shows the session title, with Open Messages only when Agent Tabs serves it', () => {
+    const plain = panelLines('session', view())
+    expect(plain[0]?.map(i => i.text.trim())).toEqual(['Name', 'untitled'])
+    const rows = panelLines('session', view({ host: { ...HOST, title: 'Fix the band', messages: true } }))
+    expect(rows[0]?.map(i => i.text.trim())).toEqual(['Name', 'Fix the band', 'Open Messages'])
+    expect(rows[0]?.at(-1)).toMatchObject({ pick: MESSAGES_PICK, link: true })
+  })
+
+  test('the transcript title is the last rename, else the last generated title', () => {
+    const ai = (t: string) => JSON.stringify({ type: 'ai-title', aiTitle: t })
+    const custom = (t: string) => JSON.stringify({ type: 'custom-title', customTitle: t })
+    expect(transcriptTitle('')).toBe('')
+    expect(transcriptTitle([ai('First'), '{"type":"user"}', ai('Second')].join('\n'))).toBe('Second')
+    expect(transcriptTitle([custom('Mine'), ai('Later')].join('\n'))).toBe('Mine')
+    expect(transcriptTitle(['{broken -title"', ai('Kept')].join('\n'))).toBe('Kept')
   })
 })
 
