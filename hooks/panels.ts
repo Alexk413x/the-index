@@ -203,16 +203,12 @@ function worktreeLines(view: PanelView): RowItem[][] {
     note(`${SYM_WT} `),
     { text: name, color: c.project, pick: `${FOLDER_PICK}${path}`, link: true, tight: true },
   ]
-  type Row = { header?: RowItem; folder: RowItem[]; branch: RowItem[]; base: RowItem[]; current: boolean }
+  type Row = { folder: RowItem[]; branch: RowItem[]; base: RowItem[]; current: boolean }
   const repos = view.deviceRepos ?? []
   const trees = view.worktrees ?? []
-  const here = repos.find(r => r.current)
   const groups: Row[][] = []
   if (trees.length > 1) {
-    const name = here?.name ?? trees[0]?.name ?? ''
-    const path = here?.path ?? trees[0]?.path ?? ''
     groups.push([
-      { header: { text: name, color: c.project, pick: `${FOLDER_PICK}${path}`, link: true }, folder: [], branch: [], base: [], current: false },
       ...trees.map(tree => {
         const parts = tree.git?.branch ? gitParts(tree.git, cfg) : null
         const links = gitLinks(tree.git)
@@ -228,7 +224,6 @@ function worktreeLines(view: PanelView): RowItem[][] {
   for (const repo of repos) {
     if (repo.trees.length === 0 || (repo.current && trees.length > 1)) continue
     groups.push([
-      { header: { text: repo.name, color: c.project, pick: `${FOLDER_PICK}${repo.path}`, link: true }, folder: [], branch: [], base: [], current: false },
       ...repo.trees.map(tree => ({
         folder: folder(tree.name, tree.path),
         branch: asItems([
@@ -246,18 +241,14 @@ function worktreeLines(view: PanelView): RowItem[][] {
   const branchWidth = Math.max(0, ...rows.map(r => sectionWidth(r.branch)))
   return [
     [title('Worktrees'), note('click a folder to open it, a pushed branch or a base to view it on GitHub')],
-    ...rows.map(r =>
-      r.header
-        ? [blankTitle(), r.header]
-        : [
-            blankTitle(),
-            ...padTo(r.folder, folderWidth),
-            sep(),
-            ...(r.base.length ? padTo(r.branch, branchWidth) : r.branch),
-            ...(r.base.length ? [sep(), ...r.base] : []),
-            ...(r.current ? [note('· this session')] : []),
-          ],
-    ),
+    ...rows.map(r => [
+      blankTitle(),
+      ...padTo(r.folder, folderWidth),
+      sep(),
+      ...(r.base.length ? padTo(r.branch, branchWidth) : r.branch),
+      ...(r.base.length ? [sep(), ...r.base] : []),
+      ...(r.current ? [note('· this session')] : []),
+    ]),
   ]
 }
 
