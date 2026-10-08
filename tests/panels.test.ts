@@ -14,6 +14,7 @@ import {
   rowOrder,
   savedEffortFor,
   sectionWidth,
+  worktreePaths,
   type PanelView,
   type RowItem,
 } from '../hooks/panels'
@@ -225,26 +226,79 @@ describe('worktrees panel', () => {
     { path: 'C:/src/app-feat', name: 'app-feat', current: false, git: git('feat/x', false) },
   ]
 
-  test('each worktree draws its folder, branch and base in the band format', () => {
+  test('each worktree draws its folder, branch and base in the band format, under its repo', () => {
     const lines = panelLines('worktrees', view({ worktrees }))
     expect(text(lines[0] ?? [])).toBe('Worktrees   click a folder to open it, a pushed branch or a base to view it on GitHub')
-    expect(text(lines[1] ?? [])).toBe(
-      '            app       |  ⎇ main ◻ 0 1 0 ≡ +5 -0    |  ↑2 ↓0 ⎇ origin/main ◻ 0 0 0 ≡ +0 -0  · this session',
+    expect(text(lines[1] ?? [])).toBe('            app')
+    expect(text(lines[2] ?? [])).toBe(
+      '            ⑂ app       |  ⎇ main ◻ 0 1 0 ≡ +5 -0    |  ↑2 ↓0 ⎇ origin/main ◻ 0 0 0 ≡ +0 -0  · this session',
     )
-    expect(text(lines[2] ?? [])).toBe('            app-feat  |  ⎇ feat/x ◻ 0 1 0 ≡ +5 -0  |  ↑2 ↓0 ⎇ origin/main ◻ 0 0 0 ≡ +0 -0')
+    expect(text(lines[3] ?? [])).toBe('            ⑂ app-feat  |  ⎇ feat/x ◻ 0 1 0 ≡ +5 -0  |  ↑2 ↓0 ⎇ origin/main ◻ 0 0 0 ≡ +0 -0')
   })
 
   test('folders link to their path, only a pushed branch links to GitHub, and every base links', () => {
     const lines = panelLines('worktrees', view({ worktrees }))
-    expect(lines[2]?.find(i => i.text === 'app-feat')?.pick).toBe(`${FOLDER_PICK}C:/src/app-feat`)
-    expect(lines[1]?.find(i => i.text === 'main')?.pick).toBe('https://github.com/acme/app/tree/main')
-    expect(lines[2]?.find(i => i.text === 'feat/x')?.pick).toBeUndefined()
-    expect(lines[1]?.find(i => i.text === 'origin/main')?.pick).toBe('https://github.com/acme/app/commits/main')
-    expect(lines[2]?.find(i => i.text === 'origin/main')?.pick).toBe('https://github.com/acme/app/tree/main')
+    expect(lines[1]?.find(i => i.text === 'app')?.pick).toBe(`${FOLDER_PICK}C:/src/app`)
+    expect(lines[3]?.find(i => i.text === 'app-feat')?.pick).toBe(`${FOLDER_PICK}C:/src/app-feat`)
+    expect(lines[2]?.find(i => i.text === 'main')?.pick).toBe('https://github.com/acme/app/tree/main')
+    expect(lines[3]?.find(i => i.text === 'feat/x')?.pick).toBeUndefined()
+    expect(lines[2]?.find(i => i.text === 'origin/main')?.pick).toBe('https://github.com/acme/app/commits/main')
+    expect(lines[3]?.find(i => i.text === 'origin/main')?.pick).toBe('https://github.com/acme/app/tree/main')
+  })
+
+  const deviceRepos = [
+    { key: 'c:/src/app/.git', name: 'app', path: 'C:/src/app', current: true, trees: [{ path: 'C:/src/app-feat', name: 'app-feat', branch: 'feat/x' }] },
+    {
+      key: 'c:/src/lib/.git',
+      name: 'lib',
+      path: 'C:/src/lib',
+      current: false,
+      trees: [
+        { path: 'C:/src/lib-fix', name: 'lib-fix', branch: 'fix/y' },
+        { path: 'C:/src/lib-old', name: 'lib-old', branch: '' },
+      ],
+    },
+  ]
+
+  test('other repos follow the current one, each extra worktree on a light line', () => {
+    const lines = panelLines('worktrees', view({ worktrees, deviceRepos }))
+    expect(lines.map(l => text(l).trimEnd())).toEqual([
+      'Worktrees   click a folder to open it, a pushed branch or a base to view it on GitHub',
+      '            app',
+      '            ⑂ app       |  ⎇ main ◻ 0 1 0 ≡ +5 -0    |  ↑2 ↓0 ⎇ origin/main ◻ 0 0 0 ≡ +0 -0  · this session',
+      '            ⑂ app-feat  |  ⎇ feat/x ◻ 0 1 0 ≡ +5 -0  |  ↑2 ↓0 ⎇ origin/main ◻ 0 0 0 ≡ +0 -0',
+      '            lib',
+      '            ⑂ lib-fix   |  ⎇ fix/y',
+      '            ⑂ lib-old   |  ⎇ detached',
+    ])
+    expect(lines[5]?.find(i => i.text === 'lib-fix')?.pick).toBe(`${FOLDER_PICK}C:/src/lib-fix`)
+  })
+
+  test('outside a git repo the row lists every repo with extra worktrees', () => {
+    const lines = panelLines('worktrees', view({ worktrees: [], deviceRepos: deviceRepos.map(r => ({ ...r, current: false })) }))
+    expect(lines.map(l => text(l).trimEnd()).slice(1)).toEqual([
+      '            app',
+      '            ⑂ app-feat  |  ⎇ feat/x',
+      '            lib',
+      '            ⑂ lib-fix   |  ⎇ fix/y',
+      '            ⑂ lib-old   |  ⎇ detached',
+    ])
+  })
+
+  test('clickable folders cover the repos and every listed worktree', () => {
+    expect(worktreePaths({ worktrees, deviceRepos })).toEqual([
+      'C:/src/app',
+      'C:/src/app-feat',
+      'C:/src/app',
+      'C:/src/app-feat',
+      'C:/src/lib',
+      'C:/src/lib-fix',
+      'C:/src/lib-old',
+    ])
   })
 
   test('a worktree not read yet shows a note instead of figures', () => {
-    const lines = panelLines('worktrees', view({ worktrees: [{ path: 'C:/src/x', name: 'x', current: false, git: null }] }))
-    expect(text(lines[1] ?? [])).toContain('not read yet')
+    const lines = panelLines('worktrees', view({ worktrees: [worktrees[0]!, { path: 'C:/src/x', name: 'x', current: false, git: null }] }))
+    expect(text(lines[3] ?? [])).toContain('not read yet')
   })
 })

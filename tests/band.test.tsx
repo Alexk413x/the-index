@@ -104,6 +104,8 @@ type StartOptions = {
   sessionFile?: unknown
   files?: Record<string, string>
   store?: Map<string, string>
+  paths?: Record<string, string>
+  dirs?: Record<string, string[]>
 }
 
 async function startSession($: { session: { start: (e: never) => Promise<unknown> } }, on: On, opts: StartOptions = {}) {
@@ -126,10 +128,20 @@ async function startSession($: { session: { start: (e: never) => Promise<unknown
     const path = String((e as { path?: string }).path).replace(/\\/g, '/')
     if (opts.sessionFile !== undefined && /sessions$/.test(path)) return { value: [entry('1.json')] } as never
     if (path === 'C:/nobody/.claude/agents') return { value: Object.keys(opts.files ?? {}).filter(n => n.endsWith('.md')).map(entry) } as never
+    const dir = opts.dirs?.[path]
+    if (dir) return { value: dir.map(name => ({ ...entry(name), kind: 'dir' })) } as never
     return { value: [] }
+  })
+  on('fs.stat', ($, e) => {
+    const path = String((e as { path?: string }).path).replace(/\\/g, '/')
+    if (opts.paths?.[path] !== undefined) return { value: { kind: 'file', size: 0, mtimeMs: 0, isLink: false } } as never
+    if (opts.dirs?.[path]) return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } as never
+    throw new Error(`ENOENT ${path}`)
   })
   on('fs.read', ($, e) => {
     const path = String((e as { path?: string }).path).replace(/\\/g, '/')
+    const exact = opts.paths?.[path]
+    if (exact !== undefined) return { value: exact }
     const file = Object.entries(opts.files ?? {}).find(([name]) => path.endsWith(`/${name}`))
     if (file) return { value: file[1] }
     const stored = opts.store?.get(path.split('/').pop() ?? '')
@@ -1052,4 +1064,39 @@ test('rows open above the lines in the terminal and below them in the desktop ap
   const desktop = await order('desktop')
   expect(desktop.keys.indexOf('line0')).toBeLessThan(desktop.keys.indexOf('effort-block'))
   expect(desktop.rule?.props).toMatchObject({ width: '100%', overflow: 'hidden' })
+})
+
+test('in a folder of repos the count covers every child repo, read from files with no git in the children', async ($, on) => {
+  engine(on)
+  const runs: (readonly string[])[] = []
+  await startSession($, on, {
+    cwd: 'C:/work',
+    run: argv => {
+      runs.push(argv)
+      return { exitCode: 128 }
+    },
+    dirs: {
+      'C:/work': ['app', 'app-feat', 'notes'],
+      'C:/work/app/.git': ['worktrees'],
+      'C:/work/app/.git/worktrees': ['feat', 'fix'],
+    },
+    paths: {
+      'C:/work/app-feat/.git': 'gitdir: C:/work/app/.git/worktrees/feat',
+      'C:/work/app/.git/worktrees/feat/commondir': '../..',
+      'C:/work/app/.git/worktrees/feat/gitdir': 'C:/work/app-feat/.git',
+      'C:/work/app/.git/worktrees/feat/HEAD': 'ref: refs/heads/feat/x',
+      'C:/work/app/.git/worktrees/fix/gitdir': 'D:/gone/.git',
+    },
+  })
+  await clock.advance(10)
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  const text = await bandText(band)
+  await band.unmount()
+  expect(text).toContain('□ work')
+  expect(text).toContain('⑂ 1')
+  expect(runs.filter(argv => argv[0] === 'git' && argv[2] !== 'C:/work')).toEqual([])
+  for (const argv of runs.filter(a => a[0] === 'git')) {
+    expect(argv).toContain('core.fsmonitor=false')
+    expect(argv).toContain('--no-optional-locks')
+  }
 })

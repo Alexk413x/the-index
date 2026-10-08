@@ -2,6 +2,7 @@ import type {
   IndexAgentStep,
   IndexCommit,
   IndexContextLimit,
+  IndexDeviceRepo,
   IndexContextPoint,
   IndexEffort,
   IndexHarness,
@@ -30,8 +31,10 @@ import { otherSessionAverages, sessionTotals, turnAverages, turnToRecord, type A
 import {
   MAIN,
   MODEL_CHOICES,
+  SYM_BR,
   SYM_FILES,
   SYM_LINES,
+  SYM_WT,
   fmtCost,
   fmtDur,
   fmtNum,
@@ -157,6 +160,7 @@ export type PanelView = {
   links: GitLinks
   basePrs: readonly IndexPullRequest[]
   worktrees?: readonly IndexWorktree[]
+  deviceRepos?: readonly IndexDeviceRepo[]
   cacheLeftMs: number | null
   now: number
 }
@@ -188,35 +192,79 @@ export const FOLDER_PICK = 'folder:'
 
 function worktreeLines(view: PanelView): RowItem[][] {
   const { cfg } = view
-  const note = (text: string): RowItem => ({ text, color: cfg.colors.icons })
+  const c = cfg.colors
+  const note = (text: string): RowItem => ({ text, color: c.icons })
   const title = (text: string): RowItem => ({ ...note(text), pad: Math.max(0, TITLE_WIDTH - text.length) })
   const blankTitle = (): RowItem => ({ ...note(''), pad: TITLE_WIDTH })
   const sep = (): RowItem => note('|')
   const asItems = (segs: readonly { text: string; color: string }[], pick?: string): RowItem[] =>
     segs.map((s, i) => ({ text: s.text, color: s.color, ...(i > 0 ? { tight: true } : {}), ...(pick ? { pick, link: true } : {}) }))
+  const folder = (name: string, path: string): RowItem[] => [
+    note(`${SYM_WT} `),
+    { text: name, color: c.project, pick: `${FOLDER_PICK}${path}`, link: true, tight: true },
+  ]
+  type Row = { header?: RowItem; folder: RowItem[]; branch: RowItem[]; base: RowItem[]; current: boolean }
+  const repos = view.deviceRepos ?? []
   const trees = view.worktrees ?? []
-  const rows = trees.map(tree => {
-    const parts = tree.git?.branch ? gitParts(tree.git, cfg) : null
-    const links = gitLinks(tree.git)
-    return {
-      folder: [{ text: tree.name, color: cfg.colors.project, pick: `${FOLDER_PICK}${tree.path}`, link: true }],
-      branch: parts ? asItems(parts.branch, links.branch) : [note(tree.git ? 'detached' : 'not read yet')],
-      base: parts?.base ? asItems(parts.base, links.base?.url ?? links.repo) : [],
-      current: tree.current,
-    }
-  })
+  const here = repos.find(r => r.current)
+  const groups: Row[][] = []
+  if (trees.length > 1) {
+    const name = here?.name ?? trees[0]?.name ?? ''
+    const path = here?.path ?? trees[0]?.path ?? ''
+    groups.push([
+      { header: { text: name, color: c.project, pick: `${FOLDER_PICK}${path}`, link: true }, folder: [], branch: [], base: [], current: false },
+      ...trees.map(tree => {
+        const parts = tree.git?.branch ? gitParts(tree.git, cfg) : null
+        const links = gitLinks(tree.git)
+        return {
+          folder: folder(tree.name, tree.path),
+          branch: parts ? asItems(parts.branch, links.branch) : [note(tree.git ? 'detached' : 'not read yet')],
+          base: parts?.base ? asItems(parts.base, links.base?.url ?? links.repo) : [],
+          current: tree.current,
+        }
+      }),
+    ])
+  }
+  for (const repo of repos) {
+    if (repo.trees.length === 0 || (repo.current && trees.length > 1)) continue
+    groups.push([
+      { header: { text: repo.name, color: c.project, pick: `${FOLDER_PICK}${repo.path}`, link: true }, folder: [], branch: [], base: [], current: false },
+      ...repo.trees.map(tree => ({
+        folder: folder(tree.name, tree.path),
+        branch: asItems([
+          { text: SYM_BR, color: c.icons },
+          { text: ' ', color: c.icons },
+          { text: tree.branch || 'detached', color: tree.branch ? c.branch : c.icons },
+        ]),
+        base: [],
+        current: false,
+      })),
+    ])
+  }
+  const rows = groups.flat()
   const folderWidth = Math.max(0, ...rows.map(r => sectionWidth(r.folder)))
   const branchWidth = Math.max(0, ...rows.map(r => sectionWidth(r.branch)))
   return [
     [title('Worktrees'), note('click a folder to open it, a pushed branch or a base to view it on GitHub')],
-    ...rows.map(r => [
-      blankTitle(),
-      ...padTo(r.folder, folderWidth),
-      sep(),
-      ...(r.base.length ? padTo(r.branch, branchWidth) : r.branch),
-      ...(r.base.length ? [sep(), ...r.base] : []),
-      ...(r.current ? [note('· this session')] : []),
-    ]),
+    ...rows.map(r =>
+      r.header
+        ? [blankTitle(), r.header]
+        : [
+            blankTitle(),
+            ...padTo(r.folder, folderWidth),
+            sep(),
+            ...(r.base.length ? padTo(r.branch, branchWidth) : r.branch),
+            ...(r.base.length ? [sep(), ...r.base] : []),
+            ...(r.current ? [note('· this session')] : []),
+          ],
+    ),
+  ]
+}
+
+export function worktreePaths(view: Pick<PanelView, 'worktrees' | 'deviceRepos'>): string[] {
+  return [
+    ...(view.worktrees ?? []).map(t => t.path),
+    ...(view.deviceRepos ?? []).flatMap(r => [r.path, ...r.trees.map(t => t.path)]),
   ]
 }
 

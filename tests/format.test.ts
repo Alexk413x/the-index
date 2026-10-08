@@ -388,13 +388,20 @@ describe('worktrees', () => {
   const repo = { ...emptyGit(''), branch: 'main' }
   const host = { sessionName: '', bridged: false, ide: '', agent: '', project: 'app' }
 
-  test('the count follows the folder when the repo has more than one worktree', () => {
+  test('the device-wide count of extra worktrees follows the folder', () => {
     const lines = buildLines(snapshot({ git: repo, host, worktrees: 3 }), readConfig({}))
     expect(lineText(lines[lines.length - 1] ?? [])).toBe('□ app | ⑂ 3 | ⎇ main ◻ 0 0 0 ≡ +0 -0')
+    const one = buildLines(snapshot({ git: repo, host, worktrees: 1 }), readConfig({}))
+    expect(lineText(one[one.length - 1] ?? [])).toBe('□ app | ⑂ 1 | ⎇ main ◻ 0 0 0 ≡ +0 -0')
   })
 
-  test('a repo with only its main worktree draws no count', () => {
-    for (const worktrees of [undefined, 0, 1]) {
+  test('a folder that is not a git repo still draws its name and the count', () => {
+    const lines = buildLines(snapshot({ git: null, host: { ...host, project: 'Plugins' }, worktrees: 4 }), readConfig({}))
+    expect(lineText(lines[lines.length - 1] ?? [])).toBe('□ Plugins | ⑂ 4')
+  })
+
+  test('no extra worktree on the device draws no count', () => {
+    for (const worktrees of [undefined, 0]) {
       const lines = buildLines(snapshot({ git: repo, host, worktrees }), readConfig({}))
       expect(lineText(lines[lines.length - 1] ?? [])).toBe('□ app | ⎇ main ◻ 0 0 0 ≡ +0 -0')
     }
