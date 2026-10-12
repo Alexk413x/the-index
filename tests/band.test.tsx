@@ -511,7 +511,7 @@ test('the harness name lists agent-tabs harnesses and a pick opens one in a new 
       agents: [
         { name: 'claude', label: 'Claude Code', installed: true },
         { name: 'codex', label: 'Codex', installed: true },
-        { name: 'gemini', label: 'Gemini CLI', installed: false },
+        { name: 'agy', label: 'Antigravity CLI', installed: false },
       ],
     })
     return { value: { content: [{ type: 'text', text }], isError: false } } as never

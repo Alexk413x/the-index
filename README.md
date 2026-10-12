@@ -49,7 +49,7 @@ claude plugin install the-index@alexk413x
 ## Works with
 
 - **ide-agent-tabs plugin:** when installed, hover the harness name at the start of
-  line 1 to open Codex, Gemini CLI or another agent CLI in a new tab. The session
+  line 1 to open Codex, Antigravity CLI or another agent CLI in a new tab. The session
   table's first row also gets an **Open Messages** button that opens the Agent Tabs
   Messages pane.
 - **`gh` CLI:** when installed, the band shows your open PRs and charts merged PRs.
