@@ -35,6 +35,12 @@ claude plugin install the-index@alexk413x
 - **Charts on hover.** Hover a section for a chart: context over time, daily usage,
   turn and session scorecards, and commit history with uncommitted changes. Click to
   pin it.
+- **Detail pane.** Click ▤ at the end of line 1 to dock a pane beside the transcript, with
+  a tab for each chart. Context lists the memory files, MCP tools by server, skills and
+  agents behind the window, each section summed. Calls, Turns and Usage list each API
+  call, turn and day. Click ▤ again to close it. Built-in tools and single messages show
+  only inside the Messages and System tools category totals, because Claude Code reports
+  no per-item figures for them.
 - **Switch from the band.** Change the model or effort with one click, for the main
   session or a subagent. Each model shows the newest version the band has seen, from
   your sessions and settings, so a new model release needs no plugin update.

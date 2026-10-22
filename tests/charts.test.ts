@@ -1,6 +1,6 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { barChart, lineChart, markerRow } from '../hooks/charts'
+import { barChart, bucketReadings, lineChart } from '../hooks/charts'
 import { HISTORY_MS, mergeTurns, otherSessionAverages, parseTurns, serializeTurns, turnAverages, turnToRecord } from '../hooks/turns'
 import type { IndexTurnRecord } from '../types'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type Ledger } from '../hooks/ledger'
@@ -60,11 +60,6 @@ describe('fixed scale and markers', () => {
     const half = lineChart([{ values: [20, 20], color: '#ff0000', max: 100 }], 2, 2, BLANK)
     expect(text(half[0] ?? []).trim()).toBe('')
     expect(text(half[1] ?? []).trim()).not.toBe('')
-  })
-
-  test('markers sit under the points they mark', () => {
-    expect(text(markerRow(3, [0, 2], 5, '▲', '#ff0000', BLANK))).toBe('▲   ▲')
-    expect(text(markerRow(0, [], 3, '▲', '#ff0000', BLANK))).toBe('   ')
   })
 })
 
@@ -370,6 +365,7 @@ const view = (over: Partial<PanelView>): PanelView => ({
     usage: null,
     contextLog: [],
     contextLimit: null,
+    contextSeries: null,
     baseCommits: [],
     baseRef: 'origin/main',
     branchCommits: [],
@@ -483,29 +479,120 @@ describe('chart rows', () => {
     const usage = summarize({ '2026-10-04': { a: { tokens: 2_000_000, costStart: 0, costEnd: 3 } } }, '2026-10-04', 30)
     const lines = panelLines('usage', view({ usage }))
     expect(lines.map(l => l.at(-1)?.text)).toContain('all time 2.0M · $3.00')
-    expect(lines.at(-1)?.at(-1)?.text).toBe('since 2026-10-04')
+    expect(lines.map(l => l.at(-1)?.text)).toContain('since 2026-10-04')
+    expect(lines.at(-1)?.at(-1)?.text).toBe('hover a day for its tokens')
+    const tagged = lines.flat().filter(item => item.hoverId === 'usage-2026-10-04')
+    expect(tagged.length).toBeGreaterThan(0)
+    expect(tagged[0]?.detail).toBe('2026-10-04 · 2.0M tokens · $3.00')
+    expect(lines.flat().some(item => item.hoverId === 'usage-2026-10-03')).toBe(false)
   })
 
-  test('the context row draws the threshold, the fill and the compactions', () => {
+  test('the context row heads the chart with the window, the threshold and the compaction count', () => {
     const contextLog = [
       { at: 1, percent: 40, tokens: 80_000 },
       { at: 2, percent: 85, tokens: 170_000 },
       { at: 3, percent: 10, tokens: 20_000, compaction: 'auto' as const },
     ]
     const lines = panelLines('context', view({ contextLog, contextLimit: { window: 200_000, threshold: 167_000 } }))
-    expect(lines).toHaveLength(CHART_HEIGHT)
-    expect(lines.map(l => l.at(-1)?.text)).toEqual([
-      '100% · 200k window',
-      'compacts at 84%',
-      'now 10% · 20k',
-      'peak 85%',
-      expect.any(String),
-      '▲ 1 compaction',
-    ])
-    expect(panelLines('context', view({})).at(-1)?.at(-1)?.text).toBe('no readings yet')
+    const texts = (row: RowItem[] | undefined) => row?.map(item => item.text.trim()) ?? []
+    expect(texts(lines[0])).toEqual(expect.arrayContaining(['Context', '100% · 200k window', 'compacts at 84%', '💥x1']))
+    expect(texts(lines[1])).toContain('▸ Total 10% · 20k')
+    const bottom = lines[CHART_HEIGHT + 4]?.at(-1)?.text ?? ''
+    expect(bottom.startsWith('0%  ')).toBe(true)
+    expect(bottom).toHaveLength(MIDDLE_WIDTH)
+    expect(lines.at(-1)?.some(item => item.footer)).toBe(true)
+    const none = panelLines('context', view({ contextLimit: { window: 200_000, threshold: null } }))
+    expect(texts(none[0])).toContain('💥x0')
+    expect(none[CHART_HEIGHT + 4]?.at(-1)?.text.startsWith('0%  no readings yet')).toBe(true)
+    expect(none.at(-1)?.some(item => item.footer)).toBe(true)
+    const button = lines.map(l => l[0]).find(item => item?.pick === 'detail')
+    expect(button?.text).toBe('Details')
+    expect(button?.detail).toBe('click to open the detailed breakdown')
     const warm = panelLines('context', view({ contextLog, cacheLeftMs: 42 * 60_000 }))
-    expect(warm[4]?.at(-1)?.text).toBe('cache warm · 42m0s left')
+    expect(texts(warm[0])).toContain('cache warm · 42m0s left')
     const cold = panelLines('context', view({ contextLog, cacheLeftMs: 0 }))
-    expect(cold[4]?.at(-1)?.text).toBe('cache cold · next call re-reads it')
+    expect(texts(cold[0])).toContain('cache cold · next call re-reads it')
+  })
+
+  test('the context list starts level with the top of the chart: Total, its baseline, then the categories highest to lowest', () => {
+    const contextLog = [
+      { at: 1, percent: 10, tokens: 20_000, parts: { 'System prompt': 6_000, 'MCP tools': 4_000, Messages: 10_000 } },
+      { at: 2, percent: 20, tokens: 40_000, parts: { 'System prompt': 6_000, 'MCP tools': 5_000, Messages: 29_000 } },
+    ]
+    const base = { contextLog, contextLimit: { window: 200_000, threshold: null } }
+    const list = (lines: RowItem[][]) => lines.slice(1, 5).map(l => l.at(-1))
+    const lines = panelLines('context', view(base))
+    expect(lines[0]?.at(-1)?.pick).toBeUndefined()
+    expect(list(lines).map(item => item?.text)).toEqual([
+      '▸ Total 20% · 40k',
+      '  Prompts 14% · 29k',
+      '  System Prompt 3.0% · 6.0k',
+      '  MCP Tools 2.5% · 5.0k',
+    ])
+    expect(list(lines).map(item => item?.pick)).toEqual([undefined, 'context:Messages', 'context:System prompt', 'context:MCP tools'])
+    const colors = list(lines).map(item => item?.color)
+    expect(new Set(colors).size).toBe(colors.length)
+    expect(lines.at(-1)?.at(-1)?.text).toBe('Baseline 5.5% · 11k before any prompt')
+    expect(lines.at(-1)?.some(item => item.footer)).toBe(true)
+
+    const one = panelLines('context', view({ ...base, contextSeries: 'MCP tools' }))
+    expect(list(one).map(item => item?.pick)).toEqual(['context:', 'context:Messages', 'context:System prompt', undefined])
+    expect(list(one).map(item => item?.text[0])).toEqual([' ', ' ', ' ', '▸'])
+    expect(one[0]?.map(item => item.text.trim())).toContain('100% · 200k window')
+    const stale = panelLines('context', view({ ...base, contextSeries: 'Nothing' }))
+    expect(list(stale)[0]?.text).toBe('▸ Total 20% · 40k')
+  })
+
+  test('hovering a context column names its time and swaps the list for that reading, highest first', () => {
+    const contextLog = [
+      { at: 0, percent: 10, tokens: 20_000, parts: { 'System prompt': 6_000, Messages: 14_000 } },
+      { at: 1, percent: 30, tokens: 60_000, parts: { 'System prompt': 6_000, Messages: 54_000 } },
+      { at: 60_000, percent: 5, tokens: 10_000, parts: { 'System prompt': 6_000, Messages: 4_000 } },
+    ]
+    const lines = panelLines('context', view({ contextLog, contextLimit: { window: 200_000, threshold: null } }))
+    const hovered = (id: string) => lines.flat().find(item => item.hoverId === id)
+    expect(hovered('context-0')?.detail).toMatch(/^\d\d:\d\d$/)
+    expect(hovered('context-2')?.detail).toMatch(/^\d\d:\d\d$/)
+    expect(hovered('context-3')).toBeUndefined()
+    const side = lines.slice(1, 4).map(l => l.at(-1))
+    expect(side.map(item => item?.text)).toEqual(['▸ Total 5.0% · 10k', '  System Prompt 3.0% · 6.0k', '  Prompts 2.0% · 4.0k'])
+    expect(side.map(item => item?.swaps?.['context-1']?.text)).toEqual(['▸ Total 30% · 60k', '  Prompts 27% · 54k', '  System Prompt 3.0% · 6.0k'])
+    expect(side[1]?.swaps?.['context-1']?.color).not.toBe(side[1]?.color)
+    const baseline = lines.at(-1)?.at(-1)
+    expect(baseline?.text).toBe('Baseline 3.0% · 6.0k before any prompt')
+    expect(baseline?.swaps?.['context-1']?.text).toBe('Baseline 3.0% · 6.0k before any prompt')
+    expect(lines.at(-1)?.some(item => item.footer)).toBe(true)
+  })
+
+  test('once the readings fill the width, columns hold several and hover names how many it averaged', () => {
+    const contextLog = Array.from({ length: 130 }, (_, i) => ({ at: i * 1000, percent: i % 100, tokens: i * 100 }))
+    const lines = panelLines('context', view({ contextLog, contextLimit: { window: 200_000, threshold: null } }))
+    const details = lines.flat().flatMap(item => (item.hoverId?.startsWith('context-') && item.detail ? [item.detail] : []))
+    expect(details.some(d => d.endsWith('(avg of 2)'))).toBe(true)
+    const few = panelLines('context', view({ contextLog: contextLog.slice(0, 10), contextLimit: { window: 200_000, threshold: null } }))
+    const ids = new Set(few.flat().flatMap(item => (item.hoverId?.startsWith('context-') ? [item.hoverId] : [])))
+    expect(ids.size).toBe(10)
+    expect(few.flat().some(item => item.detail?.includes('avg of'))).toBe(false)
+  })
+
+  test('readings step in from the right edge, then share columns once they overrun the width', () => {
+    expect(bucketReadings([false, false, false], 120, 4)).toEqual([
+      { column: 111, indexes: [0] },
+      { column: 115, indexes: [1] },
+      { column: 119, indexes: [2] },
+    ])
+    expect(bucketReadings([false], 120, 4)).toEqual([{ column: 119, indexes: [0] }])
+    const crowded = bucketReadings(Array.from({ length: 240 }, () => false), 120, 4)
+    expect(crowded[0]?.column).toBe(0)
+    expect(crowded.at(-1)?.column).toBe(119)
+    expect(crowded.every(b => b.indexes.length >= 1)).toBe(true)
+    expect(crowded.reduce((sum, b) => sum + b.indexes.length, 0)).toBe(240)
+    expect(bucketReadings([false, false, true], 120, 4)).toEqual([
+      { column: 111, indexes: [0] },
+      { column: 115, indexes: [1] },
+      { column: 119, indexes: [2] },
+    ])
+    const squeezed = bucketReadings([false, false, true, false].concat(Array.from({ length: 200 }, () => false)), 120, 4)
+    expect(squeezed.some(b => b.indexes.includes(2) && b.indexes[0] === 2)).toBe(true)
   })
 })

@@ -5,7 +5,7 @@ type ChipProps = {
   color: string
   look?: 'button' | 'link'
   isActive?: boolean
-  parts?: { text: string; color: string }[]
+  parts?: { text: string; color: string; inverse?: boolean }[]
 }
 type ChipState = { isHovered: boolean }
 
@@ -35,7 +35,12 @@ const Chip: ClientModule<ChipProps, ChipState> = (props, surface) => {
     return (
       <Box flexDirection="row">
         {props.parts.map((part, i) => (
-          <Text key={`part${i}`} color={part.color} underline={(isHovered || props.isActive === true) && !part.text.includes(WIDE_EMOJI)}>
+          <Text
+            key={`part${i}`}
+            color={part.color}
+            inverse={part.inverse === true}
+            underline={(isHovered || props.isActive === true) && !part.text.includes(WIDE_EMOJI)}
+          >
             {part.text}
           </Text>
         ))}
