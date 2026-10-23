@@ -135,7 +135,7 @@ describe('band lines', () => {
   test('before the first call every value is a placeholder', () => {
     const lines = buildLines(snapshot(), readConfig({}))
     expect(lines).toHaveLength(2)
-    expect(lineText(lines[0] ?? [])).toBe('Unknown ░░ | ☀ ░░m 💥x0 ○ ░░% ◷ ░░% ░h░░m ⧈ ░░% ░d░░h')
+    expect(lineText(lines[0] ?? [])).toBe('Unknown ░░ | ☀ ░░m ○ ░░% ◷ ░░% ░h░░m ⧈ ░░% ░d░░h')
     expect(lineText(lines[1] ?? [])).toBe(
       'Δ »░ ↑░░ ⤒░░░░ ⤓░░░░ ↓░░░░ ↯░░ ⌖░░% ≡+░░ -░░ ⏱ ░░s $░.░░ | Σ ◦░ »░ ↑░░░ ⤒░░░░░ ⤓░░░░░ ↓░░░░ ↯░░ ⌖░░% ░░% ≡+░░░ -░░░ ⏱ ░░m░░s $░.░░',
     )
@@ -225,7 +225,7 @@ describe('band lines', () => {
     })
     const lines = buildLines(snap, readConfig({}))
     expect(lineText(lines[0] ?? [])).toBe(
-      'Claude Opus 5.5 ░░ | ☀ 50m 💥x2 ◑ 45% 1h2m ◵ 23% 2h0m ⧈ ░░% ░d░░h',
+      'Claude Opus 5.5 ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ◵ 23% 2h0m ⧈ ░░% ░d░░h',
     )
     expect(lineText(lines[1] ?? [])).toBe(
       'Δ »3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ◦2 »5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50',

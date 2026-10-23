@@ -411,8 +411,11 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     const pct = known ? Math.trunc(usage.contextPercent as number) : 0
     const glyph = contextGlyph(pct, cfg.glyphs)
     const compactions = usage?.compactions ?? 0
-    const boom = compactions > 0 ? c.high : c.icons
-    ctx.push(seg(SYM_BOOM, boom), seg(`x${compactions}`, boom), sp)
+    if (compactions > 0) {
+      if (compactions <= 3) ctx.push(seg(SYM_BOOM.repeat(compactions), c.high))
+      else ctx.push(seg(SYM_BOOM, c.high), seg(`x${compactions}`, c.high))
+      ctx.push(sp)
+    }
     ctx.push(icon(glyph), sp, seg(known ? `${pct}%` : `${SHADE.repeat(2)}%`, ctxColor(pct)))
   }
   if (cfg.show.uptime && usage) {

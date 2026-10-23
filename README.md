@@ -4,7 +4,7 @@ A three-line band above the Claude Code prompt that shows what your session cost
 close you are to a limit, and where your code stands, without leaving the prompt.
 
 ```
-● peer | Claude Opus 5.5 high | VS Code | ☼ 50m 💥x2 ◑ 45% 1h2m ◵ 23% 2h5m ⧈ 61% 3d4h
+● peer | Claude Opus 5.5 high | VS Code | ☼ 50m 💥💥 ◑ 45% 1h2m ◵ 23% 2h5m ⧈ 61% 3d4h
 Δ »3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ◦2 »5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50
 □ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ #42 origin/main ◻ 0 4 0 ≡ +50 -9
 ```
@@ -22,8 +22,8 @@ claude plugin install the-index@alexk413x
 ## Features
 
 - **Session at a glance.** See the model, effort, context fill, prompt-cache time left
-  and rate limits, so you know when to compact, switch models or slow down. 💥xN counts
-  the compactions in the session, manual and automatic.
+  and rate limits, so you know when to compact, switch models or slow down. 💥 appears once per compaction,
+  manual or automatic, up to three, then reads 💥x4 and up.
 - **Cost and token telemetry.** See what the last turn and the whole session cost in
   tokens, cache hits, speed and dollars, so expensive turns stand out.
 - **Git state.** See what your next commit and your next PR hold, so you don't need to
