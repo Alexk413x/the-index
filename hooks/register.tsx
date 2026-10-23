@@ -663,7 +663,7 @@ async function toggleDetail($: EngineInterface): Promise<void> {
   }
   await update($, detailOpen, () => true)
   void refreshContextDetail($)
-  const opened = await $.ui.open({ id: DETAIL_PANE, title: 'Details', columns: 72, rows: 24 })
+  const opened = await $.ui.open({ id: DETAIL_PANE, title: 'Details', columns: 120, rows: 24 })
   if (!opened.isPlaced) {
     await update($, detailOpen, () => false)
     await $.ui.close({ id: DETAIL_PANE })
