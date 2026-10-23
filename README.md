@@ -4,7 +4,7 @@ A three-line band above the Claude Code prompt that shows what your session cost
 close you are to a limit, and where your code stands, without leaving the prompt.
 
 ```
-● peer | Claude Opus 5.5 high | VS Code | ☼ 50m 💥 ◑ 45% 1h2m ◵ 23% 2h5m ⧈ 61% 3d4h
+● peer | Claude Opus 5.5 high | VS Code | ☼ 50m 💥x2 ◑ 45% 1h2m ◵ 23% 2h5m ⧈ 61% 3d4h
 Δ »3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ◦2 »5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50
 □ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ #42 origin/main ◻ 0 4 0 ≡ +50 -9
 ```
@@ -22,7 +22,8 @@ claude plugin install the-index@alexk413x
 ## Features
 
 - **Session at a glance.** See the model, effort, context fill, prompt-cache time left
-  and rate limits, so you know when to compact, switch models or slow down.
+  and rate limits, so you know when to compact, switch models or slow down. 💥xN counts
+  the compactions in the session, manual and automatic.
 - **Cost and token telemetry.** See what the last turn and the whole session cost in
   tokens, cache hits, speed and dollars, so expensive turns stand out.
 - **Git state.** See what your next commit and your next PR hold, so you don't need to
@@ -36,11 +37,14 @@ claude plugin install the-index@alexk413x
   turn and session scorecards, and commit history with uncommitted changes. Click to
   pin it.
 - **Detail pane.** Click ▤ at the end of line 1 to dock a pane beside the transcript, with
-  a tab for each chart. Context lists the memory files, MCP tools by server, skills and
-  agents behind the window, each section summed. Calls, Turns and Usage list each API
-  call, turn and day. Click ▤ again to close it. Built-in tools and single messages show
-  only inside the Messages and System tools category totals, because Claude Code reports
-  no per-item figures for them.
+  the Context, Prompts and Usage tabs. Context lists each compaction with its before and
+  after size, then the system prompt, MCP instructions, memory files, MCP tools by
+  server, skills and agents behind the window, largest first, each section summed.
+  Click the Prompts row to open the Prompts tab, which lists each turn and its API
+  calls. Usage lists each day. Click ▤ again to close the pane. Claude Code reports no
+  per-item figures for built-in tools and single messages, so they show only inside the
+  Prompts and System Tools totals, and the per-section figures for the system prompt,
+  system tools and MCP instructions are estimates shared by text length.
 - **Switch from the band.** Change the model or effort with one click, for the main
   session or a subagent. Each model shows the newest version the band has seen, from
   your sessions and settings, so a new model release needs no plugin update.
