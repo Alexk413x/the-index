@@ -523,7 +523,7 @@ describe('chart rows', () => {
     const list = (lines: RowItem[][]) => lines.slice(1, 5).map(l => l.at(-1))
     const lines = panelLines('context', view(base))
     expect(lines[0]?.at(-1)?.pick).toBeUndefined()
-    expect(list(lines).map(item => item?.text)).toEqual([
+    expect(list(lines).map(item => item?.text.trimEnd())).toEqual([
       '▸ Total 20% · 40k',
       '  Prompts 14% · 29k',
       '  System Prompt 3.0% · 6.0k',
@@ -532,7 +532,7 @@ describe('chart rows', () => {
     expect(list(lines).map(item => item?.pick)).toEqual([undefined, 'context:Messages', 'context:System prompt', 'context:MCP tools'])
     const colors = list(lines).map(item => item?.color)
     expect(new Set(colors).size).toBe(colors.length)
-    expect(lines.at(-1)?.at(-1)?.text).toBe('Baseline 5.5% · 11k before any prompt')
+    expect(lines.at(-1)?.at(-1)?.text.trimEnd()).toBe('Baseline 5.5% · 11k before any prompt')
     expect(lines.at(-1)?.some(item => item.footer)).toBe(true)
 
     const one = panelLines('context', view({ ...base, contextSeries: 'MCP tools' }))
@@ -540,7 +540,7 @@ describe('chart rows', () => {
     expect(list(one).map(item => item?.text[0])).toEqual([' ', ' ', ' ', '▸'])
     expect(one[0]?.map(item => item.text.trim())).toContain('100% · 200k window')
     const stale = panelLines('context', view({ ...base, contextSeries: 'Nothing' }))
-    expect(list(stale)[0]?.text).toBe('▸ Total 20% · 40k')
+    expect(list(stale)[0]?.text.trimEnd()).toBe('▸ Total 20% · 40k')
   })
 
   test('hovering a context column names its time and swaps the list for that reading, highest first', () => {
@@ -555,9 +555,13 @@ describe('chart rows', () => {
     expect(hovered('context-2')?.detail).toMatch(/^\d\d:\d\d$/)
     expect(hovered('context-3')).toBeUndefined()
     const side = lines.slice(1, 4).map(l => l.at(-1))
-    expect(side.map(item => item?.text)).toEqual(['▸ Total 5.0% · 10k', '  System Prompt 3.0% · 6.0k', '  Prompts 2.0% · 4.0k'])
-    expect(side.map(item => item?.swaps?.['context-1']?.text)).toEqual(['▸ Total 30% · 60k', '  Prompts 27% · 54k', '  System Prompt 3.0% · 6.0k'])
+    expect(side.map(item => item?.text.trimEnd())).toEqual(['▸ Total 5.0% · 10k', '  System Prompt 3.0% · 6.0k', '  Prompts 2.0% · 4.0k'])
+    expect(side.map(item => item?.swaps?.['context-1']?.text.trimEnd())).toEqual(['▸ Total 30% · 60k', '  Prompts 27% · 54k', '  System Prompt 3.0% · 6.0k'])
     expect(side[1]?.swaps?.['context-1']?.color).not.toBe(side[1]?.color)
+    for (const item of [...side, lines.at(-1)?.at(-1)]) {
+      const lengths = [item?.text, ...Object.values(item?.swaps ?? {}).map(w => w.text)].map(t => t?.length)
+      expect(new Set(lengths).size).toBe(1)
+    }
     const baseline = lines.at(-1)?.at(-1)
     expect(baseline?.text).toBe('Baseline 3.0% · 6.0k before any prompt')
     expect(baseline?.swaps?.['context-1']?.text).toBe('Baseline 3.0% · 6.0k before any prompt')

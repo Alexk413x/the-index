@@ -648,19 +648,18 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     }
     const current = last ? sideFor(last.percent, last.tokens, latest) : sideFor(0, 0, undefined)
     const sides = grouped.map(g => sideFor(g.percent, g.tokens, g.parts))
-    const entries: RowItem[] = current.rows.map((side, slot) => ({
-      ...side,
-      swaps: Object.fromEntries(sides.map((s, i) => [`context-${i}`, { text: s.rows[slot]?.text ?? '', color: s.rows[slot]?.color ?? cfg.colors.icons }])),
-    }))
-    const baselineItem: RowItem[] = current.baseline
-      ? [
-          {
-            text: current.baseline,
-            color: cfg.colors.icons,
-            swaps: Object.fromEntries(sides.map((s, i) => [`context-${i}`, { text: s.baseline, color: cfg.colors.icons }])),
-          },
-        ]
-      : []
+    // A hovered column swaps in other text; every variant pads to the longest so the row keeps its width.
+    const swapping = (side: Side, swapped: (s: ReturnType<typeof sideFor>) => Side | undefined): RowItem => {
+      const variants = sides.map((s, i): [string, Side] => [`context-${i}`, swapped(s) ?? { text: '', color: cfg.colors.icons }])
+      const width = Math.max(side.text.length, ...variants.map(([, v]) => v.text.length))
+      return {
+        ...side,
+        text: side.text.padEnd(width),
+        swaps: Object.fromEntries(variants.map(([id, v]) => [id, { text: v.text.padEnd(width), color: v.color }])),
+      }
+    }
+    const entries: RowItem[] = current.rows.map((side, slot) => swapping(side, s => s.rows[slot]))
+    const baselineItem: RowItem[] = current.baseline ? [swapping({ text: current.baseline, color: cfg.colors.icons }, s => ({ text: s.baseline, color: cfg.colors.icons }))] : []
     const hint = 'hover a column for its time and values'
 
     const header: RowItem[] = [
