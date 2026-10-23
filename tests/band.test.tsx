@@ -61,7 +61,20 @@ function engine(on: On) {
         window: 200_000,
         percent: 12,
         tokens: 24_000,
-        ...((e as { breakdown?: string }).breakdown ? { breakdown: { isAutoCompactEnabled: true, autoCompactThreshold: 160_000 } } : {}),
+        ...((e as { breakdown?: string }).breakdown
+          ? {
+              breakdown: {
+                isAutoCompactEnabled: true,
+                autoCompactThreshold: 160_000,
+                totalTokens: 24_000,
+                maxTokens: 200_000,
+                categories: [{ name: 'Messages', tokens: 20_000, isDeferred: false, kind: 'used' }],
+                memoryFiles: [{ path: 'C:/work/app/CLAUDE.md', type: 'Project', tokens: 700 }],
+                mcpTools: [],
+                agents: [],
+              },
+            }
+          : {}),
       },
       rateLimits: [],
       cost: { usd: sessionCost },
@@ -874,7 +887,8 @@ test('each step adds to the shared usage file, and hovering the rate limits char
   await clock.advance(310)
   const lines = ((await band.find({ key: 'usage-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
   expect(lines.map(l => l.at(-1)?.text)).toContain('today 1.0M')
-  expect(lines.at(-1)?.at(-1)?.text).toBe(`since ${day}`)
+  expect(lines.map(l => l.at(-1)?.text)).toContain(`since ${day}`)
+  expect(lines.at(-1)?.at(-1)?.text).toBe('hover a day for its tokens')
   await band.unmount()
 })
 
@@ -891,17 +905,34 @@ test('hovering the context shows its fill over time, the compaction threshold an
   await measure(30)
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   expect(await bandText(band)).toContain('💥')
-  expect(((await band.find({ key: 'context-chip' }))?.props['props'] as { text: string }).text).toMatch(/^☀ ░░m 💥/)
+  expect(((await band.find({ key: 'context-chip' }))?.props['props'] as { text: string }).text).toMatch(/^☀ ░░m 💥 /)
   await band.post({ hover: true }, { in: 'context-chip' })
   await clock.advance(310)
-  const lines = ((await band.find({ key: 'context-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
-  const notes = lines.map(l => l.at(-1)?.text)
-  expect(notes).toContain('100% · 200k window')
-  expect(notes).toContain('compacts at 80%')
-  expect(notes).toContain('now 30% · 60k')
-  expect(notes).toContain('peak 81%')
-  expect(notes.at(-1)).toBe('▲ 1 compaction')
-  expect(lines.at(-1)?.map(i => i.text).join('')).toContain('▲')
+  const lines = ((await band.find({ key: 'context-row' }))?.props['props'] as { lines: { text: string; hoverId?: string }[][] }).lines
+  const texts = lines.flat().map(i => i.text.trim())
+  expect(texts).toContain('100% · 200k window')
+  expect(texts).toContain('compacts at 80%')
+  expect(texts).toContain('▸ Total 30% · 60k')
+  expect(texts.some(t => t.startsWith('Compactions'))).toBe(false)
+  expect(texts.some(t => t.startsWith('0%  '))).toBe(true)
+  expect(lines.flat().some(i => i.hoverId?.startsWith('context-'))).toBe(true)
+  await band.unmount()
+})
+
+test('each message adds a context reading, even when the percentage rounds the same', async ($, on) => {
+  engine(on)
+  await startSession($, on)
+  const measure = (tokens: number) =>
+    $.session.measure({ context: { window: 1_000_000, percent: 4, tokens }, rateLimits: [] } as never)
+  await measure(40_000)
+  await measure(41_000)
+  await measure(42_500)
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ hover: true }, { in: 'context-chip' })
+  await clock.advance(310)
+  const lines = ((await band.find({ key: 'context-row' }))?.props['props'] as { lines: { hoverId?: string }[][] }).lines
+  const ids = new Set(lines.flat().flatMap(item => (item.hoverId?.startsWith('context-') ? [item.hoverId] : [])))
+  expect(ids.size).toBeGreaterThanOrEqual(3)
   await band.unmount()
 })
 
@@ -1121,4 +1152,57 @@ test('a folder of repos that is not a repo itself shows no worktree count and ru
     expect(argv).toContain('core.fsmonitor=false')
     expect(argv).toContain('--no-optional-locks')
   }
+})
+
+test('the detail button in the Context title column opens a pane whose tabs list the items behind each section', async ($, on) => {
+  engine(on)
+  const opened: string[] = []
+  on('session.id', () => ({ value: 'abc' }))
+  on('ui.open', (_$, e) => {
+    opened.push(e.id)
+    return { value: { isPlaced: true } }
+  })
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  await band.post({ hover: true }, { in: 'context-chip' })
+  await clock.advance(310)
+  const rows = ((await band.find({ key: 'context-row' }))?.props['props'] as { lines: { pick?: string }[][] }).lines
+  const y = rows.findIndex(line => line[0]?.pick === 'detail')
+  expect(y).toBeGreaterThan(0)
+  await band.pointer({ type: 'up', x: 1, y, button: 'left', in: 'context-row' })
+  expect(opened).toEqual(['the-index-detail'])
+
+  const pane = await $.ui.mount({
+    plugin: 'the-index',
+    surface: 'terminal',
+    component: 'Pane',
+    requestId: 'the-index-detail',
+    props: { title: 'Details', isFocused: false, bodyColumns: 72, placement: 'dock', scroll: { offset: 0, bodyRows: 20 }, view: {} },
+  })
+  const context = await bandText(pane)
+  expect(context).toContain('Context window')
+  expect(context).toContain('▸ Memory Files')
+  expect(context).not.toContain('CLAUDE.md  Project')
+  expect(context).toContain('Prompts (0) · 1 turn')
+  expect(context).not.toContain('█')
+  await pane.post({ press: true }, { in: 'detail-head-Memory Files' })
+  const expanded = await bandText(pane)
+  expect(expanded).toContain('CLAUDE.md  Project')
+  expect(expanded).toContain('▾ Memory Files')
+  expect(expanded).toContain('File')
+  expect(expanded).toContain('Tokens')
+  await pane.post({ press: true }, { in: 'detail-head-Memory Files' })
+  const folded = await bandText(pane)
+  expect(folded).not.toContain('CLAUDE.md  Project')
+  expect(folded).toContain('▸ Memory Files')
+  await pane.post({ press: true }, { in: 'detail-head-Memory Files' })
+  expect(await bandText(pane)).toContain('CLAUDE.md  Project')
+  await pane.post({ press: true }, { in: 'detail-goto-turns' })
+  expect(await bandText(pane)).toContain('Prompts 0 · Turns 1 · Calls 1')
+  await pane.post({ press: true }, { in: 'detail-tab-context' })
+  expect(await bandText(pane)).toContain('Context window')
+  await pane.post({ press: true }, { in: 'detail-tab-turns' })
+  expect(await bandText(pane)).toContain('Prompts 0 · Turns 1 · Calls 1')
+  await pane.unmount()
+  await band.unmount()
 })

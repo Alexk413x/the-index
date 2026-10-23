@@ -126,6 +126,7 @@ export type IndexCallPoint = {
   linesAdded?: number
   linesRemoved?: number
   files?: readonly string[]
+  kind?: string
 }
 
 export type IndexTurnRecord = {
@@ -146,9 +147,31 @@ export type IndexTurnRecord = {
   sessionCostUsd?: number | null
 }
 
-export type IndexContextPoint = { at: number; percent: number; tokens: number | null; compaction?: 'manual' | 'auto' | 'plugin' }
+export type IndexContextPoint = {
+  at: number
+  percent: number
+  tokens: number | null
+  parts?: Readonly<Record<string, number>>
+  compaction?: 'manual' | 'auto' | 'plugin'
+}
 
 export type IndexContextLimit = { window: number; threshold: number | null }
+
+export type IndexDetailTab = 'context' | 'turns' | 'usage'
+
+export type IndexContextDetail = {
+  window: number
+  total: number
+  categories: readonly { name: string; tokens: number; deferred: boolean }[]
+  memoryFiles: readonly { path: string; type: string; tokens: number }[]
+  mcpTools: readonly { name: string; server: string; tokens: number; loaded: boolean }[]
+  mcpInstructionsText?: string | null
+  mcpInstructionsNote?: string
+  systemPromptSections?: readonly { id: string; text: string }[]
+  systemTools?: readonly { name: string; description: string }[]
+  skills: readonly { name: string; source: string; tokens: number }[]
+  agents: readonly { type: string; source: string; tokens: number }[]
+}
 
 export type IndexCommit = {
   sha: string
@@ -204,6 +227,12 @@ declare module 'claude-code' {
       callLog: readonly IndexCallPoint[]
       contextLog: readonly IndexContextPoint[]
       contextLimit: IndexContextLimit | null
+      contextSeries: string | null
+      contextDetail: IndexContextDetail | null
+      promptCounts: Readonly<Record<string, number>>
+      detailOpen: boolean
+      detailTab: IndexDetailTab
+      detailCollapsed: readonly string[]
       baseCommits: readonly IndexCommit[]
       branchCommits: readonly IndexCommit[]
       turnHistory: readonly IndexTurnRecord[]

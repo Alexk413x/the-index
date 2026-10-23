@@ -44,6 +44,7 @@ function view(over: Partial<PanelView> = {}): PanelView {
     usage: null,
     contextLog: [],
     contextLimit: null,
+    contextSeries: null,
     baseCommits: [],
     baseRef: 'origin/main',
     branchCommits: [],

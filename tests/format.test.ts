@@ -11,8 +11,11 @@ import {
   dimHex,
   fmtCost,
   fmtDur,
+  fmtClock,
   fmtMs,
   fmtNum,
+  fmtPercent,
+  fmtStamp,
   fmtUntil,
   createdLines,
   gitLinks,
@@ -57,6 +60,15 @@ function snapshot(over: Partial<Snapshot> = {}): Snapshot {
 }
 
 describe('formatters match statusline.py', () => {
+  test('clock, stamp and percent text', () => {
+    const at = new Date(2026, 9, 4, 7, 5, 9).getTime()
+    expect(fmtClock(at)).toBe('07:05')
+    expect(fmtClock(at, true)).toBe('07:05:09')
+    expect(fmtStamp(at)).toBe('10-04 07:05')
+    expect(fmtStamp(at, true)).toBe('10-04 07:05:09')
+    expect([0, 0.04, 0.1, 9.96, 10, 54.4].map(fmtPercent)).toEqual(['0%', '<0.1%', '0.1%', '10.0%', '10%', '54%'])
+  })
+
   test('numbers, money and durations', () => {
     expect(fmtNum(999)).toBe('999')
     expect(fmtNum(1234)).toBe('1.2k')

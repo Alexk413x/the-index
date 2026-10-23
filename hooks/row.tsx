@@ -93,6 +93,7 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
         <Box key={`line${y}`} flexDirection="row">
           {line.flatMap((item, i) => {
             const parts = partsFor(item)
+            const swap = state.hovered === null ? undefined : item.swaps?.[state.hovered]
             const body = parts
               ? parts.map((part, p) => (
                   <Text key={`part${y}-${i}-${p}`} color={fadeColor(part.color, amount)}>
@@ -102,16 +103,16 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
               : [
                   <Text
                     key={`item${y}-${i}`}
-                    color={fadeColor(hoverKey(item) !== null && hoverKey(item) === state.hovered ? props.hoverColor : item.color, amount)}
+                    color={fadeColor(hoverKey(item) !== null && hoverKey(item) === state.hovered ? props.hoverColor : (swap?.color ?? item.color), amount)}
                     underline={item.link === true && item.pick === state.hovered}
                   >
-                    {item.footer && detail !== undefined ? detail : item.text}
+                    {item.footer && detail !== undefined ? detail : (swap?.text ?? item.text)}
                   </Text>,
                 ]
             return [
               <Text key={`gap${y}-${i}`}>{i > 0 && !item.tight ? ' '.repeat(props.gap) : ''}</Text>,
               ...body,
-              <Text key={`pad${y}-${i}`}>{' '.repeat(item.pad ?? 0)}</Text>,
+              <Text key={`pad${y}-${i}`}>{' '.repeat((item.pad ?? 0) + (item.footer && detail !== undefined ? Math.max(0, item.text.length - detail.length) : 0))}</Text>,
             ]
           })}
         </Box>

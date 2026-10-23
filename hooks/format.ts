@@ -187,6 +187,10 @@ function effortLabel(effort: IndexEffort | undefined): string {
   return effort === undefined ? '' : String(effort)
 }
 
+export function categoryLabel(name: string): string {
+  return (name === 'Messages' ? 'Prompts' : name).replace(/\b[a-z]/g, c => c.toUpperCase())
+}
+
 export function fmtNum(value: number): string {
   const n = Math.trunc(value)
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`
@@ -223,6 +227,24 @@ export function fmtDur(totalSecs: number): string {
   if (h > 0) return `${h}h${m}m`
   if (m > 0) return `${m}m${s}s`
   return `${s}s`
+}
+
+const two = (n: number): string => String(n).padStart(2, '0')
+
+export function fmtClock(ms: number, seconds = false): string {
+  const d = new Date(ms)
+  return `${two(d.getHours())}:${two(d.getMinutes())}${seconds ? `:${two(d.getSeconds())}` : ''}`
+}
+
+export function fmtStamp(ms: number, seconds = false): string {
+  const d = new Date(ms)
+  return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${fmtClock(ms, seconds)}`
+}
+
+export function fmtPercent(percent: number): string {
+  if (percent >= 10) return `${Math.round(percent)}%`
+  if (percent >= 0.1) return `${percent.toFixed(1)}%`
+  return percent > 0 ? '<0.1%' : '0%'
 }
 
 export function fmtMs(ms: number): string {

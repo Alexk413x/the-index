@@ -15,14 +15,19 @@ function dotColumn(index: number, count: number, width: number): number {
   return count <= 1 ? Math.floor((cols - 1) / 2) : Math.round((index * (cols - 1)) / (count - 1))
 }
 
-function plot(values: readonly number[], width: number, height: number, ceiling?: number): Uint8Array {
+// `columns` places each value at its own dot column; without it the values spread evenly.
+function columnOf(index: number, count: number, width: number, columns?: readonly number[]): number {
+  return columns?.[index] ?? dotColumn(index, count, width)
+}
+
+function plot(values: readonly number[], width: number, height: number, ceiling?: number, columns?: readonly number[]): Uint8Array {
   const cols = width * 2
   const rows = height * 4
   const grid = new Uint8Array(cols * rows)
   const max = ceiling ?? Math.max(0, ...values)
   if (values.length === 0 || max <= 0) return grid
   const point = (i: number): [number, number] => [
-    dotColumn(i, values.length, width),
+    columnOf(i, values.length, width, columns),
     rows - 1 - Math.round((Math.min(max, Math.max(0, values[i] ?? 0)) / max) * (rows - 1)),
   ]
   let [x0, y0] = point(0)
@@ -63,9 +68,37 @@ function cellsToItems(cells: readonly Cell[], blank: string): RowItem[] {
   return items
 }
 
-export function lineChart(series: readonly Series[], width: number, height: number, blank: string): RowItem[][] {
-  const grids = series.map(s => plot(s.values, width, height, s.max))
+export type PointTag = { id: string; detail: string }
+
+function cellTags(tags: readonly (PointTag | null)[], width: number, columns?: readonly number[]): (PointTag | null)[] {
+  const out: (PointTag | null)[] = Array.from({ length: width }, () => null)
+  if (tags.length === 0) return out
+  for (let cell = 0; cell < width; cell += 1) {
+    let best = -1
+    let gap = Infinity
+    for (let i = 0; i < tags.length; i += 1) {
+      const away = Math.abs(columnOf(i, tags.length, width, columns) - (cell * 2 + 0.5))
+      if (away <= gap) {
+        gap = away
+        best = i
+      }
+    }
+    out[cell] = tags[best] ?? null
+  }
+  return out
+}
+
+export function lineChart(
+  series: readonly Series[],
+  width: number,
+  height: number,
+  blank: string,
+  tags: readonly (PointTag | null)[] = [],
+  columns?: readonly number[],
+): RowItem[][] {
   const cols = width * 2
+  const grids = series.map(s => plot(s.values, width, height, s.max, columns))
+  const hovers = cellTags(tags, width, columns)
   const lines: RowItem[][] = []
   for (let row = 0; row < height; row += 1) {
     const cells: Cell[] = []
@@ -82,20 +115,12 @@ export function lineChart(series: readonly Series[], width: number, height: numb
         if (own && color === blank) color = series[g]?.color ?? blank
         bits |= own
       })
-      cells.push({ char: bits ? String.fromCodePoint(BRAILLE_BASE + bits) : ' ', color })
+      const tag = hovers[cell]
+      cells.push({ char: bits ? String.fromCodePoint(BRAILLE_BASE + bits) : ' ', color, ...(tag ? { hoverId: tag.id, detail: tag.detail } : {}) })
     }
     lines.push(cellsToItems(cells, blank))
   }
   return lines
-}
-
-export function markerRow(count: number, marked: readonly number[], width: number, mark: string, color: string, blank: string): RowItem[] {
-  const cells = Array.from({ length: width }, () => ({ char: ' ', color: blank }))
-  for (const i of marked) {
-    const cell = cells[Math.floor(dotColumn(i, count, width) / 2)]
-    if (cell) Object.assign(cell, { char: mark, color })
-  }
-  return cellsToItems(cells, blank)
 }
 
 export type SplitBar = { up: number; down: number; id: string; detail: string }
@@ -209,20 +234,48 @@ export function columnBars(bars: readonly ColumnBar[], slots: number, barWidth: 
   return lines
 }
 
-export function barChart(values: readonly (number | null)[], barWidth: number, height: number, color: string, blank: string): RowItem[][] {
+
+export function barChart(
+  values: readonly (number | null)[],
+  barWidth: number,
+  height: number,
+  color: string,
+  blank: string,
+  tags: readonly (PointTag | null)[] = [],
+): RowItem[][] {
   const max = Math.max(0, ...values.map(v => v ?? 0))
   const lines: RowItem[][] = []
   for (let row = 0; row < height; row += 1) {
     const fromBottom = height - 1 - row
     const cells: Cell[] = []
-    for (const v of values) {
+    values.forEach((v, i) => {
       const eighths = max > 0 && v ? Math.max(1, Math.round((v / max) * height * 8)) : 0
       const fill = Math.min(8, Math.max(0, eighths - fromBottom * 8))
       const char = v === null && fromBottom === 0 ? '·' : (EIGHTHS[fill] ?? ' ')
-      cells.push({ char, color: v === null ? blank : color })
+      const tag = tags[i]
+      cells.push({ char, color: v === null ? blank : color, ...(tag ? { hoverId: tag.id, detail: tag.detail } : {}) })
       for (let gap = 1; gap < barWidth; gap += 1) cells.push({ char: ' ', color: blank })
-    }
+    })
     lines.push(cellsToItems(cells, blank))
   }
   return lines
+}
+
+export type ReadingBucket = { column: number; indexes: number[] }
+
+// Places readings in dot columns, the newest at the last column and each earlier one `step` columns
+// left. Once that overruns the width, the spacing shrinks to fit and readings that share a column
+// group together. A reset (a compaction) starts its column afresh, so readings from before it never
+// group with the ones after it.
+export function bucketReadings(resets: readonly boolean[], columns: number, step: number): ReadingBucket[] {
+  const count = resets.length
+  const scale = count > 1 ? Math.min(step, (columns - 1) / (count - 1)) : step
+  const byColumn = new Map<number, number[]>()
+  resets.forEach((reset, i) => {
+    const column = Math.max(0, columns - 1 - Math.round((count - 1 - i) * scale))
+    const members = reset ? [] : (byColumn.get(column) ?? [])
+    members.push(i)
+    byColumn.set(column, members)
+  })
+  return [...byColumn.entries()].sort((a, b) => a[0] - b[0]).map(([column, indexes]) => ({ column, indexes }))
 }

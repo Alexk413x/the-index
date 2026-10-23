@@ -17,10 +17,10 @@ import type {
 } from '../types'
 import {
   barChart,
+  bucketReadings,
   columnBars,
   lineChart,
   markColumns,
-  markerRow,
   splitBars,
   stackedBars,
   type SplitBar,
@@ -38,9 +38,13 @@ import {
   SYM_FILES,
   SYM_LINES,
   SYM_WT,
+  categoryLabel,
+  fmtClock,
   fmtCost,
   fmtDur,
   fmtNum,
+  fmtPercent,
+  fmtStamp,
   gitLinks,
   gitParts,
   modelLabel,
@@ -57,6 +61,7 @@ export type RowItem = {
   hoverId?: string
   detail?: string
   footer?: boolean
+  swaps?: Readonly<Record<string, { text: string; color: string }>>
   details?: Readonly<Record<string, readonly DetailPart[]>>
   link?: boolean
 }
@@ -83,6 +88,7 @@ export const ROW_GAP = 2
 export const TITLE_WIDTH = 10
 export const MIDDLE_WIDTH = 60
 export const CHART_HEIGHT = 6
+const CONTEXT_CATEGORIES = ['System prompt', 'System tools', 'MCP tools', 'Custom agents', 'Memory files', 'Skills', 'Messages'] as const
 export const GIT_LINES_HALF = 2
 const GIT_FILES_HEIGHT = 3
 const COMMIT_SLOTS = 10
@@ -160,6 +166,7 @@ export type PanelView = {
   usage: IndexUsageSummary | null
   contextLog: readonly IndexContextPoint[]
   contextLimit: IndexContextLimit | null
+  contextSeries: string | null
   baseCommits: readonly IndexCommit[]
   baseRef: string
   branchCommits: readonly IndexCommit[]
@@ -192,13 +199,13 @@ function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
 }
 
-function clockTime(ms: number): string {
-  const d = new Date(ms)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
-}
-
 export const FOLDER_PICK = 'folder:'
 export const MESSAGES_PICK = 'messages'
+export const CONTEXT_PICK = 'context:'
+export const DETAIL_PICK = 'detail'
+const CONTEXT_STEP = 4
+// None is orange: the Total line owns that colour.
+const CONTEXT_COLORS = ['#00afd7', '#5faf5f', '#d7d700', '#af5fd7', '#5f87ff', '#ff5faf', '#00d7af', '#c80000', '#afafff', '#87afaf']
 
 export function transcriptTitle(text: string): string {
   let ai = ''
@@ -577,32 +584,131 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
   if (panel === 'context') {
     const log = view.contextLog
     const limit = view.contextLimit
+    const windowSize = limit?.window ?? 0
+    const latest = log.filter(p => p.parts).at(-1)?.parts
+    const names = [...CONTEXT_CATEGORIES, ...Object.keys(latest ?? {}).filter(n => !(CONTEXT_CATEGORIES as readonly string[]).includes(n))]
+    const colorOf = (name: string) => CONTEXT_COLORS[names.indexOf(name) % CONTEXT_COLORS.length] ?? cfg.colors.icons
+    const selected = view.contextSeries !== null && names.includes(view.contextSeries) ? view.contextSeries : null
+    const points = selected === null ? log : log.filter(p => p.parts)
+    const share = (tokens: number) => fmtPercent(windowSize > 0 ? (tokens / windowSize) * 100 : 0)
+    const mean = (list: readonly number[]) => list.reduce((sum, v) => sum + v, 0) / list.length
+    const compactions = log.filter(p => p.compaction).length
     const thresholdPct = limit?.threshold ? Math.min(100, (limit.threshold / limit.window) * 100) : null
-    const series = [{ values: log.map(p => p.percent), color: tokensColor, max: 100 }]
-    const marked = log.flatMap((p, i) => (p.compaction ? [i] : []))
-    const chart = [
-      ...lineChart(series, MIDDLE_WIDTH, CHART_HEIGHT - 1, cfg.colors.icons),
-      markerRow(log.length, marked, MIDDLE_WIDTH, '▲', cfg.colors.high, cfg.colors.icons),
+    const first = log[0]
+    const last = log[log.length - 1]
+    const start = first ? Math.min(view.startedAt ?? first.at, first.at) : 0
+    const end = last?.at ?? start
+
+    const dotColumns = MIDDLE_WIDTH * 2
+    const buckets = bucketReadings(points.map(p => p.compaction !== undefined), dotColumns, CONTEXT_STEP)
+    const grouped = buckets.map(b => {
+      const members = b.indexes.flatMap(i => (points[i] ? [points[i]] : []))
+      const tokens = members.flatMap(m => (m.tokens === null ? [] : [m.tokens]))
+      const parts: Record<string, number> = {}
+      for (const name of names) {
+        const seen = members.flatMap(m => (m.parts?.[name] === undefined ? [] : [m.parts[name]]))
+        if (seen.length) parts[name] = mean(seen)
+      }
+      return {
+        column: b.column,
+        count: members.length,
+        at: members[members.length - 1]?.at ?? start,
+        percent: mean(members.map(m => m.percent)),
+        tokens: tokens.length ? mean(tokens) : null,
+        parts,
+      }
+    })
+    const values = grouped.map(g => (selected === null ? g.percent : windowSize > 0 ? ((g.parts[selected] ?? 0) / windowSize) * 100 : 0))
+
+    const tags = grouped.map((g, i) => ({ id: `context-${i}`, detail: `${fmtClock(g.at)}${g.count > 1 ? ` (avg of ${g.count})` : ''}` }))
+
+    type Side = { text: string; color: string; pick?: string }
+    const sideFor = (percent: number, tokens: number | null, parts: Readonly<Record<string, number>> | undefined): { rows: Side[]; baseline: string } => {
+      const mark = (on: boolean) => (on ? '▸ ' : '  ')
+      const total: Side = {
+        text: `${mark(selected === null)}Total ${fmtPercent(percent)}${tokens === null ? '' : ` · ${fmtNum(Math.round(tokens))}`}`,
+        color: tokensColor,
+        ...(selected === null ? {} : { pick: CONTEXT_PICK }),
+      }
+      const seen = names.map((name): [string, number] => [name, parts?.[name] ?? 0])
+      const baseline = seen.filter(([name]) => name !== 'Messages').reduce((sum, [, t]) => sum + t, 0)
+      return {
+        baseline: `Baseline ${share(baseline)} · ${fmtNum(Math.round(baseline))} before any prompt`,
+        rows: [
+        total,
+        ...seen
+          .sort((x, y) => y[1] - x[1])
+          .map(([name, t]): Side => ({
+            text: `${mark(selected === name)}${categoryLabel(name)} ${share(t)} · ${fmtNum(Math.round(t))}`,
+            color: colorOf(name),
+            ...(selected === name ? {} : { pick: `${CONTEXT_PICK}${name}` }),
+          })),
+        ],
+      }
+    }
+    const current = last ? sideFor(last.percent, last.tokens, latest) : sideFor(0, 0, undefined)
+    const sides = grouped.map(g => sideFor(g.percent, g.tokens, g.parts))
+    // A hovered column swaps in other text; every variant pads to the longest so the row keeps its width.
+    const swapping = (side: Side, swapped: (s: ReturnType<typeof sideFor>) => Side | undefined): RowItem => {
+      const variants = sides.map((s, i): [string, Side] => [`context-${i}`, swapped(s) ?? { text: '', color: cfg.colors.icons }])
+      const width = Math.max(side.text.length, ...variants.map(([, v]) => v.text.length))
+      return {
+        ...side,
+        text: side.text.padEnd(width),
+        swaps: Object.fromEntries(variants.map(([id, v]) => [id, { text: v.text.padEnd(width), color: v.color }])),
+      }
+    }
+    const entries: RowItem[] = current.rows.map((side, slot) => swapping(side, s => s.rows[slot]))
+    const baselineItem: RowItem[] = current.baseline ? [swapping({ text: current.baseline, color: cfg.colors.icons }, s => ({ text: s.baseline, color: cfg.colors.icons }))] : []
+    const hint = 'hover a column for its time and values'
+
+    const header: RowItem[] = [
+      note(limit ? `100% · ${fmtNum(limit.window)} window` : '100%'),
+      ...(thresholdPct !== null ? [colored(`compacts at ${Math.round(thresholdPct)}%`, cfg.colors.warn)] : []),
+      colored(`💥x${compactions}`, compactions > 0 ? cfg.colors.high : cfg.colors.icons),
+      ...(view.cacheLeftMs === null
+        ? []
+        : [
+            view.cacheLeftMs > 0
+              ? colored(`cache warm · ${fmtDur(view.cacheLeftMs / 1000)} left`, cfg.colors.good)
+              : colored('cache cold · next call re-reads it', cfg.colors.cold),
+          ]),
     ]
-    const now = log[log.length - 1]
-    const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
-    if (limit) notes[0] = note(`100% · ${fmtNum(limit.window)} window`)
-    if (thresholdPct !== null) notes[1] = colored(`compacts at ${Math.round(thresholdPct)}%`, cfg.colors.warn)
-    if (view.cacheLeftMs !== null) {
-      notes[4] = view.cacheLeftMs > 0
-        ? colored(`cache warm · ${fmtDur(view.cacheLeftMs / 1000)} left`, cfg.colors.good)
-        : colored('cache cold · next call re-reads it', cfg.colors.cold)
-    }
-    if (now) {
-      notes[2] = colored(`now ${now.percent}%${now.tokens === null ? '' : ` · ${fmtNum(now.tokens)}`}`, tokensColor)
-      notes[3] = note(`peak ${Math.max(...log.map(p => p.percent))}%`)
-      notes[CHART_HEIGHT - 1] = marked.length
-        ? colored(`▲ ${marked.length} ${marked.length === 1 ? 'compaction' : 'compactions'}`, cfg.colors.high)
-        : note('no compactions')
+    const sameDay = new Date(start).toDateString() === new Date(end).toDateString()
+    const stamp = (ms: number) => (sameDay ? fmtClock(ms) : fmtStamp(ms))
+    const axis = Array.from({ length: MIDDLE_WIDTH }, () => ' ')
+    const put = (at: number, label: string) => label.split('').forEach((ch, i) => void (axis[at + i] = ch))
+    if (last) {
+      const endStamp = stamp(end)
+      const startAt = Math.max(4, Math.floor((grouped[0]?.column ?? 0) / 2))
+      put(0, '0%')
+      if (startAt + stamp(start).length + 2 <= MIDDLE_WIDTH - endStamp.length) put(startAt, stamp(start))
+      put(MIDDLE_WIDTH - endStamp.length, endStamp)
     } else {
-      notes[CHART_HEIGHT - 1] = note('no readings yet')
+      put(0, '0%  no readings yet')
     }
-    return chartRows('Context', chart, notes)
+    const bottom = note(axis.join(''))
+
+    const chartHeight = CHART_HEIGHT + 3
+    const columns = grouped.map(g => g.column)
+    const body: RowItem[][] = [
+      padTo(header, MIDDLE_WIDTH),
+      ...lineChart([{ values, color: selected === null ? tokensColor : colorOf(selected), max: 100 }], MIDDLE_WIDTH, chartHeight, cfg.colors.icons, tags, columns),
+      [bottom],
+    ]
+    return [
+      ...body.map((row, r) => {
+        const side = entries[r - 1]
+        const left =
+          r === 0
+            ? title('Context')
+            : r === Math.floor(body.length / 2)
+              ? { text: 'Details', color: cfg.colors.branch, pick: DETAIL_PICK, link: true, pad: TITLE_WIDTH - 7, detail: 'click to open the detailed breakdown' }
+              : blankTitle()
+        return [left, ...row, ...(side ? [side] : [])]
+      }),
+      [blankTitle(), { text: hint, color: cfg.colors.icons, footer: true, pad: MIDDLE_WIDTH - hint.length }, ...baselineItem],
+    ]
   }
 
   if (panel === 'calls' || panel === 'callLines' || panel === 'totals' || panel === 'totalLines') {
@@ -728,7 +834,12 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const usage = view.usage
     const days = usage?.days ?? []
     const values = usage ? days.map(d => (usage.since && d.date >= usage.since ? d.tokens : null)) : Array<null>(USAGE_DAYS).fill(null)
-    const chart = barChart(values, Math.max(1, Math.floor(MIDDLE_WIDTH / USAGE_DAYS)), CHART_HEIGHT, tokensColor, cfg.colors.icons)
+    const tags = days.map((d, i) =>
+      values[i] === null
+        ? null
+        : { id: `usage-${d.date}`, detail: `${d.date} · ${fmtNum(d.tokens)} tokens${d.costUsd === null ? '' : ` · $${fmtCost(d.costUsd)}`}` },
+    )
+    const chart = barChart(values, Math.max(1, Math.floor(MIDDLE_WIDTH / USAGE_DAYS)), CHART_HEIGHT, tokensColor, cfg.colors.icons, tags)
     const notes: (RowItem | null)[] = Array.from({ length: CHART_HEIGHT }, () => null)
     if (!usage?.since) {
       notes[CHART_HEIGHT - 1] = note('no usage recorded yet')
@@ -742,7 +853,10 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
       notes[3] = note(`all time ${fmtNum(usage.allTokens)} · $${fmtCost(usage.allCostUsd)}`)
       notes[CHART_HEIGHT - 1] = note(`since ${usage.since}`)
     }
-    return chartRows('Usage', chart, notes)
+    return [
+      ...chartRows('Usage', chart, notes),
+      ...(usage?.since ? [[blankTitle(), { text: 'hover a day for its tokens', color: cfg.colors.icons, footer: true }]] : []),
+    ]
   }
 
   if (panel === 'harness') {
@@ -774,7 +888,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     [
       'Session',
       [host.sessionName ? { ...value(host.sessionName), pick: 'name', link: true } : value('unnamed'), note('·'), value(host.sessionId ?? '')],
-      view.startedAt === null ? null : note(`started ${clockTime(view.startedAt)}`),
+      view.startedAt === null ? null : note(`started ${fmtClock(view.startedAt)}`),
     ],
   ]
   rows.push([
