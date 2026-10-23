@@ -16,6 +16,7 @@ export type DetailRow = {
   key?: string
   closed?: boolean
   style?: 'heading' | 'code' | 'text'
+  goto?: IndexDetailTab
 }
 
 export type DetailColumns = readonly [name: string, share: string, value: string]
@@ -128,7 +129,7 @@ function contextRows(detail: IndexContextDetail | null, width: number, contextLo
   for (const c of loose) {
     if (c === instructions || c === prompt || c === tools) continue
     const label = c.name === 'Messages' ? `${categoryLabel(c.name)} (${prompts}) · ${turns.length} ${turns.length === 1 ? 'turn' : 'turns'} · ${callsLabel(sum(turns, t => t.calls ?? 0))} · ${fmtDur(sum(turns, t => t.spanMs) / 1000)}` : categoryLabel(c.name)
-    rows.push(item(label, fmtNum(c.tokens), share(c.tokens, window)))
+    rows.push({ ...item(label, fmtNum(c.tokens), share(c.tokens, window)), ...(c.name === 'Messages' ? { goto: 'turns' as const } : {}) })
   }
   if (tools) {
     const biggest = [...(detail.systemTools ?? [])].sort((a, b) => b.description.length - a.description.length)

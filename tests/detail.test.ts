@@ -530,6 +530,8 @@ test('the Prompts row in the Context tab counts prompts, then the session turns,
   const turns = rows.find(r => r.kind === 'item' && r.label.startsWith('Prompts ('))
   expect(turns?.label).toMatch(/^Prompts \(5\) · 2 turns · \d+ calls · /)
   expect(turns?.value).toBe('30k')
+  expect(turns?.goto).toBe('turns')
+  expect(rows.filter(r => r.goto).length).toBe(1)
 })
 test('the Context tab puts a collapsible Compactions section above the window head, reading 0% until one happens', () => {
   const rows = (contextLog?: IndexContextPoint[]) => detailRows('context', view({ contextDetail: CONTEXT, ...(contextLog ? { contextLog } : {}) }))

@@ -832,6 +832,7 @@ function refreshGitSoon($: EngineInterface): void {
 
 const DETAIL_PANE = 'the-index-detail'
 const HEAD_ELEMENT = 'detail-head-'
+const GOTO_ELEMENT = 'detail-goto-'
 const AGENT_TABS = 'plugin:ide-agent-tabs:ide-agent-tabs'
 const MESSAGES_TOOL: string = 'mcp__ide-agent-tabs__open_agent_messages'
 const ULTRACODE = /\bultracode\b/i
@@ -1144,6 +1145,8 @@ export const register: Register = (on, options) => {
       await update($, detailTab, () => tab.id)
       if (tab.id === 'context') await refreshContextDetail($)
     }
+    const target = DETAIL_TABS.find(t => e.element === `${GOTO_ELEMENT}${t.id}`)
+    if (target && data['press'] === true) await update($, detailTab, () => target.id)
     if (e.element.startsWith(HEAD_ELEMENT) && data['press'] === true) {
       const key = e.element.slice(HEAD_ELEMENT.length)
       await update($, detailCollapsed, prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]))
@@ -1284,6 +1287,15 @@ export const register: Register = (on, options) => {
             )
           }
           const parts = rowParts(row, width - 2, valueWidth, bars)
+          if (row.goto) {
+            return (
+              <Client
+                key={`${GOTO_ELEMENT}${row.goto}`}
+                module="./chip.tsx"
+                props={{ text: ` ${parts.label}${parts.bar}${parts.tail} `, color: cfg.colors.model, look: 'link' }}
+              />
+            )
+          }
           return (
             <Box key={`row${i}`} flexDirection="row">
               <Text> </Text>
