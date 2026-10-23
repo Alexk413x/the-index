@@ -579,7 +579,7 @@ async function recordUsage($: EngineInterface, m: Measured): Promise<void> {
   await update($, contextLimit, prev =>
     prev?.window === m.context.window ? prev : { window: m.context.window, threshold: prev?.threshold ?? null },
   )
-  if (await read($, detailOpen)) await refreshContextDetail($)
+  if (await read($, detailOpen)) await refreshContextDetail($, false)
   if (pct === null) return
   const compaction = pendingCompaction
   pendingCompaction = undefined
@@ -634,20 +634,25 @@ async function promptTexts($: EngineInterface): Promise<{ sections: { id: string
   }
 }
 
-async function refreshContextDetail($: EngineInterface): Promise<void> {
+// With `texts` off only the token breakdown is read; the prompt, instructions and tool texts stay as last read.
+async function refreshContextDetail($: EngineInterface, texts = true): Promise<void> {
   try {
-    const [usageNow, { sections, instructions, note }, systemTools] = await Promise.all([
-      $.session.usage({ breakdown: 'summary' }),
-      promptTexts($),
-      $.tool.list().then(list => list.filter(t => !t.mcp).map(t => ({ name: t.name, description: t.description })), () => []),
-    ])
+    const [usageNow, fresh] = await Promise.all([$.session.usage({ breakdown: 'summary' }), texts ? readContextTexts($) : null])
     const breakdown = usageNow.context.breakdown
     if (!breakdown) return
     const detail = toContextDetail(breakdown)
-    await update($, contextDetail, () => ({ ...detail, systemPromptSections: sections, systemTools, mcpInstructionsText: instructions, mcpInstructionsNote: note }))
+    await update($, contextDetail, prev => ({ ...prev, ...detail, ...fresh }))
   } catch {
     // Without a bound session the breakdown rejects; the Context tab then shows its empty note.
   }
+}
+
+async function readContextTexts($: EngineInterface) {
+  const [{ sections, instructions, note }, systemTools] = await Promise.all([
+    promptTexts($),
+    $.tool.list().then(list => list.filter(t => !t.mcp).map(t => ({ name: t.name, description: t.description })), () => []),
+  ])
+  return { systemPromptSections: sections, systemTools, mcpInstructionsText: instructions, mcpInstructionsNote: note }
 }
 
 async function toggleDetail($: EngineInterface): Promise<void> {
@@ -833,6 +838,7 @@ function refreshGitSoon($: EngineInterface): void {
 const DETAIL_PANE = 'the-index-detail'
 const HEAD_ELEMENT = 'detail-head-'
 const GOTO_ELEMENT = 'detail-goto-'
+const PROMPT_COUNT_SESSIONS = 20
 const AGENT_TABS = 'plugin:ide-agent-tabs:ide-agent-tabs'
 const MESSAGES_TOOL: string = 'mcp__ide-agent-tabs__open_agent_messages'
 const ULTRACODE = /\bultracode\b/i
@@ -1375,7 +1381,7 @@ export const register: Register = (on, options) => {
     if (await read($, ultracode)) await update($, ultracode, () => false)
     if (!result.drop && isUserPrompt(e.origin.kind, e.isMeta)) {
       const id = await $.session.id()
-      await update($, promptCounts, prev => ({ ...prev, [id]: (prev[id] ?? 0) + 1 }))
+      await update($, promptCounts, ({ [id]: count = 0, ...others }) => ({ ...Object.fromEntries(Object.entries(others).slice(-(PROMPT_COUNT_SESSIONS - 1))), [id]: count + 1 }))
     }
     return result
   })
