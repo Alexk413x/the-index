@@ -1,5 +1,5 @@
 import type { IndexCallPoint, IndexContextDetail, IndexContextPoint, IndexDetailTab, IndexTurnRecord, IndexUsageSummary } from '../types'
-import { categoryLabel, fmtCost, fmtDur, fmtMs, fmtNum } from './format'
+import { categoryLabel, fmtClock, fmtCost, fmtDur, fmtMs, fmtNum, fmtPercent, fmtStamp } from './format'
 
 export type DetailRow = {
   kind: 'head' | 'sub' | 'item' | 'note'
@@ -67,12 +67,6 @@ function folderOf(path: string): string {
   return path.replace(/\\/g, '/').split('/').filter(Boolean).slice(0, -1).slice(-2).join('/')
 }
 
-function stamp(ms: number): string {
-  const d = new Date(ms)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`
-}
-
 function head(label: string, value: string, columns?: DetailColumns, fraction: number | null = null): DetailRow {
   return { kind: 'head', label, value, share: fraction, indent: 0, ...(columns ? { columns } : {}) }
 }
@@ -99,7 +93,7 @@ function compactionRows(log: readonly IndexContextPoint[]): DetailRow[] {
   const lines =
     found.length === 0
       ? ['No compactions in this session.']
-      : found.map(({ p, from }) => `${clock(p.at)} ${p.compaction} ${from ? `${contextAt(from)} ` : ''}-> ${contextAt(p)}`)
+      : found.map(({ p, from }) => `${fmtClock(p.at, true)} ${p.compaction} ${from ? `${contextAt(from)} ` : ''}-> ${contextAt(p)}`)
   return [head(`Compactions (${found.length})`, '', ['Compaction', 'Context', 'Tokens'], found.length === 0 ? 0 : null), ...lines.map(l => ({ ...note(`   ${l}`), style: 'text' as const }))]
 }
 
@@ -192,12 +186,6 @@ function contextRows(detail: IndexContextDetail | null, width: number, contextLo
   return rows
 }
 
-function clock(ms: number): string {
-  const d = new Date(ms)
-  const p = (n: number) => String(n).padStart(2, '0')
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
-}
-
 function lineChanges(added: number | undefined, removed: number | undefined): string {
   return added === undefined || removed === undefined || added + removed === 0 ? '' : `+${added} -${removed}`
 }
@@ -278,7 +266,7 @@ function turnRows(history: readonly IndexTurnRecord[], calls: readonly IndexCall
   for (const t of shown) {
     rows.push({
       kind: 'sub',
-      label: `${stamp(t.at)}:${String(new Date(t.at).getSeconds()).padStart(2, '0')} (${t.calls ?? 0})`,
+      label: `${fmtStamp(t.at, true)} (${t.calls ?? 0})`,
       value: '',
       share: null,
       indent: 0,
@@ -289,7 +277,7 @@ function turnRows(history: readonly IndexTurnRecord[], calls: readonly IndexCall
     for (const c of [...(byTurn.get(t.id) ?? [])].sort((x, y) => x.at - y.at)) {
       rows.push({
         kind: 'item',
-        label: c.kind ? `${clock(c.at)} ${c.kind}` : clock(c.at),
+        label: c.kind ? `${fmtClock(c.at, true)} ${c.kind}` : fmtClock(c.at, true),
         value: '',
         share: null,
         indent: 1,
@@ -437,9 +425,7 @@ function gutter(marker: string): string {
 
 export function percentText(fraction: number | null): string {
   if (fraction === null) return '—'.padStart(DETAIL_PERCENT)
-  const percent = fraction * 100
-  const text = percent >= 10 ? `${Math.round(percent)}%` : percent >= 0.1 ? `${percent.toFixed(1)}%` : percent > 0 ? '<0.1%' : '0%'
-  return text.padStart(DETAIL_PERCENT)
+  return fmtPercent(fraction * 100).padStart(DETAIL_PERCENT)
 }
 
 // Every row of a view passes the same `valueWidth`, so bars, percentages and values start in the same columns.

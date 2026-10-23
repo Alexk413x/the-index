@@ -229,6 +229,24 @@ export function fmtDur(totalSecs: number): string {
   return `${s}s`
 }
 
+const two = (n: number): string => String(n).padStart(2, '0')
+
+export function fmtClock(ms: number, seconds = false): string {
+  const d = new Date(ms)
+  return `${two(d.getHours())}:${two(d.getMinutes())}${seconds ? `:${two(d.getSeconds())}` : ''}`
+}
+
+export function fmtStamp(ms: number, seconds = false): string {
+  const d = new Date(ms)
+  return `${two(d.getMonth() + 1)}-${two(d.getDate())} ${fmtClock(ms, seconds)}`
+}
+
+export function fmtPercent(percent: number): string {
+  if (percent >= 10) return `${Math.round(percent)}%`
+  if (percent >= 0.1) return `${percent.toFixed(1)}%`
+  return percent > 0 ? '<0.1%' : '0%'
+}
+
 export function fmtMs(ms: number): string {
   if (ms < 1000) return `${Math.round(ms)}ms`
   const s = ms / 1000

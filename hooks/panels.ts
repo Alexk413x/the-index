@@ -39,9 +39,12 @@ import {
   SYM_LINES,
   SYM_WT,
   categoryLabel,
+  fmtClock,
   fmtCost,
   fmtDur,
   fmtNum,
+  fmtPercent,
+  fmtStamp,
   gitLinks,
   gitParts,
   modelLabel,
@@ -194,11 +197,6 @@ function padSlots<T>(list: readonly T[], slots: number): (T | null)[] {
 
 function clip(text: string, max: number): string {
   return text.length > max ? `${text.slice(0, max - 1)}…` : text
-}
-
-function clockTime(ms: number): string {
-  const d = new Date(ms)
-  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`
 }
 
 export const FOLDER_PICK = 'folder:'
@@ -592,11 +590,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     const colorOf = (name: string) => CONTEXT_COLORS[names.indexOf(name) % CONTEXT_COLORS.length] ?? cfg.colors.icons
     const selected = view.contextSeries !== null && names.includes(view.contextSeries) ? view.contextSeries : null
     const points = selected === null ? log : log.filter(p => p.parts)
-    const pct = (v: number) => (v >= 10 ? `${Math.round(v)}%` : `${v.toFixed(1)}%`)
-    const share = (tokens: number) => {
-      const percent = windowSize > 0 ? (tokens / windowSize) * 100 : 0
-      return percent > 0 && percent < 0.1 ? '<0.1%' : percent === 0 ? '0%' : pct(percent)
-    }
+    const share = (tokens: number) => fmtPercent(windowSize > 0 ? (tokens / windowSize) * 100 : 0)
     const mean = (list: readonly number[]) => list.reduce((sum, v) => sum + v, 0) / list.length
     const compactions = log.filter(p => p.compaction).length
     const thresholdPct = limit?.threshold ? Math.min(100, (limit.threshold / limit.window) * 100) : null
@@ -626,13 +620,13 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     })
     const values = grouped.map(g => (selected === null ? g.percent : windowSize > 0 ? ((g.parts[selected] ?? 0) / windowSize) * 100 : 0))
 
-    const tags = grouped.map((g, i) => ({ id: `context-${i}`, detail: `${clockTime(g.at)}${g.count > 1 ? ` (avg of ${g.count})` : ''}` }))
+    const tags = grouped.map((g, i) => ({ id: `context-${i}`, detail: `${fmtClock(g.at)}${g.count > 1 ? ` (avg of ${g.count})` : ''}` }))
 
     type Side = { text: string; color: string; pick?: string }
     const sideFor = (percent: number, tokens: number | null, parts: Readonly<Record<string, number>> | undefined): { rows: Side[]; baseline: string } => {
       const mark = (on: boolean) => (on ? '▸ ' : '  ')
       const total: Side = {
-        text: `${mark(selected === null)}Total ${pct(percent)}${tokens === null ? '' : ` · ${fmtNum(Math.round(tokens))}`}`,
+        text: `${mark(selected === null)}Total ${fmtPercent(percent)}${tokens === null ? '' : ` · ${fmtNum(Math.round(tokens))}`}`,
         color: tokensColor,
         ...(selected === null ? {} : { pick: CONTEXT_PICK }),
       }
@@ -681,11 +675,8 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
               : colored('cache cold · next call re-reads it', cfg.colors.cold),
           ]),
     ]
-    const stamp = (ms: number) => {
-      const d = new Date(ms)
-      const sameDay = new Date(start).toDateString() === new Date(end).toDateString()
-      return `${sameDay ? '' : `${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')} `}${clockTime(ms)}`
-    }
+    const sameDay = new Date(start).toDateString() === new Date(end).toDateString()
+    const stamp = (ms: number) => (sameDay ? fmtClock(ms) : fmtStamp(ms))
     const axis = Array.from({ length: MIDDLE_WIDTH }, () => ' ')
     const put = (at: number, label: string) => label.split('').forEach((ch, i) => void (axis[at + i] = ch))
     if (last) {
@@ -898,7 +889,7 @@ export function panelLines(panel: IndexPanel, view: PanelView): RowItem[][] {
     [
       'Session',
       [host.sessionName ? { ...value(host.sessionName), pick: 'name', link: true } : value('unnamed'), note('·'), value(host.sessionId ?? '')],
-      view.startedAt === null ? null : note(`started ${clockTime(view.startedAt)}`),
+      view.startedAt === null ? null : note(`started ${fmtClock(view.startedAt)}`),
     ],
   ]
   rows.push([
