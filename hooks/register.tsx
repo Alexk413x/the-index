@@ -838,6 +838,7 @@ function refreshGitSoon($: EngineInterface): void {
 const DETAIL_PANE = 'the-index-detail'
 const HEAD_ELEMENT = 'detail-head-'
 const GOTO_ELEMENT = 'detail-goto-'
+const TAB_ELEMENT = 'detail-tab-'
 const PROMPT_COUNT_SESSIONS = 20
 const AGENT_TABS = 'plugin:ide-agent-tabs:ide-agent-tabs'
 const MESSAGES_TOOL: string = 'mcp__ide-agent-tabs__open_agent_messages'
@@ -1145,17 +1146,16 @@ export const register: Register = (on, options) => {
   })
 
   on('ui.message', { component: 'Pane' }, async ($, e) => {
-    const data = isRecord(e.data) ? e.data : {}
-    const tab = DETAIL_TABS.find(t => e.element === `detail-tab-${t.id}`)
-    if (tab && data['press'] === true) {
-      await update($, detailTab, () => tab.id)
-      if (tab.id === 'context') await refreshContextDetail($)
-    }
-    const target = DETAIL_TABS.find(t => e.element === `${GOTO_ELEMENT}${t.id}`)
-    if (target && data['press'] === true) await update($, detailTab, () => target.id)
-    if (e.element.startsWith(HEAD_ELEMENT) && data['press'] === true) {
+    if (!isRecord(e.data) || e.data['press'] !== true) return {}
+    if (e.element.startsWith(HEAD_ELEMENT)) {
       const key = e.element.slice(HEAD_ELEMENT.length)
       await update($, detailCollapsed, prev => (prev.includes(key) ? prev.filter(k => k !== key) : [...prev, key]))
+      return {}
+    }
+    const tab = DETAIL_TABS.find(t => e.element === `${TAB_ELEMENT}${t.id}` || e.element === `${GOTO_ELEMENT}${t.id}`)
+    if (tab) {
+      await update($, detailTab, () => tab.id)
+      if (tab.id === 'context') await refreshContextDetail($)
     }
     return {}
   })
@@ -1192,7 +1192,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         <Box flexDirection="row" gap={1}>
           {DETAIL_TABS.map(t => (
-            <Client key={`detail-tab-${t.id}`} module="./chip.tsx" props={{ text: ` ${t.label} `, color: cfg.colors.model, isActive: t.id === tab }} />
+            <Client key={`${TAB_ELEMENT}${t.id}`} module="./chip.tsx" props={{ text: ` ${t.label} `, color: cfg.colors.model, isActive: t.id === tab }} />
           ))}
         </Box>
         <Text> </Text>
