@@ -570,7 +570,7 @@ export function tableTitles(row: DetailRow, width: number, widths: readonly numb
 export function tableHeadLine(row: DetailRow, width: number, widths: readonly number[]): string {
   const parts = tableParts({ ...row, label: '' }, width, widths)
   const room = parts.label.length
-  const label = `   ${row.label}`
+  const label = ` ${row.label}`
   return (label.length > room ? `${label.slice(0, room - 1)}…` : label.padEnd(room)) + parts.tail
 }
 

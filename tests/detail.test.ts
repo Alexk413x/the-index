@@ -196,7 +196,7 @@ test('the turns table sizes each column to its widest cell or title, and every r
   expect(new Set(lines.map(l => l.length)).size).toBe(1)
   expect(tableTitles(rows[0]!, 60, widths)).toHaveLength(lines[0]!.length)
   expect(tableTitles(rows[0]!, 60, widths).startsWith('   Turn (Calls)')).toBe(true)
-  expect(tableHeadLine(rows[0]!, 60, widths).startsWith('   Prompts 0 · Turns')).toBe(true)
+  expect(tableHeadLine(rows[0]!, 60, widths).startsWith(' Prompts 0 · Turns')).toBe(true)
   expect(rows[3]?.cells?.at(-1)).toBe('░')
 })
 
