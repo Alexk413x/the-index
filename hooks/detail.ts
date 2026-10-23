@@ -247,7 +247,7 @@ function turnRows(history: readonly IndexTurnRecord[], calls: readonly IndexCall
   const rows: DetailRow[] = [
     {
       kind: 'head',
-      label: `Prompts ${prompts}·Turns ${mine.length}·Calls ${sum(mine, t => t.calls ?? 0)}`,
+      label: `Prompts ${prompts} · Turns ${mine.length} · Calls ${sum(mine, t => t.calls ?? 0)}`,
       value: '',
       share: null,
       indent: 0,

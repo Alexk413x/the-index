@@ -135,7 +135,7 @@ test('the turns tab lists this session newest first, each turn with its calls un
     }),
   )
   expect(rows[0]).toMatchObject({ kind: 'head', fixed: true })
-  expect(rows[0]?.label).toBe('Prompts 0·Turns 2·Calls 0')
+  expect(rows[0]?.label).toBe('Prompts 0 · Turns 2 · Calls 0')
   expect(rows[0]?.titles).toEqual(TURN_TITLES)
   expect(rows[0]?.cells).toEqual(['8s', '6.0k', '6.0k', '0', '+6 -2', '$0.20'])
   expect(rows.map(r => r.kind)).toEqual(['head', 'note', 'sub', 'item', 'sub', 'item', 'item'])
@@ -158,7 +158,7 @@ test('calls of a turn with no finished record still list under a turn row built 
     }),
   )
   expect(rows.map(r => r.kind)).toEqual(['head', 'note', 'sub', 'item', 'item'])
-  expect(rows[0]?.label).toBe('Prompts 0·Turns 1·Calls 2')
+  expect(rows[0]?.label).toBe('Prompts 0 · Turns 1 · Calls 2')
   expect(rows[2]?.label.endsWith('(2)')).toBe(true)
   expect(rows[2]?.cells?.[1]).toBe('4.0k')
 })
@@ -196,7 +196,7 @@ test('the turns table sizes each column to its widest cell or title, and every r
   expect(new Set(lines.map(l => l.length)).size).toBe(1)
   expect(tableTitles(rows[0]!, 60, widths)).toHaveLength(lines[0]!.length)
   expect(tableTitles(rows[0]!, 60, widths).startsWith('   Turn (Calls)')).toBe(true)
-  expect(tableHeadLine(rows[0]!, 60, widths).startsWith('   Prompts 0·Turns 1·')).toBe(true)
+  expect(tableHeadLine(rows[0]!, 60, widths).startsWith('   Prompts 0 · Turns 1 · ')).toBe(true)
   expect(rows[3]?.cells?.at(-1)).toBe('░')
 })
 
