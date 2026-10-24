@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { IndexCallPoint, IndexContextDetail, IndexContextPoint, IndexTurnRecord, IndexUsageSummary } from '../types'
-import { DETAIL_BAR, DETAIL_PERCENT, TURN_TITLES, callKind, cellWidths, tableHeadLine, tableParts, tableTitles, isIdle, columnTitles, percentText, detailRows, headKey, headLine, isCollapsed, isUserPrompt, rowKey, markdownRows, mcpSections, rowParts, titledHead, toContextDetail, valueWidthOf, visibleRows, type DetailView } from '../hooks/detail'
+import { DETAIL_BAR, DETAIL_PERCENT, TURN_TITLES, callKind, cellWidths, tableHeadLine, tableParts, tableTitles, isIdle, columnTitles, percentText, detailRows, headKey, headLine, isCollapsed, isUserPrompt, rowKey, markdownRows, mcpSections, rowParts, splitMax, titledHead, toContextDetail, valueWidthOf, visibleRows, type DetailView } from '../hooks/detail'
 
 const CONTEXT: IndexContextDetail = {
   window: 200_000,
@@ -102,7 +102,7 @@ test('a divider row follows the Context window summary', () => {
 test('deferred categories stay out of the category sum, and deferred MCP tools out of the MCP sum', () => {
   const rows = detailRows('context', view())
   expect(rows.some(r => r.label === 'MCP tools (deferred)')).toBe(false)
-  expect(rows.find(r => r.label === 'MCP Tools (3)')?.value).toBe('800')
+  expect(rows.find(r => r.label === 'MCP Tools (3)')).toMatchObject({ value: '800 / 1.7k', max: ' / 1.7k' })
   const slack = rows.find(r => r.label === 'send')
   expect(slack).toMatchObject({ value: '900', indent: 1, dim: true, share: 0 })
 })
@@ -295,9 +295,10 @@ test('a collapsed head hides its rows up to the next head, and the key ignores t
   const rows = detailRows('context', { contextDetail: CONTEXT, callLog: [], turnHistory: [], usage: null, session: 's' })
   expect(headKey('MCP Tools (3)')).toBe('MCP Tools')
   expect(headKey('Context window · 200k')).toBe('Context window · 200k')
-  const all = visibleRows(rows, [])
+  const open = ['mcp-server:github', 'mcp-server:slack']
+  const all = visibleRows(rows, open)
   expect(all.filter(r => r.label !== '')).toHaveLength(rows.filter(r => r.label !== '').length)
-  const folded = visibleRows(rows, ['Memory Files'])
+  const folded = visibleRows(rows, [...open, 'Memory Files'])
   expect(folded.some(r => r.label.startsWith('CLAUDE.md'))).toBe(false)
   expect(folded.some(r => r.kind === 'head' && r.label === 'Memory Files (2)')).toBe(true)
   expect(folded.some(r => r.label === 'System Prompt')).toBe(true)
@@ -335,12 +336,14 @@ test('each MCP server is a sub-section that collapses its own tools', () => {
   const subs = rows.filter(r => r.kind === 'sub')
   expect(subs.map(r => r.label)).toEqual(['github (2)', 'slack (1)'])
   expect(rows.filter(r => r.kind === 'item').some(r => r.label === 'get_me')).toBe(true)
-  const spaced = visibleRows(rows, [])
+  expect(subs.every(r => r.closed && isCollapsed(r, []))).toBe(true)
+  expect(visibleRows(rows, []).some(r => r.label === 'get_me')).toBe(false)
+  const spaced = visibleRows(rows, ['mcp-server:github', 'mcp-server:slack'])
   const slackAt = spaced.findIndex(r => r.kind === 'sub' && r.label === 'slack (1)')
   expect(spaced[slackAt - 1]).toMatchObject({ kind: 'note', label: '' })
   expect(spaced[slackAt - 2]?.kind).toBe('item')
   expect(spaced.filter(r => r.kind === 'note' && r.label === '' && !r.divider)).toHaveLength(5)
-  const github = visibleRows(rows, ['github'])
+  const github = visibleRows(rows, ['mcp-server:slack'])
   expect(github.some(r => r.label === 'get_me')).toBe(false)
   expect(github.some(r => r.label === 'send')).toBe(true)
   expect(github.some(r => r.kind === 'sub' && r.label === 'github (2)')).toBe(true)
@@ -427,9 +430,20 @@ test('an MCP server row puts its active total in the token and percent columns, 
   const s = rowParts({ ...slack, label: '▾ slack (1)' }, 60, valueWidth, false)
   expect(g.tail.trim().startsWith(github.value)).toBe(true)
   expect(g.tail.endsWith(percentText(github.share))).toBe(true)
-  expect(s.tail.trim().split(/\s+/)).toEqual(['0', '0%'])
+  expect(s.tail.trim().split(/\s+/)).toEqual(['0', '/', '900', '0%'])
+  expect(slack.max).toBe(' / 900')
   expect(g.label + g.tail).toHaveLength((s.label + s.tail).length)
 })
+test('the maximum at the end of a value gets its own colour, wherever the value sits in the line', () => {
+  const row = { kind: 'head' as const, label: 'MCP Tools (3)', value: '800 / 1.7k', max: ' / 1.7k', share: 0.01, indent: 0 as const }
+  expect(splitMax(' ▸ MCP Tools (3)  800 / 1.7k    0.4% ', row, 'a', 'b')).toEqual([
+    { text: ' ▸ MCP Tools (3)  800', color: 'a' },
+    { text: ' / 1.7k', color: 'b' },
+    { text: '    0.4% ', color: 'a' },
+  ])
+  expect(splitMax(' ▸ x ', { ...row, max: undefined }, 'a', 'b')).toEqual([{ text: ' ▸ x ', color: 'a' }])
+})
+
 test('markdown rows style headings and fenced code, bullet and wrap lines, and skip blanks', () => {
   const rows = markdownRows('## Issues\n\n- use list tools before search tools\n```\nx = 1\n```\nplain', 24, 1)
   expect(rows.map(r => [r.label.trim(), r.style])).toEqual([
@@ -464,7 +478,7 @@ test('the MCP instructions and system prompt become heads whose sections start c
   const heads = rows.filter(r => r.kind === 'head').map(r => r.label)
   expect(heads).toContain('MCP Server Instructions (2)')
   expect(heads).toContain('System Prompt (1)')
-  const subs = rows.filter(r => r.kind === 'sub' && r.closed)
+  const subs = rows.filter(r => r.kind === 'sub' && r.closed && !r.key?.startsWith('mcp-server:'))
   expect(subs.map(r => r.label)).toEqual(['communication', 'github', 'slack'])
   expect(subs.every(r => isCollapsed(r, []))).toBe(true)
   expect(isCollapsed(subs[1]!, ['mcp-instructions:github'])).toBe(false)
@@ -495,7 +509,7 @@ test('the sentence before the first server heading becomes an Intro section with
     categories: [...CONTEXT.categories, { name: 'MCP server instructions', tokens: 600, deferred: false }],
     mcpInstructionsText: '# MCP Server Instructions\n\nThe following MCP servers have provided instructions:\n\n## github\nUse list tools.\n',
   }
-  const subs = detailRows('context', view({ contextDetail: detail })).filter(r => r.kind === 'sub' && r.closed)
+  const subs = detailRows('context', view({ contextDetail: detail })).filter(r => r.kind === 'sub' && r.closed && !r.key?.startsWith('mcp-server:'))
   expect(subs.map(r => r.label)).toEqual(['Intro', 'github'])
   expect(subs[0]!.share).toBeGreaterThan(0)
 })

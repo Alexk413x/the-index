@@ -15,6 +15,7 @@ export type DetailRow = {
   fixed?: boolean
   key?: string
   closed?: boolean
+  max?: string
   style?: 'heading' | 'code' | 'text'
   goto?: IndexDetailTab
 }
@@ -161,10 +162,20 @@ function contextRows(detail: IndexContextDetail | null, width: number, contextLo
     for (const tool of detail.mcpTools) servers.set(tool.server, [...(servers.get(tool.server) ?? []), tool])
     const loaded = (tools: readonly { tokens: number; loaded: boolean }[]) => sum(tools.filter(t => t.loaded), t => t.tokens)
     const all = detail.mcpTools
-    const block = [head(`MCP Tools (${all.length})`, fmtNum(loaded(all)), ['Server / Tool', 'Context', 'Tokens'], share(loaded(all), window))]
+    // The loaded tokens are the value; deferred tools add to the grey maximum that follows them.
+    const possible = (tools: readonly { tokens: number; loaded: boolean }[]) => {
+      const max = sum(tools, t => t.tokens)
+      return max > loaded(tools) ? ` / ${fmtNum(max)}` : ''
+    }
+    const block: DetailRow[] = [{ ...head(`MCP Tools (${all.length})`, `${fmtNum(loaded(all))}${possible(all)}`, ['Server / Tool', 'Context', 'Tokens'], share(loaded(all), window)), ...(possible(all) ? { max: possible(all) } : {}) }]
     const ordered = [...servers.entries()].sort((a, b) => loaded(b[1]) - loaded(a[1]))
     for (const [server, tools] of ordered) {
-      block.push(sub(`${server} (${tools.length})`, fmtNum(loaded(tools)), share(loaded(tools), window)))
+      block.push({
+        ...sub(`${server} (${tools.length})`, `${fmtNum(loaded(tools))}${possible(tools)}`, share(loaded(tools), window)),
+        key: `mcp-server:${server}`,
+        closed: true,
+        ...(possible(tools) ? { max: possible(tools) } : {}),
+      })
       for (const t of byTokens(tools)) {
         block.push(item(t.name.replace(MCP_PREFIX, ''), fmtNum(t.tokens), share(t.loaded ? t.tokens : 0, window), 1, !t.loaded))
       }
@@ -330,6 +341,17 @@ export function rowKey(row: DetailRow): string {
 export function isCollapsed(row: DetailRow, collapsed: readonly string[]): boolean {
   const listed = collapsed.includes(rowKey(row))
   return row.closed ? !listed : listed
+}
+
+// Splits a line or tail so the row's maximum, which ends its value, gets its own colour.
+export function splitMax(text: string, row: DetailRow, color: string, maxColor: string): { text: string; color: string }[] {
+  const at = row.max ? text.lastIndexOf(row.max) : -1
+  if (!row.max || at < 0) return [{ text, color }]
+  return [
+    { text: text.slice(0, at), color },
+    { text: row.max, color: maxColor },
+    { text: text.slice(at + row.max.length), color },
+  ]
 }
 
 // A head with column titles puts its total and share in the same columns as the rows under it.

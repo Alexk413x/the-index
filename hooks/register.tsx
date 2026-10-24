@@ -83,7 +83,7 @@ import {
 import { agentColorKey, parseAgentFile } from './agents'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type LedgerEntry } from './ledger'
 import { mergeTurns, parseTurns, serializeTurns, turnToRecord } from './turns'
-import { DETAIL_TABS, callKind, cellWidths, columnTitles, detailRows, headLine, isCollapsed, isIdle, isUserPrompt, rowKey, rowParts, tableHeadLine, tableParts, tableTitles, titledHead, toContextDetail, valueWidthOf, visibleRows } from './detail'
+import { DETAIL_TABS, callKind, cellWidths, columnTitles, detailRows, headLine, isCollapsed, isIdle, isUserPrompt, rowKey, rowParts, splitMax, tableHeadLine, tableParts, tableTitles, titledHead, toContextDetail, valueWidthOf, visibleRows } from './detail'
 
 const agents = atom({ plugin: 'the-index', key: 'agents' } as const, {})
 const turn = atom({ plugin: 'the-index', key: 'turn' } as const, null)
@@ -1256,12 +1256,14 @@ export const register: Register = (on, options) => {
           if (row.kind === 'head') {
             const key = rowKey(row)
             const titles = titledHead(rows, i, collapsed)
+            const line = ` ${headLine(row, width - 2, isCollapsed(row, collapsed), valueWidth, bars)} `
+            const tone = isIdle(row) ? cfg.colors.icons : cfg.colors.model
             return (
               <Box key={`row${i}`} flexDirection="column">
                 <Client
                   key={`${HEAD_ELEMENT}${key}`}
                   module="./chip.tsx"
-                  props={{ text: ` ${headLine(row, width - 2, isCollapsed(row, collapsed), valueWidth, bars)} `, color: isIdle(row) ? cfg.colors.icons : cfg.colors.model, look: 'link' }}
+                  props={row.max ? { text: '', color: tone, parts: splitMax(line, row, tone, cfg.colors.icons) } : { text: line, color: tone, look: 'link' }}
                 />
                 {titles ? <Text color={cfg.colors.icons}>{` ${columnTitles(titles, width - 2, valueWidth, bars, rows[i + 1]?.kind === 'sub')} `}</Text> : null}
               </Box>
@@ -1284,7 +1286,7 @@ export const register: Register = (on, options) => {
                       { text: p.label, color: isIdle(row) ? cfg.colors.icons : cfg.colors.model },
                       { text: edge < 0 ? p.bar : p.bar.slice(0, edge), color: cfg.colors.calls },
                       ...(edge < 0 ? [] : [{ text: p.bar.charAt(edge), color: cfg.colors.calls, inverse: true }, { text: p.bar.slice(edge + 1), color: cfg.colors.calls }]),
-                      { text: p.tail, color: isIdle(row) ? cfg.colors.icons : cfg.colors.model },
+                      ...splitMax(p.tail, row, isIdle(row) ? cfg.colors.icons : cfg.colors.model, cfg.colors.icons),
                     ],
                   }}
                 />
