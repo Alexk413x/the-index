@@ -485,12 +485,17 @@ describe('the sentinel-swarm button', () => {
     expect(swarmRunning({ text: '{"running": false}', result: '{"running": true}' })).toBe(false)
   })
 
-  test('line 1 ends with the swarm button whenever sentinel-swarm is detected, green while a run is active', () => {
+  test('line 1 shows the swarm button between the model and the IDE whenever sentinel-swarm is detected, green while a run is active', () => {
     const cfg = readConfig({})
-    const line1 = (swarm?: 'idle' | 'running' | null) => buildLines(snapshot({ swarm }), cfg)[0] ?? []
-    expect(line1('idle').at(-1)).toEqual([{ text: '⬡ swarm', color: cfg.colors.branch, menu: 'swarm' }])
-    expect(line1('running').at(-1)).toEqual([{ text: '⬡ swarm', color: cfg.colors.good, menu: 'swarm' }])
-    expect(lineText(line1('idle')).endsWith(' | ⬡ swarm')).toBe(true)
+    const host = { sessionName: '', bridged: false, ide: 'VS Code', agent: '', project: '' }
+    const line1 = (swarm?: 'idle' | 'running' | null) => buildLines(snapshot({ host, swarm }), cfg)[0] ?? []
+    const model = line1(null).findIndex(part => part.some(s => s.menu === 'model'))
+    const ide = (swarm: 'idle' | 'running') => line1(swarm).findIndex(part => part[0]?.text === 'VS Code')
+    for (const swarm of ['idle', 'running'] as const) {
+      expect(line1(swarm)[model + 1]).toEqual([{ text: '⬡ swarm', color: swarm === 'running' ? cfg.colors.good : cfg.colors.branch, menu: 'swarm' }])
+      expect(ide(swarm)).toBe(model + 2)
+    }
+    expect(lineText(line1('idle'))).toContain(' | ⬡ swarm | VS Code | ')
     for (const swarm of [null, undefined]) {
       expect(line1(swarm).flat().some(s => s.menu === 'swarm')).toBe(false)
       expect(lineText(line1(swarm))).toBe(lineText(line1('idle')).replace(' | ⬡ swarm', ''))

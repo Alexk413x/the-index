@@ -385,6 +385,8 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     line1.push(head)
   }
 
+  if (snap.swarm) line1.push([{ text: `${SYM_SWARM} swarm`, color: snap.swarm === 'running' ? c.good : c.branch, menu: 'swarm' }])
+
   if (cfg.show.ide && host?.ide) line1.push([seg(host.ide, c.ide)])
 
   const gauges: Seg[][] = []
@@ -448,7 +450,6 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     gauges.push(withMenu(joinWith(limits, sp), 'usage'))
   }
   if (gauges.length) line1.push(joinWith(gauges, sp))
-  if (snap.swarm) line1.push([{ text: `${SYM_SWARM} swarm`, color: snap.swarm === 'running' ? c.good : c.branch, menu: 'swarm' }])
 
   const line2: Part[] = []
   const t = snap.totals
