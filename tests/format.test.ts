@@ -25,6 +25,7 @@ import {
   patchLineCounts,
   readConfig,
   repoWebFromRemote,
+  swarmRunning,
   type Snapshot,
 } from '../hooks/format'
 import {
@@ -463,5 +464,45 @@ describe('worktrees', () => {
     expect(samePath('C:\\src\\app\\', 'c:/src/app')).toBe(true)
     expect(samePath('/src/App', '/src/app')).toBe(false)
     expect(worktreeName('C:/src/app-feat/')).toBe('app-feat')
+  })
+})
+
+describe('the sentinel-swarm button', () => {
+  test('the swarm_status reply reads as running only when running is true', () => {
+    expect(swarmRunning({ text: '{"running": true, "repo": "/work/app"}' })).toBe(true)
+    expect(swarmRunning({ text: '{"running": false, "repo": "/work/app"}' })).toBe(false)
+    expect(swarmRunning({ text: '{"running": "true"}' })).toBe(false)
+    expect(swarmRunning({ text: '[true]' })).toBe(false)
+    expect(swarmRunning({ text: 'not json' })).toBe(false)
+    expect(swarmRunning({ text: '' })).toBe(false)
+    expect(swarmRunning({})).toBe(false)
+  })
+
+  test('a reply answered by a hook with only a result string reads the same', () => {
+    expect(swarmRunning({ result: '{"running": true, "repo": "/work/app"}' })).toBe(true)
+    expect(swarmRunning({ result: '{"running": false, "repo": "/work/app"}' })).toBe(false)
+    expect(swarmRunning({ result: { running: true } })).toBe(false)
+    expect(swarmRunning({ text: '{"running": false}', result: '{"running": true}' })).toBe(false)
+  })
+
+  test('line 1 shows the swarm button between the model and the IDE whenever sentinel-swarm is detected, green while a run is active', () => {
+    const cfg = readConfig({})
+    const host = { sessionName: '', bridged: false, ide: 'VS Code', agent: '', project: '' }
+    const line1 = (swarm?: 'idle' | 'running' | null) => buildLines(snapshot({ host, swarm }), cfg)[0] ?? []
+    const model = line1(null).findIndex(part => part.some(s => s.menu === 'model'))
+    const ide = (swarm: 'idle' | 'running') => line1(swarm).findIndex(part => part[0]?.text === 'VS Code')
+    for (const swarm of ['idle', 'running'] as const) {
+      expect(line1(swarm)[model + 1]).toEqual([
+        { text: '⌬', color: cfg.colors.icons, menu: 'swarm' },
+        { text: ' ', color: cfg.colors.icons, menu: 'swarm' },
+        { text: 'SWARM', color: swarm === 'running' ? cfg.colors.good : cfg.colors.branch, menu: 'swarm' },
+      ])
+      expect(ide(swarm)).toBe(model + 2)
+    }
+    expect(lineText(line1('idle'))).toContain(' | ⌬ SWARM | VS Code | ')
+    for (const swarm of [null, undefined]) {
+      expect(line1(swarm).flat().some(s => s.menu === 'swarm')).toBe(false)
+      expect(lineText(line1(swarm))).toBe(lineText(line1('idle')).replace(' | ⌬ SWARM', ''))
+    }
   })
 })

@@ -8,9 +8,11 @@ import type {
   IndexHost,
   IndexPanel,
   IndexRateLimit,
+  IndexSwarm,
   IndexTotals,
   IndexUsage,
 } from '../types'
+import { isRecord, parseJson } from './git'
 
 export const MAIN = 'main'
 
@@ -51,6 +53,7 @@ export const SYM_WT = '⑂'
 const SYM_REMOTE_ON = '●'
 const SYM_REMOTE_OFF = '○'
 const SYM_AGENT = '⤷'
+export const SYM_SWARM = '⌬'
 
 const SEGMENTS = [
   'remote',
@@ -302,7 +305,7 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   return Math.max(1000, Math.min(...candidates))
 }
 
-export type Menu = IndexPanel | 'project'
+export type Menu = IndexPanel | 'project' | 'swarm'
 export type Seg = { text: string; color: string; menu?: Menu }
 export type Part = readonly Seg[]
 export type Line = readonly Part[]
@@ -319,6 +322,7 @@ export type Snapshot = {
   agentEfforts: Readonly<Record<string, IndexEffort>>
   agentModels: Readonly<Record<string, string>>
   worktrees?: number
+  swarm?: IndexSwarm | null
 }
 
 export type ViewedAgent = {
@@ -380,6 +384,8 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     head.push(sp, { text: effort || SHADE.repeat(2), color: c.model, menu: 'effort' })
     line1.push(head)
   }
+
+  if (snap.swarm) line1.push(withMenu([icon(SYM_SWARM), sp, seg('SWARM', snap.swarm === 'running' ? c.good : c.branch)], 'swarm'))
 
   if (cfg.show.ide && host?.ide) line1.push([seg(host.ide, c.ide)])
 
@@ -627,6 +633,12 @@ function joinWith(groups: readonly Seg[][], sep: Seg): Seg[] {
 
 export function lineText(line: Line): string {
   return line.map(part => part.map(s => s.text).join('')).join(' | ')
+}
+
+export function swarmRunning(reply: { text?: string; result?: unknown }): boolean {
+  const text = reply.text ?? (typeof reply.result === 'string' ? reply.result : undefined)
+  const status = parseJson(text ?? '')
+  return isRecord(status) && status['running'] === true
 }
 
 export function projectName(cwd: string): string {
