@@ -633,9 +633,10 @@ export function lineText(line: Line): string {
   return line.map(part => part.map(s => s.text).join('')).join(' | ')
 }
 
-export function swarmRunning(text: string | undefined): boolean {
-  const reply = parseJson(text ?? '')
-  return isRecord(reply) && reply['running'] === true
+export function swarmRunning(reply: { text?: string; result?: unknown }): boolean {
+  const text = reply.text ?? (typeof reply.result === 'string' ? reply.result : undefined)
+  const status = parseJson(text ?? '')
+  return isRecord(status) && status['running'] === true
 }
 
 export function projectName(cwd: string): string {

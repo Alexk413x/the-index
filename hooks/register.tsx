@@ -1001,8 +1001,7 @@ async function refreshSwarm($: EngineInterface): Promise<void> {
   if (tools.some(t => t.name === SWARM_STATUS_TOOL)) {
     try {
       // sentinel-swarm registers its tools at runtime, so the generated types don't list them.
-      const { text } = await $.tool.call({ tool: SWARM_STATUS_TOOL, repo: await $.session.cwd() } as ToolCallArgs)
-      running = swarmRunning(text)
+      running = swarmRunning(await $.tool.call({ tool: SWARM_STATUS_TOOL, repo: await $.session.cwd() } as ToolCallArgs))
     } catch {
       running = false
     }

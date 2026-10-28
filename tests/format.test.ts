@@ -469,13 +469,20 @@ describe('worktrees', () => {
 
 describe('the sentinel-swarm button', () => {
   test('the swarm_status reply reads as running only when running is true', () => {
-    expect(swarmRunning('{"running": true, "repo": "/work/app"}')).toBe(true)
-    expect(swarmRunning('{"running": false, "repo": "/work/app"}')).toBe(false)
-    expect(swarmRunning('{"running": "true"}')).toBe(false)
-    expect(swarmRunning('[true]')).toBe(false)
-    expect(swarmRunning('not json')).toBe(false)
-    expect(swarmRunning('')).toBe(false)
-    expect(swarmRunning(undefined)).toBe(false)
+    expect(swarmRunning({ text: '{"running": true, "repo": "/work/app"}' })).toBe(true)
+    expect(swarmRunning({ text: '{"running": false, "repo": "/work/app"}' })).toBe(false)
+    expect(swarmRunning({ text: '{"running": "true"}' })).toBe(false)
+    expect(swarmRunning({ text: '[true]' })).toBe(false)
+    expect(swarmRunning({ text: 'not json' })).toBe(false)
+    expect(swarmRunning({ text: '' })).toBe(false)
+    expect(swarmRunning({})).toBe(false)
+  })
+
+  test('a reply answered by a hook with only a result string reads the same', () => {
+    expect(swarmRunning({ result: '{"running": true, "repo": "/work/app"}' })).toBe(true)
+    expect(swarmRunning({ result: '{"running": false, "repo": "/work/app"}' })).toBe(false)
+    expect(swarmRunning({ result: { running: true } })).toBe(false)
+    expect(swarmRunning({ text: '{"running": false}', result: '{"running": true}' })).toBe(false)
   })
 
   test('line 1 ends with the swarm button only while a run is active', () => {
