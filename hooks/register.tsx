@@ -1776,7 +1776,12 @@ export const register: Register = (on, options) => {
                 <Client
                   key={`${first.menu}-chip`}
                   module="./chip.tsx"
-                  props={{ text: first.text, color: first.color, look: 'link' }}
+                  props={{
+                    text: run.map(s => s.text).join(''),
+                    color: first.color,
+                    look: 'link',
+                    ...(run.length > 1 ? { parts: run.map(s => ({ text: s.text, color: s.color })) } : {}),
+                  }}
                 />
               )
             }

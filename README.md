@@ -62,7 +62,7 @@ claude plugin install the-index@alexk413x
   line 1 to open Codex, Antigravity CLI or another agent CLI in a new tab. The session
   table's first row also gets an **Open Messages** button that opens the Agent Tabs
   Messages pane.
-- **sentinel-swarm plugin:** when installed, line 1 shows a **⬡ swarm** button after the
+- **sentinel-swarm plugin:** when installed, line 1 shows a **⌬ SWARM** button after the
   model and effort. It turns green while a swarm run is active in the session's repo.
   Click it to open the swarm side panel.
 - **`gh` CLI:** when installed, the band shows your open PRs and charts merged PRs.

@@ -492,13 +492,17 @@ describe('the sentinel-swarm button', () => {
     const model = line1(null).findIndex(part => part.some(s => s.menu === 'model'))
     const ide = (swarm: 'idle' | 'running') => line1(swarm).findIndex(part => part[0]?.text === 'VS Code')
     for (const swarm of ['idle', 'running'] as const) {
-      expect(line1(swarm)[model + 1]).toEqual([{ text: '⬡ swarm', color: swarm === 'running' ? cfg.colors.good : cfg.colors.branch, menu: 'swarm' }])
+      expect(line1(swarm)[model + 1]).toEqual([
+        { text: '⌬', color: cfg.colors.icons, menu: 'swarm' },
+        { text: ' ', color: cfg.colors.icons, menu: 'swarm' },
+        { text: 'SWARM', color: swarm === 'running' ? cfg.colors.good : cfg.colors.branch, menu: 'swarm' },
+      ])
       expect(ide(swarm)).toBe(model + 2)
     }
-    expect(lineText(line1('idle'))).toContain(' | ⬡ swarm | VS Code | ')
+    expect(lineText(line1('idle'))).toContain(' | ⌬ SWARM | VS Code | ')
     for (const swarm of [null, undefined]) {
       expect(line1(swarm).flat().some(s => s.menu === 'swarm')).toBe(false)
-      expect(lineText(line1(swarm))).toBe(lineText(line1('idle')).replace(' | ⬡ swarm', ''))
+      expect(lineText(line1(swarm))).toBe(lineText(line1('idle')).replace(' | ⌬ SWARM', ''))
     }
   })
 })

@@ -53,7 +53,7 @@ export const SYM_WT = '⑂'
 const SYM_REMOTE_ON = '●'
 const SYM_REMOTE_OFF = '○'
 const SYM_AGENT = '⤷'
-export const SYM_SWARM = '⬡'
+export const SYM_SWARM = '⌬'
 
 const SEGMENTS = [
   'remote',
@@ -385,7 +385,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     line1.push(head)
   }
 
-  if (snap.swarm) line1.push([{ text: `${SYM_SWARM} swarm`, color: snap.swarm === 'running' ? c.good : c.branch, menu: 'swarm' }])
+  if (snap.swarm) line1.push(withMenu([icon(SYM_SWARM), sp, seg('SWARM', snap.swarm === 'running' ? c.good : c.branch)], 'swarm'))
 
   if (cfg.show.ide && host?.ide) line1.push([seg(host.ide, c.ide)])
 
