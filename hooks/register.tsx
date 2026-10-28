@@ -27,6 +27,7 @@ import {
   createdLines,
   patchLineCounts,
   projectName,
+  swarmRunning,
   cacheLeftMs,
   gitLinks,
   readConfig,
@@ -119,6 +120,7 @@ const turnHistory = atom({ plugin: 'the-index', key: 'turnHistory' } as const, [
 const basePrs = atom({ plugin: 'the-index', key: 'basePrs' } as const, [])
 const worktrees = atom({ plugin: 'the-index', key: 'worktrees' } as const, [])
 const deviceRepos = atom({ plugin: 'the-index', key: 'deviceRepos' } as const, [])
+const swarm = atom({ plugin: 'the-index', key: 'swarm' } as const, false)
 
 const EWMA_ALPHA = 0.3
 const CONTEXT_LOG_MAX = 500
@@ -842,6 +844,8 @@ const TAB_ELEMENT = 'detail-tab-'
 const PROMPT_COUNT_SESSIONS = 20
 const AGENT_TABS = 'plugin:ide-agent-tabs:ide-agent-tabs'
 const MESSAGES_TOOL: string = 'mcp__ide-agent-tabs__open_agent_messages'
+const SWARM_STATUS_TOOL: string = 'mcp__sentinel-swarm__swarm_status'
+const SWARM_PANEL_TOOL: string = 'mcp__sentinel-swarm__open_panel'
 const ULTRACODE = /\bultracode\b/i
 const PIN_ON = '■'
 const PIN_OFF = '□'
@@ -991,6 +995,32 @@ async function openMessages($: EngineInterface): Promise<void> {
   }
 }
 
+async function refreshSwarm($: EngineInterface): Promise<void> {
+  const tools = await $.tool.list().catch(() => [])
+  let running = false
+  if (tools.some(t => t.name === SWARM_STATUS_TOOL)) {
+    try {
+      // sentinel-swarm registers its tools at runtime, so the generated types don't list them.
+      const { text } = await $.tool.call({ tool: SWARM_STATUS_TOOL, repo: await $.session.cwd() } as ToolCallArgs)
+      running = swarmRunning(text)
+    } catch {
+      running = false
+    }
+  }
+  if (running !== (await read($, swarm))) await update($, swarm, () => running)
+}
+
+async function openSwarm($: EngineInterface): Promise<void> {
+  let failed: boolean
+  try {
+    const result = await $.tool.call({ tool: SWARM_PANEL_TOOL, repo: await $.session.cwd() } as ToolCallArgs)
+    failed = result.isError === true || typeof result.deny === 'string'
+  } catch {
+    failed = true
+  }
+  if (failed) $.ui.toast('Could not open the swarm panel: sentinel-swarm is not available')
+}
+
 async function toggleUltracode($: EngineInterface): Promise<void> {
   const { text } = await $.prompt.read()
   const next = ULTRACODE.test(text)
@@ -1074,6 +1104,7 @@ export const register: Register = (on, options) => {
       syncLedger($),
       refreshCompactThreshold($),
       $.session.usage().then(u => recordUsage($, u)),
+      refreshSwarm($),
     ])
     hostAt = await $.clock.now()
     lastStamp = await gitStamp($, gitDir)
@@ -1099,6 +1130,7 @@ export const register: Register = (on, options) => {
     })
     $.clock.every(GIT_STAT_EVERY_MS, () => {
       void refreshLinkUntilLinked($)
+      void refreshSwarm($)
     })
     $.clock.every(GIT_FULL_EVERY_MS, () => {
       refreshGitSoon($)
@@ -1113,6 +1145,10 @@ export const register: Register = (on, options) => {
     const data = isRecord(e.data) ? e.data : {}
     if (e.element === 'project-chip') {
       if (data['press'] === true) await openFolder($)
+      return {}
+    }
+    if (e.element === 'swarm-chip') {
+      if (data['press'] === true) await openSwarm($)
       return {}
     }
     const panel = PANELS.find(p => e.element.startsWith(`${p}-`))
@@ -1548,7 +1584,7 @@ export const register: Register = (on, options) => {
     if (!Client) return next(e)
     const { Box, Text } = table
 
-    const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, seen, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history, trees, device, series] =
+    const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, seen, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history, trees, device, series, swarmOn] =
       await Promise.all([
         read($, agents),
         read($, turn),
@@ -1578,6 +1614,7 @@ export const register: Register = (on, options) => {
         read($, worktrees),
         read($, deviceRepos),
         read($, contextSeries),
+        read($, swarm),
       ])
     const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
     const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
@@ -1611,6 +1648,7 @@ export const register: Register = (on, options) => {
         agentEfforts: efforts,
         agentModels: models,
         worktrees: deviceTotal(device),
+        swarm: swarmOn,
       },
       look,
       viewed,
@@ -1733,10 +1771,10 @@ export const register: Register = (on, options) => {
                 />
               )
             }
-            if (first.menu === 'project') {
+            if (first.menu === 'project' || first.menu === 'swarm') {
               return (
                 <Client
-                  key="project-chip"
+                  key={`${first.menu}-chip`}
                   module="./chip.tsx"
                   props={{ text: first.text, color: first.color, look: 'link' }}
                 />

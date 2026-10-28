@@ -240,6 +240,7 @@ declare module 'claude-code' {
       basePrs: readonly IndexPullRequest[]
       worktrees: readonly IndexWorktree[]
       deviceRepos: readonly IndexDeviceRepo[]
+      swarm: boolean
       usageSummary: IndexUsageSummary | null
     }
   }

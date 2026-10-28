@@ -25,6 +25,7 @@ import {
   patchLineCounts,
   readConfig,
   repoWebFromRemote,
+  swarmRunning,
   type Snapshot,
 } from '../hooks/format'
 import {
@@ -463,5 +464,29 @@ describe('worktrees', () => {
     expect(samePath('C:\\src\\app\\', 'c:/src/app')).toBe(true)
     expect(samePath('/src/App', '/src/app')).toBe(false)
     expect(worktreeName('C:/src/app-feat/')).toBe('app-feat')
+  })
+})
+
+describe('the sentinel-swarm button', () => {
+  test('the swarm_status reply reads as running only when running is true', () => {
+    expect(swarmRunning('{"running": true, "repo": "/work/app"}')).toBe(true)
+    expect(swarmRunning('{"running": false, "repo": "/work/app"}')).toBe(false)
+    expect(swarmRunning('{"running": "true"}')).toBe(false)
+    expect(swarmRunning('[true]')).toBe(false)
+    expect(swarmRunning('not json')).toBe(false)
+    expect(swarmRunning('')).toBe(false)
+    expect(swarmRunning(undefined)).toBe(false)
+  })
+
+  test('line 1 ends with the swarm button only while a run is active', () => {
+    const cfg = readConfig({})
+    const line1 = (swarm?: boolean) => buildLines(snapshot({ swarm }), cfg)[0] ?? []
+    const button = line1(true).at(-1)
+    expect(button).toEqual([{ text: '⬡ swarm', color: cfg.colors.branch, menu: 'swarm' }])
+    expect(lineText(line1(true)).endsWith(' | ⬡ swarm')).toBe(true)
+    for (const swarm of [false, undefined]) {
+      expect(line1(swarm).flat().some(s => s.menu === 'swarm')).toBe(false)
+      expect(lineText(line1(swarm))).toBe(lineText(line1(true)).replace(' | ⬡ swarm', ''))
+    }
   })
 })

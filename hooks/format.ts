@@ -11,6 +11,7 @@ import type {
   IndexTotals,
   IndexUsage,
 } from '../types'
+import { isRecord, parseJson } from './git'
 
 export const MAIN = 'main'
 
@@ -51,6 +52,7 @@ export const SYM_WT = '⑂'
 const SYM_REMOTE_ON = '●'
 const SYM_REMOTE_OFF = '○'
 const SYM_AGENT = '⤷'
+export const SYM_SWARM = '⬡'
 
 const SEGMENTS = [
   'remote',
@@ -302,7 +304,7 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   return Math.max(1000, Math.min(...candidates))
 }
 
-export type Menu = IndexPanel | 'project'
+export type Menu = IndexPanel | 'project' | 'swarm'
 export type Seg = { text: string; color: string; menu?: Menu }
 export type Part = readonly Seg[]
 export type Line = readonly Part[]
@@ -319,6 +321,7 @@ export type Snapshot = {
   agentEfforts: Readonly<Record<string, IndexEffort>>
   agentModels: Readonly<Record<string, string>>
   worktrees?: number
+  swarm?: boolean
 }
 
 export type ViewedAgent = {
@@ -444,6 +447,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     gauges.push(withMenu(joinWith(limits, sp), 'usage'))
   }
   if (gauges.length) line1.push(joinWith(gauges, sp))
+  if (snap.swarm) line1.push([{ text: `${SYM_SWARM} swarm`, color: c.branch, menu: 'swarm' }])
 
   const line2: Part[] = []
   const t = snap.totals
@@ -627,6 +631,11 @@ function joinWith(groups: readonly Seg[][], sep: Seg): Seg[] {
 
 export function lineText(line: Line): string {
   return line.map(part => part.map(s => s.text).join('')).join(' | ')
+}
+
+export function swarmRunning(text: string | undefined): boolean {
+  const reply = parseJson(text ?? '')
+  return isRecord(reply) && reply['running'] === true
 }
 
 export function projectName(cwd: string): string {

@@ -62,6 +62,8 @@ claude plugin install the-index@alexk413x
   line 1 to open Codex, Antigravity CLI or another agent CLI in a new tab. The session
   table's first row also gets an **Open Messages** button that opens the Agent Tabs
   Messages pane.
+- **sentinel-swarm plugin:** when installed, line 1 shows a **⬡ swarm** button while a
+  swarm run is active in the session's repo. Click it to open the swarm side panel.
 - **`gh` CLI:** when installed, the band shows your open PRs and charts merged PRs.
 
 ## What it runs, reads and writes
@@ -94,7 +96,9 @@ collects no telemetry.
   - `the-index-usage.json` and `the-index-turns.json` in your Claude config folder;
   - `claude-statusline-ratelimits.json` in the temp folder, shared with other sessions.
 - **Calls:** the ide-agent-tabs plugin's tools, when installed, to list agent CLIs and
-  open one in a new tab, and to open the Agent Tabs Messages pane.
+  open one in a new tab, and to open the Agent Tabs Messages pane; and the
+  sentinel-swarm plugin's tools, when installed, every 30 seconds to check for a swarm
+  run in the session folder, and when you click the swarm button, to open its panel.
 - **Changes:** the prompt draft, only when you click `ultracode`, to add or remove that
   word.
 
