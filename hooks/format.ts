@@ -8,6 +8,7 @@ import type {
   IndexHost,
   IndexPanel,
   IndexRateLimit,
+  IndexSwarm,
   IndexTotals,
   IndexUsage,
 } from '../types'
@@ -321,7 +322,7 @@ export type Snapshot = {
   agentEfforts: Readonly<Record<string, IndexEffort>>
   agentModels: Readonly<Record<string, string>>
   worktrees?: number
-  swarm?: boolean
+  swarm?: IndexSwarm | null
 }
 
 export type ViewedAgent = {
@@ -447,7 +448,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     gauges.push(withMenu(joinWith(limits, sp), 'usage'))
   }
   if (gauges.length) line1.push(joinWith(gauges, sp))
-  if (snap.swarm) line1.push([{ text: `${SYM_SWARM} swarm`, color: c.branch, menu: 'swarm' }])
+  if (snap.swarm) line1.push([{ text: `${SYM_SWARM} swarm`, color: snap.swarm === 'running' ? c.good : c.branch, menu: 'swarm' }])
 
   const line2: Part[] = []
   const t = snap.totals

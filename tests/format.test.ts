@@ -485,15 +485,15 @@ describe('the sentinel-swarm button', () => {
     expect(swarmRunning({ text: '{"running": false}', result: '{"running": true}' })).toBe(false)
   })
 
-  test('line 1 ends with the swarm button only while a run is active', () => {
+  test('line 1 ends with the swarm button whenever sentinel-swarm is detected, green while a run is active', () => {
     const cfg = readConfig({})
-    const line1 = (swarm?: boolean) => buildLines(snapshot({ swarm }), cfg)[0] ?? []
-    const button = line1(true).at(-1)
-    expect(button).toEqual([{ text: '⬡ swarm', color: cfg.colors.branch, menu: 'swarm' }])
-    expect(lineText(line1(true)).endsWith(' | ⬡ swarm')).toBe(true)
-    for (const swarm of [false, undefined]) {
+    const line1 = (swarm?: 'idle' | 'running' | null) => buildLines(snapshot({ swarm }), cfg)[0] ?? []
+    expect(line1('idle').at(-1)).toEqual([{ text: '⬡ swarm', color: cfg.colors.branch, menu: 'swarm' }])
+    expect(line1('running').at(-1)).toEqual([{ text: '⬡ swarm', color: cfg.colors.good, menu: 'swarm' }])
+    expect(lineText(line1('idle')).endsWith(' | ⬡ swarm')).toBe(true)
+    for (const swarm of [null, undefined]) {
       expect(line1(swarm).flat().some(s => s.menu === 'swarm')).toBe(false)
-      expect(lineText(line1(swarm))).toBe(lineText(line1(true)).replace(' | ⬡ swarm', ''))
+      expect(lineText(line1(swarm))).toBe(lineText(line1('idle')).replace(' | ⬡ swarm', ''))
     }
   })
 })

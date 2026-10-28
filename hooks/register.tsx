@@ -11,6 +11,7 @@ import type {
   IndexMergedPr,
   IndexPullRequest,
   IndexRateLimit,
+  IndexSwarm,
   IndexTurnRecord,
   IndexUsage,
 } from '../types'
@@ -120,7 +121,7 @@ const turnHistory = atom({ plugin: 'the-index', key: 'turnHistory' } as const, [
 const basePrs = atom({ plugin: 'the-index', key: 'basePrs' } as const, [])
 const worktrees = atom({ plugin: 'the-index', key: 'worktrees' } as const, [])
 const deviceRepos = atom({ plugin: 'the-index', key: 'deviceRepos' } as const, [])
-const swarm = atom({ plugin: 'the-index', key: 'swarm' } as const, false)
+const swarm = atom({ plugin: 'the-index', key: 'swarm' } as const, null)
 
 const EWMA_ALPHA = 0.3
 const CONTEXT_LOG_MAX = 500
@@ -997,16 +998,16 @@ async function openMessages($: EngineInterface): Promise<void> {
 
 async function refreshSwarm($: EngineInterface): Promise<void> {
   const tools = await $.tool.list().catch(() => [])
-  let running = false
+  let state: IndexSwarm | null = null
   if (tools.some(t => t.name === SWARM_STATUS_TOOL)) {
     try {
       // sentinel-swarm registers its tools at runtime, so the generated types don't list them.
-      running = swarmRunning(await $.tool.call({ tool: SWARM_STATUS_TOOL, repo: await $.session.cwd() } as ToolCallArgs))
+      state = swarmRunning(await $.tool.call({ tool: SWARM_STATUS_TOOL, repo: await $.session.cwd() } as ToolCallArgs)) ? 'running' : 'idle'
     } catch {
-      running = false
+      state = 'idle'
     }
   }
-  if (running !== (await read($, swarm))) await update($, swarm, () => running)
+  if (state !== (await read($, swarm))) await update($, swarm, () => state)
 }
 
 async function openSwarm($: EngineInterface): Promise<void> {

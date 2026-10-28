@@ -113,6 +113,8 @@ export type IndexPanel =
 
 export type IndexHarness = { name: string; label: string }
 
+export type IndexSwarm = 'idle' | 'running'
+
 export type IndexCallPoint = {
   at: number
   turnId: string
@@ -240,7 +242,7 @@ declare module 'claude-code' {
       basePrs: readonly IndexPullRequest[]
       worktrees: readonly IndexWorktree[]
       deviceRepos: readonly IndexDeviceRepo[]
-      swarm: boolean
+      swarm: IndexSwarm | null
       usageSummary: IndexUsageSummary | null
     }
   }
