@@ -33,6 +33,8 @@ export type DetailView = {
   prompts?: number
 }
 
+export const DETAIL_PANE = 'the-index-detail'
+
 export const DETAIL_TABS: readonly { id: IndexDetailTab; label: string }[] = [
   { id: 'context', label: 'Context' },
   { id: 'turns', label: 'Prompts' },
