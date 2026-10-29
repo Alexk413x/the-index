@@ -14,7 +14,7 @@ import type {
   IndexTurnRecord,
   IndexUsageSummary,
   IndexWorktree,
-} from '../types'
+} from '../../types'
 import {
   barChart,
   bucketReadings,

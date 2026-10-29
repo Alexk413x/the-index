@@ -11,7 +11,7 @@ import type {
   IndexSwarm,
   IndexTotals,
   IndexUsage,
-} from '../types'
+} from '../../types'
 import { isRecord, parseJson } from './git'
 
 export const MAIN = 'main'

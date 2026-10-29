@@ -1,11 +1,11 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { barChart, bucketReadings, lineChart } from '../hooks/charts'
-import { HISTORY_MS, mergeTurns, otherSessionAverages, parseTurns, serializeTurns, turnAverages, turnToRecord } from '../hooks/turns'
+import { barChart, bucketReadings, lineChart } from '../hooks/lib/charts'
+import { HISTORY_MS, mergeTurns, otherSessionAverages, parseTurns, serializeTurns, turnAverages, turnToRecord } from '../hooks/lib/turns'
 import type { IndexTurnRecord } from '../types'
-import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type Ledger } from '../hooks/ledger'
-import { isFix, parseCommitLog, parseMergedPrs } from '../hooks/git'
-import { readConfig } from '../hooks/format'
+import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type Ledger } from '../hooks/lib/ledger'
+import { isFix, parseCommitLog, parseMergedPrs } from '../hooks/lib/git'
+import { readConfig } from '../hooks/lib/format'
 import {
   CHART_HEIGHT,
   MIDDLE_WIDTH,
@@ -15,7 +15,7 @@ import {
   panelLines,
   type PanelView,
   type RowItem,
-} from '../hooks/panels'
+} from '../hooks/lib/panels'
 
 const text = (line: readonly RowItem[]) => line.map(i => i.text).join('')
 const BLANK = '#808080'

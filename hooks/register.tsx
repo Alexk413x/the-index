@@ -36,7 +36,7 @@ import {
   type Config,
   type Seg,
   type ViewedAgent,
-} from './format'
+} from './lib/format'
 import {
   EFFORTS,
   PANELS,
@@ -54,7 +54,7 @@ import {
   worktreePaths,
   rowOrder,
   savedEffortFor,
-} from './panels'
+} from './lib/panels'
 import {
   BASE_REFS,
   COMMIT_FORMAT,
@@ -81,11 +81,11 @@ import {
   worktreeGitDir,
   worktreeName,
   type GitFs,
-} from './git'
-import { agentColorKey, parseAgentFile } from './agents'
-import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type LedgerEntry } from './ledger'
-import { mergeTurns, parseTurns, serializeTurns, turnToRecord } from './turns'
-import { DETAIL_TABS, callKind, cellWidths, columnTitles, detailRows, headLine, isCollapsed, isIdle, isUserPrompt, rowKey, rowParts, splitMax, tableHeadLine, tableParts, tableTitles, titledHead, toContextDetail, valueWidthOf, visibleRows } from './detail'
+} from './lib/git'
+import { agentColorKey, parseAgentFile } from './lib/agents'
+import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type LedgerEntry } from './lib/ledger'
+import { mergeTurns, parseTurns, serializeTurns, turnToRecord } from './lib/turns'
+import { DETAIL_TABS, callKind, cellWidths, columnTitles, detailRows, headLine, isCollapsed, isIdle, isUserPrompt, rowKey, rowParts, splitMax, tableHeadLine, tableParts, tableTitles, titledHead, toContextDetail, valueWidthOf, visibleRows } from './lib/detail'
 
 const agents = atom({ plugin: 'the-index', key: 'agents' } as const, {})
 const turn = atom({ plugin: 'the-index', key: 'turn' } as const, null)
@@ -1314,7 +1314,7 @@ export const register: Register = (on, options) => {
       <Box flexDirection="column">
         <Box flexDirection="row" gap={1}>
           {DETAIL_TABS.map(t => (
-            <Client key={`${TAB_ELEMENT}${t.id}`} module="./chip.tsx" props={{ text: ` ${t.label} `, color: cfg.colors.model, isActive: t.id === tab }} />
+            <Client key={`${TAB_ELEMENT}${t.id}`} module="./clients/chip.tsx" props={{ text: ` ${t.label} `, color: cfg.colors.model, isActive: t.id === tab }} />
           ))}
         </Box>
         <Text> </Text>
@@ -1360,7 +1360,7 @@ export const register: Register = (on, options) => {
                 <Text> </Text>
                 <Client
                   key={`${HEAD_ELEMENT}${key}`}
-                  module="./chip.tsx"
+                  module="./clients/chip.tsx"
                   props={{ text: '', color: cfg.colors.model, parts: [{ text: p.label, color: cfg.colors.model }, { text: p.tail, color: cfg.colors.model }] }}
                 />
                 <Text> </Text>
@@ -1384,7 +1384,7 @@ export const register: Register = (on, options) => {
               <Box key={`row${i}`} flexDirection="column">
                 <Client
                   key={`${HEAD_ELEMENT}${key}`}
-                  module="./chip.tsx"
+                  module="./clients/chip.tsx"
                   props={row.max ? { text: '', color: tone, parts: splitMax(line, row, tone, cfg.colors.icons) } : { text: line, color: tone, look: 'link' }}
                 />
                 {titles ? <Text color={cfg.colors.icons}>{` ${columnTitles(titles, width - 2, valueWidth, bars, rows[i + 1]?.kind === 'sub')} `}</Text> : null}
@@ -1400,7 +1400,7 @@ export const register: Register = (on, options) => {
                 <Text> </Text>
                 <Client
                   key={`${HEAD_ELEMENT}${key}`}
-                  module="./chip.tsx"
+                  module="./clients/chip.tsx"
                   props={{
                     text: '',
                     color: cfg.colors.session,
@@ -1421,7 +1421,7 @@ export const register: Register = (on, options) => {
             return (
               <Client
                 key={`${GOTO_ELEMENT}${row.goto}`}
-                module="./chip.tsx"
+                module="./clients/chip.tsx"
                 props={{ text: ` ${parts.label}${parts.bar}${parts.tail} `, color: cfg.colors.model, look: 'link' }}
               />
             )
@@ -1787,7 +1787,7 @@ export const register: Register = (on, options) => {
           <Box flexDirection="column">
             <Client
               key={`${panel}-pin`}
-              module="./chip.tsx"
+              module="./clients/chip.tsx"
               props={{ text: isPinnedRow ? PIN_ON : PIN_OFF, color: look.colors.model }}
             />
             {rows.slice(1).map((_, i) => (
@@ -1796,7 +1796,7 @@ export const register: Register = (on, options) => {
           </Box>
           <Client
             key={`${panel}-row`}
-            module="./row.tsx"
+            module="./clients/row.tsx"
             props={{
               lines: rows,
               gap: ROW_GAP,
@@ -1848,7 +1848,7 @@ export const register: Register = (on, options) => {
               return (
                 <Client
                   key={`${panel}-chip`}
-                  module="./chip.tsx"
+                  module="./clients/chip.tsx"
                   props={{
                     text: run.map(s => s.text).join(''),
                     color: first.color,
@@ -1862,7 +1862,7 @@ export const register: Register = (on, options) => {
               return (
                 <Client
                   key={`${first.menu}-chip`}
-                  module="./chip.tsx"
+                  module="./clients/chip.tsx"
                   props={{
                     text: run.map(s => s.text).join(''),
                     color: first.color,

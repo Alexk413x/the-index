@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { IndexCallPoint, IndexContextDetail, IndexContextPoint, IndexTurnRecord, IndexUsageSummary } from '../types'
-import { DETAIL_BAR, DETAIL_PERCENT, TURN_TITLES, callKind, cellWidths, tableHeadLine, tableParts, tableTitles, isIdle, columnTitles, percentText, detailRows, headKey, headLine, isCollapsed, isUserPrompt, rowKey, markdownRows, mcpSections, rowParts, splitMax, titledHead, toContextDetail, valueWidthOf, visibleRows, type DetailView } from '../hooks/detail'
+import { DETAIL_BAR, DETAIL_PERCENT, TURN_TITLES, callKind, cellWidths, tableHeadLine, tableParts, tableTitles, isIdle, columnTitles, percentText, detailRows, headKey, headLine, isCollapsed, isUserPrompt, rowKey, markdownRows, mcpSections, rowParts, splitMax, titledHead, toContextDetail, valueWidthOf, visibleRows, type DetailView } from '../hooks/lib/detail'
 
 const CONTEXT: IndexContextDetail = {
   window: 200_000,

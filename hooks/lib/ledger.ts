@@ -1,4 +1,4 @@
-import type { IndexDayTotal, IndexUsageSummary } from '../types'
+import type { IndexDayTotal, IndexUsageSummary } from '../../types'
 import { isRecord } from './git'
 
 export type LedgerEntry = { tokens: number; costStart: number | null; costEnd: number | null }

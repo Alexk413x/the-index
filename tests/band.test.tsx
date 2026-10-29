@@ -1,8 +1,8 @@
 import { expect, mock, test, type MockClock } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
-import { readConfig } from '../hooks/format'
-import { ROW_GAP, TITLE_WIDTH } from '../hooks/panels'
+import { readConfig } from '../hooks/lib/format'
+import { ROW_GAP, TITLE_WIDTH } from '../hooks/lib/panels'
 
 const SURFACES = ['terminal', 'desktop'] as const
 const START = 1_800_000_000_000

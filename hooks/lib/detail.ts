@@ -1,4 +1,4 @@
-import type { IndexCallPoint, IndexContextDetail, IndexContextPoint, IndexDetailTab, IndexTurnRecord, IndexUsageSummary } from '../types'
+import type { IndexCallPoint, IndexContextDetail, IndexContextPoint, IndexDetailTab, IndexTurnRecord, IndexUsageSummary } from '../../types'
 import { categoryLabel, fmtClock, fmtCost, fmtDur, fmtMs, fmtNum, fmtPercent, fmtStamp } from './format'
 
 export type DetailRow = {

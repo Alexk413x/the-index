@@ -1,6 +1,6 @@
 import type { ClientModule } from 'claude-code'
 
-import type { RowItem } from './panels'
+import type { RowItem } from '../lib/panels'
 
 type RowProps = { lines: RowItem[][]; gap: number; hoverColor: string; fade: boolean; closing?: boolean; target: string }
 type RowState = { step: number; goal: number; hovered: string | null; focus: number }

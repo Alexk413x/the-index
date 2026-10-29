@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { MAIN, readConfig } from '../hooks/format'
-import { emptyGit } from '../hooks/git'
+import { MAIN, readConfig } from '../hooks/lib/format'
+import { emptyGit } from '../hooks/lib/git'
 import {
   MIDDLE_WIDTH,
   ROW_GAP,
@@ -20,7 +20,7 @@ import {
   worktreePaths,
   type PanelView,
   type RowItem,
-} from '../hooks/panels'
+} from '../hooks/lib/panels'
 
 const SETTINGS = {
   effortLevel: 'low',

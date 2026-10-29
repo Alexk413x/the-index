@@ -11,7 +11,7 @@ import {
   readRepo,
   resolveGitPath,
   type GitFs,
-} from '../hooks/git'
+} from '../hooks/lib/git'
 
 function memoryFs(files: Record<string, string>, dirs: readonly string[]): GitFs & { calls: string[] } {
   const norm = (p: string) => folderKey(p)

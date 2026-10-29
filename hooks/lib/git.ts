@@ -1,4 +1,4 @@
-import type { IndexCommit, IndexDeviceRepo, IndexGit, IndexMergedPr, IndexPullRequest, IndexRateLimit } from '../types'
+import type { IndexCommit, IndexDeviceRepo, IndexGit, IndexMergedPr, IndexPullRequest, IndexRateLimit } from '../../types'
 import { repoWebFromRemote } from './format'
 
 export const BASE_REFS = [

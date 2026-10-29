@@ -27,7 +27,7 @@ import {
   repoWebFromRemote,
   swarmRunning,
   type Snapshot,
-} from '../hooks/format'
+} from '../hooks/lib/format'
 import {
   applyBase,
   applyPr,
@@ -40,7 +40,7 @@ import {
   serializeSharedLimits,
   worktreeGitDir,
   worktreeName,
-} from '../hooks/git'
+} from '../hooks/lib/git'
 
 const NOW = 1_800_000_000_000
 
