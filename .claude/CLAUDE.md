@@ -28,6 +28,14 @@ through the `alexk413x` marketplace in the `Alexk413x/marketplace` repo.
   - `format.ts` — config, formatters, and `buildLines`, which builds the band.
   - `panels.ts` — the rows above the band (`panelLines`), their order, and which model
     and effort are current.
+  - `panels/` — the row builders `panelLines` calls:
+    - `constants.ts` — widths, heights, and pick prefixes shared by the row builders.
+    - `kit.ts` — `rowKit`, the helpers every row builder shares, and the `padTo` and `sectionWidth` layout functions.
+    - `git.ts` — the base and branch rows.
+    - `meters.ts` — the context, call and total cards, and usage rows.
+    - `pickers.ts` — the harness, effort and model rows.
+    - `session.ts` — the session row.
+    - `worktrees.ts` — the worktrees row.
   - `git.ts` — git output parsers and the shared rate-limit file's format.
   - `agents.ts` — agent file frontmatter and the theme key of an agent colour.
   - `charts.ts` — braille line charts and block bar charts as row items.
