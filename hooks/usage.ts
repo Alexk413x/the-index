@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, Timer, SessionContextUsage, SessionCost, SessionRateLimit, TurnStepInput, TurnStepResult } from 'claude-code'
+import type { EngineInterface, Timer, SessionContextBreakdown, SessionContextUsage, SessionCost, SessionRateLimit, SessionUsage, TurnStepInput, TurnStepResult } from 'claude-code'
 
 import type { IndexContextPoint, IndexRateLimit, IndexTurnRecord, IndexUsage } from '../types'
 import { EMPTY_TOTALS, createdLines, mergeRateLimit, nextChangeMs, patchLineCounts, type Config } from './lib/format'
@@ -8,6 +8,7 @@ import { isRecord, parseSharedLimits, serializeSharedLimits } from './lib/git'
 import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type LedgerEntry } from './lib/ledger'
 import { mergeTurns, parseTurns, serializeTurns, turnToRecord } from './lib/turns'
 import { callKind } from './lib/detail'
+import { runSerial, same, serial } from './lib/serial'
 import { configDir, readJson, tempDir } from './host'
 import { refreshContextDetail } from './pane'
 
@@ -51,27 +52,31 @@ export async function recordUsage($: EngineInterface, m: Measured): Promise<void
     await $.fs.write(sharedPath, text).catch(() => undefined)
   }
 
-  const [{ startedAt }, now] = await Promise.all([$.session.usage(), $.clock.now()])
   const pct = m.context.percent ?? null
-  await update($, usage, (prev): IndexUsage => ({
-    startedAt,
+  const compaction = pct === null ? undefined : pendingCompaction
+  if (pct !== null) pendingCompaction = undefined
+  const [detailShown, log, now] = await Promise.all([read($, detailOpen), read($, contextLog), $.clock.now()])
+  const unchanged = (p: IndexContextPoint | undefined) => p !== undefined && p.percent === pct && p.tokens === (m.context.tokens ?? null) && !compaction
+  const wantsParts = pct !== null && !unchanged(log.at(-1))
+  const measured = await usageNow($, detailShown || wantsParts)
+  const breakdown = measured.context.breakdown
+  const fresh = (compactions: number): IndexUsage => ({
+    startedAt: measured.startedAt,
     contextPercent: pct,
     contextTokens: m.context.tokens ?? null,
     costUsd: m.cost?.usd ?? null,
     fiveHour,
     sevenDay,
-    compactions: prev?.compactions ?? 0,
-  }))
-  await update($, contextLimit, prev =>
-    prev?.window === m.context.window ? prev : { window: m.context.window, threshold: prev?.threshold ?? null },
-  )
-  if (await read($, detailOpen)) await refreshContextDetail($, false)
+    compactions,
+  })
+  const before = await read($, usage)
+  if (!same(before, fresh(before?.compactions ?? 0))) await update($, usage, prev => fresh(prev?.compactions ?? 0))
+  if ((await read($, contextLimit))?.window !== m.context.window) {
+    await update($, contextLimit, prev => (prev?.window === m.context.window ? prev : { window: m.context.window, threshold: prev?.threshold ?? null }))
+  }
+  if (detailShown && breakdown) await refreshContextDetail($, false, breakdown)
   if (pct === null) return
-  const compaction = pendingCompaction
-  pendingCompaction = undefined
-  const lastPoint = (await read($, contextLog)).at(-1)
-  const unchanged = (p: IndexContextPoint | undefined) => p !== undefined && p.percent === pct && p.tokens === (m.context.tokens ?? null) && !compaction
-  const parts = unchanged(lastPoint) ? undefined : await readContextParts($)
+  const parts = wantsParts && breakdown ? partsOf(breakdown) : undefined
   await update($, contextLog, prev => {
     const last = prev[prev.length - 1]
     if (unchanged(last)) return prev
@@ -88,17 +93,21 @@ export async function recordUsage($: EngineInterface, m: Measured): Promise<void
 
 let pendingCompaction: 'manual' | 'auto' | 'plugin' | undefined
 
-async function readContextParts($: EngineInterface): Promise<Record<string, number> | undefined> {
-  try {
-    const breakdown = (await $.session.usage({ breakdown: 'summary' })).context.breakdown
-    if (!breakdown) return undefined
-    const parts: Record<string, number> = {}
-    for (const c of breakdown.categories) if (c.kind === 'used') parts[c.name] = c.tokens
-    return parts
-  } catch {
-    // Without a bound session the breakdown rejects; the point then carries no categories.
-    return undefined
+async function usageNow($: EngineInterface, withBreakdown: boolean): Promise<SessionUsage> {
+  if (withBreakdown) {
+    try {
+      return await $.session.usage({ breakdown: 'summary' })
+    } catch {
+      // Without a bound session the breakdown rejects; the reading then carries no categories.
+    }
   }
+  return $.session.usage()
+}
+
+function partsOf(breakdown: SessionContextBreakdown): Record<string, number> {
+  const parts: Record<string, number> = {}
+  for (const c of breakdown.categories) if (c.kind === 'used') parts[c.name] = c.tokens
+  return parts
 }
 
 export async function refreshCompactThreshold($: EngineInterface): Promise<void> {
@@ -161,8 +170,13 @@ const ledgerMine: Record<string, LedgerEntry> = {}
 let ledgerCost: number | null = null
 let ledgerTimer: Timer | undefined
 let ledgerLoaded = false
+const ledgerRuns = serial()
 
 export async function syncLedger($: EngineInterface): Promise<void> {
+  await runSerial(ledgerRuns, () => syncLedgerOnce($))
+}
+
+async function syncLedgerOnce($: EngineInterface): Promise<void> {
   const [dir, sessionId, now] = await Promise.all([configDir($), $.session.id(), $.clock.now()])
   const path = `${dir}/${LEDGER_FILE}`
   const onDisk = parseLedger(await readJson($, path))
@@ -174,8 +188,10 @@ export async function syncLedger($: EngineInterface): Promise<void> {
     }
   }
   const merged = mergeLedger(onDisk, sessionId, ledgerMine)
-  if (Object.keys(ledgerMine).length > 0) await $.fs.write(path, serializeLedger(merged)).catch(() => undefined)
-  await update($, usageSummary, () => summarize(merged, dayKey(now), USAGE_DAYS))
+  const text = serializeLedger(merged)
+  if (Object.keys(ledgerMine).length > 0 && text !== serializeLedger(onDisk)) await $.fs.write(path, text).catch(() => undefined)
+  const summary = summarize(merged, dayKey(now), USAGE_DAYS)
+  if (!same(await read($, usageSummary), summary)) await update($, usageSummary, () => summary)
 
   const turnsPath = `${dir}/${TURNS_FILE}`
   const turnsOnDisk = parseTurns(await readJson($, turnsPath))
@@ -189,7 +205,7 @@ export async function syncLedger($: EngineInterface): Promise<void> {
     turnsDirty = false
     await $.fs.write(turnsPath, serializeTurns(turns)).catch(() => undefined)
   }
-  await update($, turnHistory, () => turns)
+  if (!same(await read($, turnHistory), turns)) await update($, turnHistory, () => turns)
 }
 
 export async function startSessionShare($: EngineInterface): Promise<void> {
@@ -219,9 +235,8 @@ function syncLedgerSoon($: EngineInterface): void {
   })
 }
 
-async function recordStep($: EngineInterface, tokens: number): Promise<void> {
-  const [now, measured] = await Promise.all([$.clock.now(), $.session.usage()])
-  const cost = measured.cost?.usd ?? null
+async function recordStep($: EngineInterface, tokens: number, cost: number | null): Promise<void> {
+  const now = await $.clock.now()
   const day = dayKey(now)
   const entry = (ledgerMine[day] ??= { tokens: 0, costStart: ledgerCost ?? cost, costEnd: cost })
   entry.tokens += tokens
@@ -283,19 +298,14 @@ export async function startCall($: EngineInterface, e: TurnStepInput): Promise<C
 
 export async function recordCall($: EngineInterface, cfg: Config, e: TurnStepInput, result: TurnStepResult, start: CallStart): Promise<void> {
   const { costBefore, startedAt } = start
-  const stepUsage = result.usage
-  if (stepUsage) {
-    await recordStep(
-      $,
-      stepUsage.input_tokens + stepUsage.cache_creation_input_tokens + stepUsage.cache_read_input_tokens + stepUsage.output_tokens,
-    )
-  }
-  if (e.agentId !== undefined || !result.usage) return
+  const u = result.usage
+  if (!u) return
+  const cost = (await $.session.usage()).cost?.usd ?? null
+  await recordStep($, u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens + u.output_tokens, cost)
+  if (e.agentId !== undefined) return
 
   const endedAt = await $.clock.now()
-  const u = result.usage
   const apiMs = endedAt - startedAt
-  const cost = (await $.session.usage()).cost?.usd ?? null
   const callCost = cost === null || costBefore === null ? null : Math.max(0, cost - costBefore)
   const newTurn = (await read($, turn))?.turnId !== e.turnId
   const totalIn = u.input_tokens + u.cache_creation_input_tokens + u.cache_read_input_tokens

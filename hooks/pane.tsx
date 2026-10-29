@@ -1,5 +1,5 @@
 import { atom, read, update } from 'claude-code'
-import type { EngineInterface, RenderElement, RenderInput, UiMessageArgument, UiMessageResult } from 'claude-code'
+import type { EngineInterface, RenderElement, SessionContextBreakdown, RenderInput, UiMessageArgument, UiMessageResult } from 'claude-code'
 
 import type { Config } from './lib/format'
 import { isRecord } from './lib/git'
@@ -60,10 +60,9 @@ async function promptTexts($: EngineInterface): Promise<{ sections: { id: string
 }
 
 // With `texts` off only the token breakdown is read; the prompt, instructions and tool texts stay as last read.
-export async function refreshContextDetail($: EngineInterface, texts = true): Promise<void> {
+export async function refreshContextDetail($: EngineInterface, texts = true, known?: SessionContextBreakdown): Promise<void> {
   try {
-    const [usageNow, fresh] = await Promise.all([$.session.usage({ breakdown: 'summary' }), texts ? readContextTexts($) : null])
-    const breakdown = usageNow.context.breakdown
+    const [breakdown, fresh] = await Promise.all([known ?? $.session.usage({ breakdown: 'summary' }).then(u => u.context.breakdown), texts ? readContextTexts($) : null])
     if (!breakdown) return
     const detail = toContextDetail(breakdown)
     await update($, contextDetail, prev => ({ ...prev, ...detail, ...fresh }))

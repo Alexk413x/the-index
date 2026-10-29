@@ -26,6 +26,7 @@ import {
   worktreeName,
   type GitFs,
 } from './lib/git'
+import { runSerial, same, serial } from './lib/serial'
 
 // The validator reads an atom only in the file that declares it, so each file declares the atoms it uses.
 const git = atom({ plugin: 'the-index', key: 'git' } as const, null)
@@ -48,15 +49,15 @@ const GIT_STAMP_FILES = ['index', 'HEAD', 'logs/HEAD', 'FETCH_HEAD', 'ORIG_HEAD'
 let gitTimer: Timer | undefined
 let gitDir = ''
 let gitCwd = ''
-let gitBusy = false
-let gitAgain = false
+const gitRuns = serial()
 let lastStamps = new Map<string, string>()
 let worktreeTimer: Timer | undefined
 let commonDir = ''
 let worktreeDirs: string[] = []
 let lastWorktreeStamp = ''
 let lastListStamp = ''
-let deviceBusy = false
+const worktreeRuns = serial()
+const deviceRuns = serial()
 
 async function runGit($: EngineInterface, cwd: string, args: readonly string[]): Promise<string> {
   try {
@@ -103,10 +104,6 @@ export function forgetPrs(): void {
   prCache.clear()
   basePrCache.clear()
   mergedPrCache.clear()
-}
-
-function same(a: unknown, b: unknown): boolean {
-  return JSON.stringify(a) === JSON.stringify(b)
 }
 
 async function openPr($: EngineInterface, cwd: string, branch: string): Promise<{ number: number; url: string } | null> {
@@ -182,21 +179,8 @@ export async function resolveGitDirs($: EngineInterface, cwd: string): Promise<v
   }
 }
 
-// One run at a time: overlapping runs could land out of order and leave older figures on the band.
 export async function refreshGit($: EngineInterface): Promise<void> {
-  if (gitBusy) {
-    gitAgain = true
-    return
-  }
-  gitBusy = true
-  try {
-    do {
-      gitAgain = false
-      await refreshGitOnce($)
-    } while (gitAgain)
-  } finally {
-    gitBusy = false
-  }
+  await runSerial(gitRuns, () => refreshGitOnce($))
 }
 
 async function refreshGitOnce($: EngineInterface): Promise<void> {
@@ -268,6 +252,11 @@ async function pollGit($: EngineInterface): Promise<void> {
 }
 
 export async function refreshWorktrees($: EngineInterface): Promise<void> {
+  await runSerial(worktreeRuns, () => refreshWorktreesOnce($))
+}
+
+async function refreshWorktreesOnce($: EngineInterface): Promise<void> {
+  lastWorktreeStamp = await worktreeStamp($)
   const cwd = await $.session.cwd()
   const [listed, top] = await Promise.all([
     runGit($, cwd, ['worktree', 'list', '--porcelain']),
@@ -282,9 +271,8 @@ export async function refreshWorktrees($: EngineInterface): Promise<void> {
   const others = trees.filter(t => !t.current && belongsToRepo(t.gitDir, commonDir))
   worktreeDirs = others.map(t => t.gitDir)
   const snaps = new Map(await Promise.all(others.map(async t => [t.path, await withPr($, t.path, await gitSnapshot($, t.path))] as const)))
-  await update($, worktrees, () =>
-    trees.length > 1 ? trees.map(t => ({ path: t.path, name: worktreeName(t.path), current: t.current, git: snaps.get(t.path) ?? null })) : [],
-  )
+  const shown = trees.length > 1 ? trees.map(t => ({ path: t.path, name: worktreeName(t.path), current: t.current, git: snaps.get(t.path) ?? null })) : []
+  if (!same(await read($, worktrees), shown)) await update($, worktrees, () => shown)
 }
 
 async function worktreeStamp($: EngineInterface): Promise<string> {
@@ -302,10 +290,7 @@ async function worktreeStamp($: EngineInterface): Promise<string> {
 export function refreshWorktreesSoon($: EngineInterface): void {
   worktreeTimer?.cancel()
   worktreeTimer = $.clock.after(GIT_DEBOUNCE_MS, () => {
-    void worktreeStamp($).then(async stamp => {
-      await refreshWorktrees($)
-      lastWorktreeStamp = stamp
-    })
+    void refreshWorktrees($)
   })
 }
 
@@ -324,14 +309,13 @@ function gitFs($: EngineInterface): GitFs {
 }
 
 export async function refreshDevice($: EngineInterface): Promise<void> {
-  if (deviceBusy) return
-  deviceBusy = true
-  try {
-    const reads = commonDir ? [await readRepo(gitFs($), commonDir)] : []
-    await update($, deviceRepos, () => assembleRepos(reads, commonDir))
-  } finally {
-    deviceBusy = false
-  }
+  await runSerial(deviceRuns, () => refreshDeviceOnce($))
+}
+
+async function refreshDeviceOnce($: EngineInterface): Promise<void> {
+  const reads = commonDir ? [await readRepo(gitFs($), commonDir)] : []
+  const repos = assembleRepos(reads, commonDir)
+  if (!same(await read($, deviceRepos), repos)) await update($, deviceRepos, () => repos)
 }
 
 async function worktreeListStamp($: EngineInterface): Promise<string> {

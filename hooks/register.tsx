@@ -5,7 +5,7 @@ import { readConfig } from './lib/format'
 import { EFFORTS } from './lib/panels'
 import { isUserPrompt, type DETAIL_PANE as PANE_ID } from './lib/detail'
 import { renderBand } from './band'
-import { attachClient, detachClient, loadHarnesses, refreshHost, refreshLinkUntilLinked, refreshSwarm } from './host'
+import { attachClient, detachClient, loadHarnesses, notePromptTitle, refreshHost, refreshLinkUntilLinked, refreshSwarm } from './host'
 import { countPrompt, detailClosed, onPaneMessage, renderDetail } from './pane'
 import { forgetPrs, pollRepo, refreshDevice, refreshGit, refreshGitSoon, refreshWorktrees, refreshWorktreesSoon, resolveGitDirs, stampRepo } from './repo'
 import { chooseStep, clearUltracode, followModel, onBandMessage, placeSlot, setMainEffort, setPinned, settleStep, syncUltracode } from './rows'
@@ -124,6 +124,12 @@ export const register: Register = (on, options) => {
   on('prompt.edit', async ($, e, next) => {
     const result = await next(e)
     await syncUltracode($, result.text)
+    return result
+  })
+
+  on('classic.UserPromptSubmit', async ($, e, next) => {
+    const result = await next(e)
+    await notePromptTitle($, e.session_title)
     return result
   })
 

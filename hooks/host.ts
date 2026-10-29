@@ -54,16 +54,24 @@ async function sessionEntry(
   dir: string,
   sessionId: string,
 ): Promise<{ name: string; bridged: boolean; bridgeId: string }> {
-  for (const name of await listNames($, `${dir}/sessions`)) {
-    if (!name.endsWith('.json')) continue
+  if (otherSessions.id !== sessionId) otherSessions = { id: sessionId, files: new Set() }
+  const listed = async () => (await listNames($, `${dir}/sessions`)).filter(name => name !== ownSessionFile)
+  for (const name of [...(ownSessionFile ? [ownSessionFile] : []), ...(await listed())]) {
+    if (!name.endsWith('.json') || otherSessions.files.has(name)) continue
     const entry = await readJson($, `${dir}/sessions/${name}`)
     if (isRecord(entry) && entry['sessionId'] === sessionId) {
+      ownSessionFile = name
       const bridgeId = typeof entry['bridgeSessionId'] === 'string' ? entry['bridgeSessionId'] : ''
       return { name: String(entry['name'] ?? ''), bridged: bridgeId !== '', bridgeId }
     }
+    if (isRecord(entry)) otherSessions.files.add(name)
   }
+  ownSessionFile = ''
   return { name: '', bridged: false, bridgeId: '' }
 }
+
+let ownSessionFile = ''
+let otherSessions = { id: '', files: new Set<string>() }
 
 async function detectIde($: EngineInterface, dir: string, cwd: string): Promise<string> {
   const port = await $.env.get('CLAUDE_CODE_SSE_PORT')
@@ -212,13 +220,31 @@ export async function openHarness($: EngineInterface, name: string): Promise<voi
 
 // The transcript is the CLI's own file, not part of the mod API: the remote title is its
 // last `ai-title` entry, or a `custom-title` one after a rename.
+// $.fs.read refuses a file over 4 MiB, so a long transcript falls back to the title the last prompt carried.
 async function sessionTitle($: EngineInterface): Promise<string> {
   try {
     const [dir, root, id] = await Promise.all([configDir($), $.session.root(), $.session.id()])
-    return transcriptTitle(await $.fs.read(`${dir}/projects/${root.replace(/[^a-zA-Z0-9]/g, '-')}/${id}.jsonl`))
+    const path = `${dir}/projects/${root.replace(/[^a-zA-Z0-9]/g, '-')}/${id}.jsonl`
+    const st = await $.fs.stat(path)
+    if (st.size > TRANSCRIPT_READ_MAX) return promptTitle
+    if (path !== titleRead.path || st.mtimeMs !== titleRead.mtimeMs) {
+      titleRead = { path, mtimeMs: st.mtimeMs, title: transcriptTitle(await $.fs.read(path)) }
+    }
+    return titleRead.title || promptTitle
   } catch {
-    return ''
+    return promptTitle
   }
+}
+
+const TRANSCRIPT_READ_MAX = 4 * 1024 * 1024
+let titleRead = { path: '', mtimeMs: -1, title: '' }
+let promptTitle = ''
+
+export async function notePromptTitle($: EngineInterface, title: string | undefined): Promise<void> {
+  if (!title || title === promptTitle) return
+  promptTitle = title
+  const shown = await sessionTitle($)
+  await update($, host, prev => (prev && prev.title !== shown ? { ...prev, title: shown } : prev))
 }
 
 export async function refreshSessionRow($: EngineInterface): Promise<void> {

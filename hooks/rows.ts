@@ -236,7 +236,8 @@ export async function settleStep($: EngineInterface, e: TurnStepInput, step: Ste
   const { key, effort, chosenModel } = step
   const answeredBy = result.usage?.model
   await seeModels($, [e.model, answeredBy])
-  if (answeredBy) await update($, agents, prev => ({ ...prev, [key]: { model: answeredBy, effort } }))
+  const shown = (await read($, agents))[key]
+  if (answeredBy && (shown?.model !== answeredBy || shown.effort !== effort)) await update($, agents, prev => ({ ...prev, [key]: { model: answeredBy, effort } }))
   if (chosenModel !== undefined && result.stopReason === null && !result.usage) {
     await update($, agentModels, prev => Object.fromEntries(Object.entries(prev).filter(([k]) => k !== key)))
     await update($, agents, prev => ({ ...prev, [key]: { model: e.model, effort } }))
