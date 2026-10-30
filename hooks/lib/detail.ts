@@ -1,4 +1,4 @@
-import type { IndexCallPoint, IndexContextDetail, IndexContextPoint, IndexDetailTab, IndexTurnRecord, IndexUsageSummary } from '../types'
+import type { IndexCallPoint, IndexContextDetail, IndexContextPoint, IndexDetailTab, IndexTurnRecord, IndexUsageSummary } from '../../types'
 import { categoryLabel, fmtClock, fmtCost, fmtDur, fmtMs, fmtNum, fmtPercent, fmtStamp } from './format'
 
 export type DetailRow = {
@@ -32,6 +32,8 @@ export type DetailView = {
   contextLog?: readonly IndexContextPoint[]
   prompts?: number
 }
+
+export const DETAIL_PANE = 'the-index-detail'
 
 export const DETAIL_TABS: readonly { id: IndexDetailTab; label: string }[] = [
   { id: 'context', label: 'Context' },

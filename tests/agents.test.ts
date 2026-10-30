@@ -1,7 +1,7 @@
 import { describe, expect, test } from 'claude-code/testing'
 
-import { agentColorKey, parseAgentFile } from '../hooks/agents'
-import { EMPTY_TOTALS, MAIN, PRIMARY_DEFAULT, buildLines, dimHex, lineText, readConfig, tint } from '../hooks/format'
+import { agentColorKey, parseAgentFile } from '../hooks/lib/agents'
+import { EMPTY_TOTALS, MAIN, PRIMARY_DEFAULT, buildLines, dimHex, lineText, readConfig, tint } from '../hooks/lib/format'
 
 describe('agent files', () => {
   test('the frontmatter gives the name and colour', () => {

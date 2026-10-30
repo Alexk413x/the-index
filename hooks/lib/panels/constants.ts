@@ -1,0 +1,11 @@
+export const EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export const ROW_GAP = 2
+export const TITLE_WIDTH = 10
+export const MIDDLE_WIDTH = 60
+export const CHART_HEIGHT = 6
+export const GIT_LINES_HALF = 2
+export const USAGE_DAYS = 30
+export const FOLDER_PICK = 'folder:'
+export const MESSAGES_PICK = 'messages'
+export const CONTEXT_PICK = 'context:'
+export const DETAIL_PICK = 'detail'

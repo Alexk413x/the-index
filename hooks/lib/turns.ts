@@ -1,4 +1,4 @@
-import type { IndexTurn, IndexTurnRecord } from '../types'
+import type { IndexTurn, IndexTurnRecord } from '../../types'
 import { isRecord } from './git'
 
 const VERSION = 1
