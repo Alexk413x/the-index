@@ -4,7 +4,6 @@ import {
   EMPTY_TOTALS,
   MAIN,
   buildLines,
-  fiveHourGlyph,
   cacheGlyph,
   contextGlyph,
   nextChangeMs,
@@ -136,9 +135,9 @@ describe('band lines', () => {
   test('before the first call every value is a placeholder', () => {
     const lines = buildLines(snapshot(), readConfig({}))
     expect(lines).toHaveLength(2)
-    expect(lineText(lines[0] ?? [])).toBe('Unknown ░░ | ☀ ░░m ○ ░░% ◷ ░░% ░h░░m ⧈ ░░% ░d░░h')
+    expect(lineText(lines[0] ?? [])).toBe('Unknown ░░ | ☀ ░░m ○ ░░% ⧈ ░░% ░d░░h')
     expect(lineText(lines[1] ?? [])).toBe(
-      'Δ »░ ↑░░ ⤒░░░░ ⤓░░░░ ↓░░░░ ↯░░ ⌖░░% ≡+░░ -░░ ⏱ ░░s $░.░░ | Σ ◦░ »░ ↑░░░ ⤒░░░░░ ⤓░░░░░ ↓░░░░ ↯░░ ⌖░░% ░░% ≡+░░░ -░░░ ⏱ ░░m░░s $░.░░',
+      'Δ »░ ↑░░ ⤒░░░░ ⤓░░░░ ↓░░░░ ↯░░ ⌖░░% ≡+░░ -░░ ◷ ░░s $░.░░ | Σ ◦░ »░ ↑░░░ ⤒░░░░░ ⤓░░░░░ ↓░░░░ ↯░░ ⌖░░% ░░% ≡+░░░ -░░░ ◷ ░░m░░s $░.░░',
     )
   })
 
@@ -202,7 +201,6 @@ describe('band lines', () => {
         contextPercent: 45,
         contextTokens: 90_000,
         costUsd: 1.5,
-        fiveHour: { usedPercentage: 23.5, resetsAt: NOW + 2 * 3600_000 },
         sevenDay: { usedPercentage: 61, resetsAt: NOW - 1 },
         compactions: 2,
       },
@@ -226,10 +224,10 @@ describe('band lines', () => {
     })
     const lines = buildLines(snap, readConfig({}))
     expect(lineText(lines[0] ?? [])).toBe(
-      'Claude Opus 5.5 ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ◵ 23% 2h0m ⧈ ░░% ░d░░h',
+      'Claude Opus 5.5 ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ⧈ ░░% ░d░░h',
     )
     expect(lineText(lines[1] ?? [])).toBe(
-      'Δ »3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ⏱ 4.0s $0.12 | Σ ◦2 »5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ⏱ 1m5s $1.50',
+      'Δ »3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ◷ 4.0s $0.12 | Σ ◦2 »5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ◷ 1m5s $1.50',
     )
     expect(lineText(lines[2] ?? [])).toBe('□ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ origin/main ◻ 0 4 0 ≡ +50 -9')
     expect(gitLinks(snap.git)).toEqual({
@@ -344,9 +342,9 @@ describe('shared rate limits', () => {
   })
 
   test('the file keeps statusline.py seconds-based shape', () => {
-    const text = serializeSharedLimits({ fiveHour: { usedPercentage: 12, resetsAt: 1_700_000_000_000 }, sevenDay: null })
-    expect(JSON.parse(text)).toEqual({ five_hour: { used_percentage: 12, resets_at: 1_700_000_000 } })
-    expect(parseSharedLimits(JSON.parse(text)).fiveHour).toEqual({ usedPercentage: 12, resetsAt: 1_700_000_000_000 })
+    const text = serializeSharedLimits({ sevenDay: { usedPercentage: 12, resetsAt: 1_700_000_000_000 } })
+    expect(JSON.parse(text)).toEqual({ seven_day: { used_percentage: 12, resets_at: 1_700_000_000 } })
+    expect(parseSharedLimits(JSON.parse(text)).sevenDay).toEqual({ usedPercentage: 12, resetsAt: 1_700_000_000_000 })
   })
 })
 
@@ -371,15 +369,6 @@ describe('glyphs', () => {
     expect(watched[0]?.[0]?.[0]?.text).toBe('●')
     const off = buildLines(snapshot({ host }), readConfig({ show_remote: false }))
     expect(lineText(off[0] ?? [])).toStartWith('peer | ')
-  })
-})
-
-describe('five-hour clock', () => {
-  test('the hand sweeps a quarter for each 75 minutes of the window', () => {
-    const at = (left: number) => fiveHourGlyph({ usedPercentage: 9, resetsAt: NOW + left * 60_000 }, NOW)
-    expect([299, 225, 224, 150, 149, 75, 74, 1].map(at).join('')).toBe('◷◷◶◶◵◵◴◴')
-    expect(fiveHourGlyph(null, NOW)).toBe('◷')
-    expect(at(-1)).toBe('◷')
   })
 })
 

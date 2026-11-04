@@ -49,7 +49,6 @@ export type IndexUsage = {
   contextPercent: number | null
   contextTokens: number | null
   costUsd: number | null
-  fiveHour: IndexRateLimit | null
   sevenDay: IndexRateLimit | null
   compactions: number
 }

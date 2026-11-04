@@ -9,9 +9,6 @@ type ChipProps = {
 }
 type ChipState = { isHovered: boolean }
 
-// VS Code's terminal draws an underlined ⏱ one cell wide instead of two, shifting the text after it.
-const WIDE_EMOJI = '⏱'
-
 const Chip: ClientModule<ChipProps, ChipState> = (props, surface) => {
   const { Box, Text } = surface.elements
   if (surface.state === undefined) {
@@ -39,7 +36,7 @@ const Chip: ClientModule<ChipProps, ChipState> = (props, surface) => {
             key={`part${i}`}
             color={part.color}
             inverse={part.inverse === true}
-            underline={(isHovered || props.isActive === true) && !part.text.includes(WIDE_EMOJI)}
+            underline={isHovered || props.isActive === true}
           >
             {part.text}
           </Text>

@@ -30,8 +30,6 @@ const SYM_CALL = 'Δ'
 const SYM_TOT = 'Σ'
 const SYM_CALLS = '»'
 const SYM_TURNS = '◦'
-const SYM_5H = ['◷', '◶', '◵', '◴'] as const
-const FIVE_HOURS_MS = 5 * 3_600_000
 const SYM_7D = '⧈'
 const SYM_CTX = ['○', '◔', '◑', '◕', '●'] as const
 const NERD_CTX_EMPTY = 0xf0766
@@ -40,9 +38,7 @@ export const SYM_BR = '⎇'
 export const SYM_LINES = '≡'
 const SYM_HIT = '⌖'
 export const SYM_FILES = '◻'
-// VS Code and other terminals draw U+23F1 two cells wide while the layout counts
-// one; the trailing space gives it the second cell so the value isn't drawn over it.
-const SYM_AT = '⏱ '
+const SYM_AT = '◷ '
 const SYM_AHEAD = '↑'
 const SYM_BEHIND = '↓'
 const SYM_BOOM = '💥'
@@ -281,13 +277,6 @@ export function cacheGlyph(frac: number): string {
   return SYM_CACHE[2]
 }
 
-export function fiveHourGlyph(rl: IndexRateLimit | null | undefined, nowMs: number): string {
-  if (!rl?.resetsAt || rl.resetsAt <= nowMs) return SYM_5H[0]
-  const elapsed = FIVE_HOURS_MS - (rl.resetsAt - nowMs)
-  const quarter = Math.min(4, Math.max(1, Math.ceil(elapsed / (FIVE_HOURS_MS / 4))))
-  return SYM_5H[quarter - 1] ?? SYM_5H[0]
-}
-
 export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   const untilStep = (remainingMs: number) => {
     if (remainingMs <= 0) return Infinity
@@ -298,9 +287,8 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   const last = snap.totals.lastResponseAt
   if (cfg.show.cache && last !== null) candidates.push(untilStep(last + (snap.totals.cacheTtlMs ?? cfg.cacheTtlMs) - snap.now))
   if (cfg.show.rate_limits) {
-    for (const rl of [snap.usage?.fiveHour, snap.usage?.sevenDay]) {
-      if (rl?.resetsAt) candidates.push(untilStep(rl.resetsAt - snap.now))
-    }
+    const rl = snap.usage?.sevenDay
+    if (rl?.resetsAt) candidates.push(untilStep(rl.resetsAt - snap.now))
   }
   return Math.max(1000, Math.min(...candidates))
 }
@@ -432,22 +420,15 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   if (window.length) gauges.push(withMenu(window, 'context'))
 
   if (cfg.show.rate_limits) {
-    const windows: [IndexRateLimit | null | undefined, string, string][] = [
-      [usage?.fiveHour, fiveHourGlyph(usage?.fiveHour, snap.now), `${SHADE}h${SHADE.repeat(2)}m`],
-      [usage?.sevenDay, SYM_7D, `${SHADE}d${SHADE.repeat(2)}h`],
-    ]
-    const limits: Seg[][] = []
-    for (const [rl, sym, blank] of windows) {
-      if (rl && !(rl.resetsAt && rl.resetsAt <= snap.now)) {
-        const p = Math.trunc(rl.usedPercentage)
-        const bits: Seg[] = [icon(sym), sp, seg(`${p}%`, ctxColor(p))]
-        if (rl.resetsAt) bits.push(sp, seg(fmtUntil(rl.resetsAt, snap.now), c.resets))
-        limits.push(bits)
-      } else {
-        limits.push([icon(sym), sp, seg(`${SHADE.repeat(2)}%`, c.good), sp, seg(blank, c.resets)])
-      }
+    const rl = usage?.sevenDay
+    if (rl && !(rl.resetsAt && rl.resetsAt <= snap.now)) {
+      const p = Math.trunc(rl.usedPercentage)
+      const bits: Seg[] = [icon(SYM_7D), sp, seg(`${p}%`, ctxColor(p))]
+      if (rl.resetsAt) bits.push(sp, seg(fmtUntil(rl.resetsAt, snap.now), c.resets))
+      gauges.push(withMenu(bits, 'usage'))
+    } else {
+      gauges.push(withMenu([icon(SYM_7D), sp, seg(`${SHADE.repeat(2)}%`, c.good), sp, seg(`${SHADE}d${SHADE.repeat(2)}h`, c.resets)], 'usage'))
     }
-    gauges.push(withMenu(joinWith(limits, sp), 'usage'))
   }
   if (gauges.length) line1.push(joinWith(gauges, sp))
 
