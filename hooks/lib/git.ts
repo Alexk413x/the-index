@@ -350,7 +350,7 @@ export function parseJson(text: string): unknown {
   }
 }
 
-export type SharedLimits = { fiveHour: IndexRateLimit | null; sevenDay: IndexRateLimit | null }
+export type SharedLimits = { sevenDay: IndexRateLimit | null }
 
 export function parseSharedLimits(raw: unknown): SharedLimits {
   const pick = (key: string): IndexRateLimit | null => {
@@ -361,7 +361,7 @@ export function parseSharedLimits(raw: unknown): SharedLimits {
       resetsAt: (Number(w['resets_at']) || 0) * 1000,
     }
   }
-  return { fiveHour: pick('five_hour'), sevenDay: pick('seven_day') }
+  return { sevenDay: pick('seven_day') }
 }
 
 export function serializeSharedLimits(limits: SharedLimits): string {
@@ -369,7 +369,6 @@ export function serializeSharedLimits(limits: SharedLimits): string {
   const put = (key: string, rl: IndexRateLimit | null) => {
     if (rl) out[key] = { used_percentage: rl.usedPercentage, resets_at: Math.round(rl.resetsAt / 1000) }
   }
-  put('five_hour', limits.fiveHour)
   put('seven_day', limits.sevenDay)
   return JSON.stringify(out)
 }

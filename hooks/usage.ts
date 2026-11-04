@@ -44,11 +44,9 @@ function toLimit(rl: SessionRateLimit | undefined): IndexRateLimit | null {
 export async function recordUsage($: EngineInterface, m: Measured): Promise<void> {
   const sharedPath = `${await tempDir($)}/claude-statusline-ratelimits.json`
   const shared = parseSharedLimits(await readJson($, sharedPath))
-  const fiveHour = mergeRateLimit([toLimit(m.rateLimits.find(r => r.kind === 'five_hour')), shared.fiveHour])
   const sevenDay = mergeRateLimit([toLimit(m.rateLimits.find(r => r.kind === 'seven_day')), shared.sevenDay])
-  const merged = { fiveHour, sevenDay }
-  const text = serializeSharedLimits(merged)
-  if ((fiveHour || sevenDay) && text !== serializeSharedLimits(shared)) {
+  const text = serializeSharedLimits({ sevenDay })
+  if (sevenDay && text !== serializeSharedLimits(shared)) {
     await $.fs.write(sharedPath, text).catch(() => undefined)
   }
 
@@ -65,7 +63,6 @@ export async function recordUsage($: EngineInterface, m: Measured): Promise<void
     contextPercent: pct,
     contextTokens: m.context.tokens ?? null,
     costUsd: m.cost?.usd ?? null,
-    fiveHour,
     sevenDay,
     compactions,
   })
