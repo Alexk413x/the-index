@@ -33,6 +33,7 @@ const baseCommits = atom({ plugin: 'the-index', key: 'baseCommits' } as const, [
 const branchCommits = atom({ plugin: 'the-index', key: 'branchCommits' } as const, [])
 const mergedPrs = atom({ plugin: 'the-index', key: 'mergedPrs' } as const, [])
 const turnHistory = atom({ plugin: 'the-index', key: 'turnHistory' } as const, [])
+const turnWeek = atom({ plugin: 'the-index', key: 'turnWeek' } as const, null)
 const basePrs = atom({ plugin: 'the-index', key: 'basePrs' } as const, [])
 const worktrees = atom({ plugin: 'the-index', key: 'worktrees' } as const, [])
 const deviceRepos = atom({ plugin: 'the-index', key: 'deviceRepos' } as const, [])
@@ -41,15 +42,27 @@ const swarm = atom({ plugin: 'the-index', key: 'swarm' } as const, null)
 const PIN_ON = '■'
 const PIN_OFF = '□'
 const PIN_SPACE = ' '
+const CARD_PANELS: readonly IndexPanel[] = ['calls', 'callLines', 'totals', 'totalLines']
 
+// A draw that throws leaves the engine's own drawing in place of the band, so a failed read costs one draw.
 export async function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, cfg: Config): Promise<RenderElement | null> {
-  if (e.props.hasSurvey) return null
+  try {
+    return await drawBand($, e, cfg)
+  } catch (error) {
+    $.ui.log(`the-index: the band did not draw: ${error instanceof Error ? error.message : String(error)}`, { to: 'debug' })
+    return null
+  }
+}
+
+async function drawBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, cfg: Config): Promise<RenderElement | null> {
+  // A collapsed band is off screen, so it reads no state and no write redraws it.
+  if (e.props.hasSurvey || e.props.isCollapsed) return null
   const table = $.ui.resolve(e)
   const Client = 'Client' in table ? table.Client : undefined
   if (!Client) return null
   const { Box, Text } = table
 
-  const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, seen, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, summary, contextPoints, limit, commits, branchLog, merged, prs, history, trees, device, series, swarmOn] =
+  const [agentSteps, liveTurn, sums, measured, repo, hostInfo, , remotes, efforts, models, seen, pinnedList, slotOrder, hovering, harnessList, ultracodeOn, colorOf, limit, commits, branchLog, merged, prs, trees, device, series, swarmOn] =
     await Promise.all([
       read($, agents),
       read($, turn),
@@ -68,19 +81,25 @@ export async function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt
       read($, harnesses),
       read($, ultracode),
       read($, agentColors),
-      read($, usageSummary),
-      read($, contextLog),
       read($, contextLimit),
       read($, baseCommits),
       read($, branchCommits),
       read($, mergedPrs),
       read($, basePrs),
-      read($, turnHistory),
       read($, worktrees),
       read($, deviceRepos),
       read($, contextSeries),
       read($, swarm),
     ])
+  // The logs and histories are large, and a draw re-runs when state it read changes, so a closed row's data is not read.
+  const isOpen = (panel: IndexPanel) => pinnedList.includes(panel) || hovering?.panel === panel
+  const cardsOpen = CARD_PANELS.some(isOpen)
+  const [summary, contextPoints, history, week] = await Promise.all([
+    isOpen('usage') ? read($, usageSummary) : null,
+    isOpen('context') ? read($, contextLog) : [],
+    cardsOpen ? read($, turnHistory) : [],
+    cardsOpen ? read($, turnWeek) : null,
+  ])
   const [now, liveModel, settings] = await Promise.all([$.clock.now(), $.session.model(), $.settings.read()])
   const steps: Readonly<Record<string, IndexAgentStep>> = { ...agentSteps, [MAIN]: mainStep(liveModel, agentSteps[MAIN], settings) }
 
@@ -135,6 +154,7 @@ export async function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt
     turn: liveTurn,
     sessionCostUsd: measured?.costUsd ?? null,
     usage: summary,
+    limits: measured,
     contextLog: contextPoints,
     contextLimit: limit,
     contextSeries: series,
@@ -147,6 +167,7 @@ export async function renderBand($: EngineInterface, e: RenderInput<'AbovePrompt
         : null,
     mergedPrs: merged,
     turnHistory: history,
+    turnWeek: week,
     links: gitLinks(repo),
     basePrs: prs,
     worktrees: trees.map(t => (t.current ? { ...t, git: repo } : t)),

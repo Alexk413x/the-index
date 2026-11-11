@@ -1,11 +1,12 @@
 import { describe, expect, test } from 'claude-code/testing'
 
 import { barChart, bucketReadings, lineChart } from '../hooks/lib/charts'
-import { HISTORY_MS, mergeTurns, otherSessionAverages, parseTurns, serializeTurns, turnAverages, turnToRecord } from '../hooks/lib/turns'
+import { HISTORY_MS, mergeTurns, otherSessionAverages, parseTurns, serializeTurns, turnAverages, turnToRecord, turnWeekOf } from '../hooks/lib/turns'
 import type { IndexTurnRecord } from '../types'
-import { dayKey, mergeLedger, parseLedger, serializeLedger, summarize, type Ledger } from '../hooks/lib/ledger'
+import { dayKey, summarize, type Ledger } from '../hooks/lib/ledger'
+import { ledgerOf, monthKey, monthTotal, monthsBack, parseMonthTotal, parseSessionFile, previousMonth, serializeMonthTotal, serializeSessionFile, splitByMonth, usageLogOf } from '../hooks/lib/share'
 import { isFix, parseCommitLog, parseMergedPrs } from '../hooks/lib/git'
-import { readConfig } from '../hooks/lib/format'
+import { fmtUntil, readConfig } from '../hooks/lib/format'
 import {
   CHART_HEIGHT,
   MIDDLE_WIDTH,
@@ -319,19 +320,6 @@ describe('usage ledger', () => {
     expect(day).toBe('2026-10-04')
   })
 
-  test('a merge writes this session and keeps every other session', () => {
-    const disk = parseLedger({ version: 1, days: { [day]: { other: { tokens: 5, costStart: 0, costEnd: 1 } } } })
-    const merged = mergeLedger(disk, 'me', { [day]: { tokens: 7, costStart: 2, costEnd: 3 } })
-    expect(merged[day]).toEqual({ other: { tokens: 5, costStart: 0, costEnd: 1 }, me: { tokens: 7, costStart: 2, costEnd: 3 } })
-    expect(parseLedger(JSON.parse(serializeLedger(merged)))).toEqual(merged)
-  })
-
-  test('a malformed or foreign file reads as empty', () => {
-    expect(parseLedger({ version: 2, days: {} })).toEqual({})
-    expect(parseLedger({ version: 1, days: { nope: {}, '2026-10-01': { s: { tokens: 'x' } } } })).toEqual({})
-    expect(parseLedger(undefined)).toEqual({})
-  })
-
   test('the summary sums sessions per day, fills the window and counts all time', () => {
     const ledger: Ledger = {
       '2026-08-01': { a: { tokens: 100, costStart: 0, costEnd: 1 } },
@@ -347,6 +335,145 @@ describe('usage ledger', () => {
     ])
     expect(summary.allTokens).toBe(135)
     expect(summary.allCostUsd).toBe(2)
+  })
+
+  test('the week sums every session and lists its models', () => {
+    const ledger: Ledger = {
+      '2026-09-01': { old: { tokens: 999, costStart: 0, costEnd: 9 } },
+      '2026-10-03': {
+        a: { tokens: 100, costStart: 0, costEnd: 1, name: 'alpha', agents: { main: 60, Explore: 40 } },
+        b: { tokens: 30, costStart: null, costEnd: null },
+      },
+      [day]: {
+        a: { tokens: 50, costStart: 1, costEnd: 1.5, name: 'alpha', agents: { main: 50 } },
+        c: { tokens: 70, costStart: 0, costEnd: 2, name: 'gamma', agents: { Explore: 70 } },
+      },
+    }
+    const week = summarize(ledger, day, 30).week
+    expect(week?.tokens).toBe(250)
+    expect(week?.costUsd).toBe(3.5)
+    expect(week?.days).toBe(7)
+    expect(week?.models).toEqual([])
+  })
+
+  test('a session file keeps its name, days, agent split and turns', () => {
+    const turn = { id: 't1', session: 'a', at: new Date(2026, 9, 4, 12).getTime(), tokens: 9, input: 8, cacheRead: 7, output: 1, apiMs: 10, spanMs: 20, linesAdded: 0, linesRemoved: 0, files: 0, costUsd: 0.1 }
+    const file = { session: 'a', name: 'alpha', days: { [day]: { tokens: 9, costStart: 0, costEnd: 1, agents: { main: 5, Explore: 4 } } }, turns: [turn] }
+    expect(parseSessionFile(JSON.parse(serializeSessionFile(file)))).toEqual(file)
+    const loose = { ...file, days: { [day]: { agents: { Explore: 4, main: 5 }, costEnd: 1, costStart: 0, tokens: 9, name: 'dropped' } } }
+    expect(serializeSessionFile(parseSessionFile(JSON.parse(JSON.stringify({ version: 1, ...loose }))) ?? file)).toBe(
+      serializeSessionFile({ ...file, days: { [day]: { tokens: 9, costStart: 0, costEnd: 1, agents: { Explore: 4, main: 5 } } } }),
+    )
+  })
+
+  test('a malformed or foreign session file reads as none, and another session turns are dropped', () => {
+    expect(parseSessionFile(undefined)).toBeNull()
+    expect(parseSessionFile({ version: 2, session: 'a', days: {} })).toBeNull()
+    expect(parseSessionFile({ version: 1, days: {} })).toBeNull()
+    const read = parseSessionFile({
+      version: 1,
+      session: 'a',
+      days: { nope: { tokens: 1 }, [day]: { tokens: 'x' }, '2026-10-05': { tokens: 3, agents: { main: 'x' } } },
+      turns: [{ id: 'z', session: 'b', at: 1, tokens: 1, input: 1, cacheRead: 0, output: 0, apiMs: 1, spanMs: 1, linesAdded: 0, linesRemoved: 0, files: 0 }],
+    })
+    expect(read).toEqual({ session: 'a', name: '', days: { '2026-10-05': { tokens: 3, costStart: null, costEnd: null } }, turns: [] })
+  })
+
+  test('days and turns go in the file of their month', () => {
+    expect(monthKey(new Date(2026, 9, 4, 12).getTime())).toBe('2026-10')
+    expect(previousMonth('2026-10')).toBe('2026-09')
+    expect(previousMonth('2027-01')).toBe('2026-12')
+    expect(monthsBack('2027-02', 3)).toBe('2026-11')
+    const turn = (id: string, at: number) => ({ id, session: 'a', at, tokens: 1, input: 1, cacheRead: 0, output: 0, apiMs: 1, spanMs: 1, costUsd: null, linesAdded: 0, linesRemoved: 0, files: 0 })
+    const september = turn('s', new Date(2026, 8, 30, 23).getTime())
+    const october = turn('o', new Date(2026, 9, 1, 1).getTime())
+    const split = splitByMonth('a', 'alpha', { '2026-09-30': { tokens: 1, costStart: 0, costEnd: 1 }, [day]: { tokens: 2, costStart: 1, costEnd: 2 } }, [september, october])
+    expect(Object.keys(split).sort()).toEqual(['2026-09', '2026-10'])
+    expect(split['2026-09']).toEqual({ session: 'a', name: 'alpha', days: { '2026-09-30': { tokens: 1, costStart: 0, costEnd: 1 } }, turns: [september] })
+    expect(split['2026-10']?.turns).toEqual([october])
+  })
+
+  test('session files join into one ledger, and a passed month keeps its day totals', () => {
+    const a = { session: 'a', name: 'alpha', days: { [day]: { tokens: 5, costStart: 0, costEnd: 1 } }, turns: [] }
+    const b = { session: 'b', name: '', days: { [day]: { tokens: 7, costStart: null, costEnd: null }, '2026-10-05': { tokens: 1, costStart: 2, costEnd: 2.5 } }, turns: [] }
+    expect(ledgerOf([a, b])).toEqual({
+      [day]: { a: { tokens: 5, costStart: 0, costEnd: 1, name: 'alpha' }, b: { tokens: 7, costStart: null, costEnd: null } },
+      '2026-10-05': { b: { tokens: 1, costStart: 2, costEnd: 2.5 } },
+    })
+    const total = monthTotal([a, b])
+    expect(total).toEqual([
+      { date: day, tokens: 12, costUsd: 1 },
+      { date: '2026-10-05', tokens: 1, costUsd: 0.5 },
+    ])
+    expect(parseMonthTotal(JSON.parse(serializeMonthTotal(total)))).toEqual(total)
+    expect(parseMonthTotal({ version: 2, days: [] })).toBeNull()
+    const summary = summarize({ '2026-11-02': { c: { tokens: 10, costStart: 0, costEnd: 2 } } }, '2026-11-02', 3, total)
+    expect(summary.since).toBe(day)
+    expect(summary.allTokens).toBe(23)
+    expect(summary.allCostUsd).toBe(3.5)
+    expect(summary.days.at(-1)).toEqual({ date: '2026-11-02', tokens: 10, costUsd: 2 })
+    const chart = summarize({}, '2026-11-02', 30, total).days
+    expect(chart.find(d => d.date === day)).toEqual({ date: day, tokens: 12, costUsd: 1 })
+  })
+
+  test('the usage row draws a bar for each limit, Fable first, with tokens and the reset beside it', () => {
+    const usage = summarize(
+      { [day]: { a: { tokens: 3_000_000, costStart: 0, costEnd: 3, name: 'alpha', agents: { main: 3_000_000 }, models: { 'claude-fable-5-2': 2_000_000, 'claude-sonnet-5-5': 1_000_000 } } } },
+      day,
+      30,
+    )
+    const now = new Date(2026, 9, 4, 12).getTime()
+    const sevenDay = { usedPercentage: 61.9, resetsAt: now + 2 * 86_400_000 }
+    const lines = (limits: PanelView['limits']) => panelLines('usage', view({ usage, limits, now }))
+    const find = (rows: ReturnType<typeof lines>, label: string) => rows.find(line => line.some(i => i.text.trim() === label)) ?? []
+    const hover = (line: ReturnType<typeof lines>[number]) => line.at(-1)?.text
+    const counted = lines({ sevenDay })
+    const labels = counted.flatMap(line => line.map(i => i.text.trim())).filter(t => ['5-hour', 'Fable', 'Weekly'].includes(t))
+    expect(labels).toEqual(['Fable', 'Weekly'])
+    const weekly = find(counted, 'Weekly')
+    expect(weekly.map(i => i.text).join('')).toContain(`${'━'.repeat(31)}${'─'.repeat(19)}`)
+    expect(hover(weekly)).toBe(`61% · 3.0M · ${fmtUntil(sevenDay.resetsAt, now)}`)
+    expect(weekly.some(i => i.hoverId || i.swaps)).toBe(false)
+    const fable = find(counted, 'Fable')
+    expect(fable.map(i => i.text).join('')).toContain('░'.repeat(50))
+    expect(hover(fable)).toBe('░░% · 2.0M')
+    const reported = lines({ fiveHour: { usedPercentage: 30, resetsAt: now + 3_600_000 }, sevenDay, otherLimits: [{ kind: 'seven_day_fable', usedPercentage: 12, resetsAt: now + 86_400_000 }] })
+    expect(hover(find(reported, '5-hour'))).toBe(`30% · ${fmtUntil(now + 3_600_000, now)}`)
+    expect(hover(find(reported, 'Fable'))).toBe(`12% · 2.0M · ${fmtUntil(now + 86_400_000, now)}`)
+    expect(summarize({}, day, 30).week?.models).toEqual([])
+  })
+
+  test('a session that runs into a new month has a file in each month and counts once in the week', () => {
+    const days = {
+      '2026-10-30': { tokens: 100, costStart: 0, costEnd: 1, agents: { main: 100 } },
+      '2026-10-31': { tokens: 200, costStart: 1, costEnd: 3, agents: { main: 150, Explore: 50 } },
+      '2026-11-01': { tokens: 400, costStart: 3, costEnd: 4, agents: { main: 400 } },
+    }
+    const split = splitByMonth('long', 'spans', days, [])
+    expect(Object.keys(split['2026-10']?.days ?? {})).toEqual(['2026-10-30', '2026-10-31'])
+    expect(Object.keys(split['2026-11']?.days ?? {})).toEqual(['2026-11-01'])
+    const summary = summarize(ledgerOf(Object.values(split)), '2026-11-01', 30)
+    expect(summary.days.slice(-3).map(d => [d.date, d.tokens, d.costUsd])).toEqual([
+      ['2026-10-30', 100, 1],
+      ['2026-10-31', 200, 2],
+      ['2026-11-01', 400, 1],
+    ])
+    expect(summary.week).toMatchObject({ tokens: 700, costUsd: 4 })
+  })
+
+  test('the usage row lists no sessions, agents or models for the week', () => {
+    const usage = summarize(
+      {
+        [day]: {
+          a: { tokens: 2_000_000, costStart: 0, costEnd: 3, name: 'alpha', agents: { main: 1_500_000, Explore: 500_000 } },
+          b: { tokens: 1_000_000, costStart: 0, costEnd: 1 },
+        },
+      },
+      day,
+      30,
+    )
+    const text = panelLines('usage', view({ usage })).map(line => line.map(i => i.text).join(' '))
+    expect(text.some(t => t.includes('alpha') || t.includes('in 2 sessions') || t.includes('by agent') || t.includes('by model'))).toBe(false)
   })
 })
 
@@ -372,6 +499,7 @@ const view = (over: Partial<PanelView>): PanelView => ({
     uncommitted: null,
     mergedPrs: [],
     turnHistory: [],
+    turnWeek: null,
     links: {},
     basePrs: [],
     cacheLeftMs: null,
@@ -426,7 +554,7 @@ describe('chart rows', () => {
     end: 2000,
   }
   const card = (panel: 'calls' | 'callLines' | 'totals' | 'totalLines') =>
-    panelLines(panel, view({ turn: liveTurn, turnHistory: history, host: { sessionName: '', sessionId: 'me', bridged: false, ide: '', agent: '', project: '' } }))
+    panelLines(panel, view({ turn: liveTurn, turnHistory: history.filter(t => t.session === 'me'), turnWeek: turnWeekOf(history, 'me'), host: { sessionName: '', sessionId: 'me', bridged: false, ide: '', agent: '', project: '' } }))
   const cellsOf = (line: readonly RowItem[] | undefined) => (line ?? []).map(i => i.text.trim())
   const cfg = readConfig({})
 
@@ -458,7 +586,7 @@ describe('chart rows', () => {
     expect(cellsOf(lines[2])).toEqual(['Calls', '2', '—'])
     expect(cellsOf(lines[7])).toEqual(['Cost per turn', '$0.06', '$0.10'])
     expect(lines[7]?.[1]?.color).toBe(cfg.colors.good)
-    const withCost = panelLines('totals', view({ turn: liveTurn, turnHistory: history, sessionCostUsd: 0.5, host: { sessionName: '', sessionId: 'me', bridged: false, ide: '', agent: '', project: '' } }))
+    const withCost = panelLines('totals', view({ turn: liveTurn, turnHistory: history.filter(t => t.session === 'me'), turnWeek: turnWeekOf(history, 'me'), sessionCostUsd: 0.5, host: { sessionName: '', sessionId: 'me', bridged: false, ide: '', agent: '', project: '' } }))
     expect(cellsOf(withCost[6])).toEqual(['Cost', '$0.50', '$0.20'])
     expect(cellsOf(withCost[7])).toEqual(['Cost per turn', '$0.25', '$0.10'])
     const code = card('totalLines')
@@ -475,12 +603,12 @@ describe('chart rows', () => {
   })
 
   test('the usage row says when nothing is recorded, and since when otherwise', () => {
-    expect(panelLines('usage', view({})).at(-1)?.at(-1)?.text).toBe('no usage recorded yet')
+    expect(panelLines('usage', view({})).map(l => l.at(-1)?.text)).toContain('no usage recorded yet')
     const usage = summarize({ '2026-10-04': { a: { tokens: 2_000_000, costStart: 0, costEnd: 3 } } }, '2026-10-04', 30)
     const lines = panelLines('usage', view({ usage }))
     expect(lines.map(l => l.at(-1)?.text)).toContain('all time 2.0M · $3.00')
     expect(lines.map(l => l.at(-1)?.text)).toContain('since 2026-10-04')
-    expect(lines.at(-1)?.at(-1)?.text).toBe('hover a day for its tokens')
+    expect(lines.map(l => l.at(-1)?.text)).toContain('hover a day for its tokens')
     const tagged = lines.flat().filter(item => item.hoverId === 'usage-2026-10-04')
     expect(tagged.length).toBeGreaterThan(0)
     expect(tagged[0]?.detail).toBe('2026-10-04 · 2.0M tokens · $3.00')
@@ -599,4 +727,30 @@ describe('chart rows', () => {
     const squeezed = bucketReadings([false, false, true, false].concat(Array.from({ length: 200 }, () => false)), 120, 4)
     expect(squeezed.some(b => b.indexes.includes(2) && b.indexes[0] === 2)).toBe(true)
   })
+})
+
+test('the usage log lists open months by day and session, newest first, and passed months by day', () => {
+  const at = new Date(2026, 10, 1, 9).getTime()
+  const file = (session: string, name: string, days: Record<string, number>, turns: number[] = []) => ({
+    session,
+    name,
+    days: Object.fromEntries(Object.entries(days).map(([date, tokens]) => [date, { tokens, costStart: 0, costEnd: 1, agents: { main: tokens }, models: { 'claude-fable-5-2': tokens }, parts: { 'main\tclaude-fable-5-2\thigh': { tokens, costUsd: 1 } } }])),
+    turns: turns.map((t, n) => ({ id: `${session}${n}`, session, at: t, tokens: 1, input: 1, cacheRead: 0, output: 0, apiMs: 1, spanMs: 1, costUsd: null, linesAdded: 0, linesRemoved: 0, files: 0 })),
+  })
+  const logs = usageLogOf(
+    [file('a', 'alpha', { '2026-11-01': 100, '2026-11-02': 300 }, [at, at + 60_000]), file('b', '', { '2026-11-01': 900 }), file('a', 'alpha', { '2026-10-31': 50 })],
+    { '2026-07': [{ date: '2026-07-04', tokens: 5, costUsd: null }], '2026-10': [{ date: '2026-10-31', tokens: 50, costUsd: 1 }] },
+  )
+  expect(logs.map(m => m.month)).toEqual(['2026-11', '2026-10', '2026-07'])
+  expect(logs[0]?.days.map(d => [d.date, d.tokens, d.costUsd])).toEqual([['2026-11-02', 300, 1], ['2026-11-01', 1000, 2]])
+  expect(logs[0]?.days[1]?.sessions.map(s => [s.id, s.tokens, s.turns])).toEqual([['b', 900, 0], ['a', 100, 2]])
+  expect(logs[0]?.days[1]?.sessions[1]).toMatchObject({ agents: [{ name: 'main', tokens: 100 }], models: [{ name: 'claude-fable-5-2', tokens: 100 }], parts: [{ agent: 'main', model: 'claude-fable-5-2', effort: 'high', tokens: 100, costUsd: 1, turns: null }] })
+  const saved = parseSessionFile(JSON.parse(serializeSessionFile(file('a', 'alpha', { '2026-11-01': 100 }))))
+  expect(saved?.days['2026-11-01']?.parts).toEqual({ 'main\tclaude-fable-5-2\thigh': { tokens: 100, costUsd: 1 } })
+  expect(parseSessionFile({ version: 1, session: 'x', days: { '2026-11-01': { tokens: 5, costStart: 0, costEnd: 1, parts: { 'a\tm\t': { tokens: 5, costUsd: null, turns: 2 }, bad: 3 } } }, turns: [] })?.days['2026-11-01']?.parts).toEqual({ 'a\tm\t': { tokens: 5, costUsd: null, turns: 2 } })
+  expect(logs[1]?.days[0]?.sessions.map(s => s.id)).toEqual(['a'])
+  const levels = { session: 'e', name: '', turns: [], days: { '2026-11-01': { tokens: 30, costStart: 0, costEnd: 1, models: { 'claude-fable-5-2	high': 20, 'claude-fable-5-2	low': 5, 'claude-haiku-5-5': 5 } } } }
+  expect(usageLogOf([levels], {})[0]?.days[0]?.sessions[0]?.models).toEqual([{ name: 'claude-fable-5-2', tokens: 25 }, { name: 'claude-haiku-5-5', tokens: 5 }])
+  expect(summarize(ledgerOf([levels]), '2026-11-01', 30).week?.models).toEqual([{ name: 'claude-fable-5-2', tokens: 25 }, { name: 'claude-haiku-5-5', tokens: 5 }])
+  expect(logs[2]).toEqual({ month: '2026-07', days: [{ date: '2026-07-04', tokens: 5, costUsd: null, sessions: [] }] })
 })

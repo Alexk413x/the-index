@@ -1,4 +1,5 @@
 import { expect, mock, test, type MockClock } from 'claude-code/testing'
+import { monthKey } from '../hooks/lib/share'
 import type { On } from 'claude-code'
 
 import { readConfig } from '../hooks/lib/format'
@@ -141,6 +142,8 @@ async function startSession($: { session: { start: (e: never) => Promise<unknown
     const path = String((e as { path?: string }).path).replace(/\\/g, '/')
     if (opts.sessionFile !== undefined && /sessions$/.test(path)) return { value: [entry('1.json')] } as never
     if (path === 'C:/nobody/.claude/agents') return { value: Object.keys(opts.files ?? {}).filter(n => n.endsWith('.md')).map(entry) } as never
+    const under = Object.keys(opts.paths ?? {}).filter(p => p.startsWith(`${path}/`) && !p.slice(path.length + 1).includes('/'))
+    if (under.length) return { value: under.map(p => ({ ...entry(p.slice(path.length + 1)), size: opts.paths?.[p]?.length ?? 0 })) } as never
     const dir = opts.dirs?.[path]
     if (dir) return { value: dir.map(name => ({ ...entry(name), kind: 'dir' })) } as never
     return { value: [] }
@@ -179,6 +182,7 @@ async function step(
 function props(agentId?: string) {
   return {
     hasSurvey: false,
+    isCollapsed: false,
     isWorking: false,
     maxRows: 10,
     bodyColumns: 200,
@@ -814,6 +818,14 @@ test('the agent setting names the agent after the harness and its file colour ti
   await band.unmount()
 })
 
+test('a collapsed band draws the engine row and reads no state', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: { ...props(), isCollapsed: true } })
+  expect(await band.find({ key: 'model-chip' })).toBeUndefined()
+  await band.unmount()
+})
+
 test('a subagent transcript takes the colour its agent file gives its type', async ($, on) => {
   engine(on)
   await startSession($, on, { files: { 'explore.md': '---\nname: Explore\ncolor: green\n---\n' } })
@@ -837,8 +849,8 @@ test('a finished turn joins the saved history, and the Δ and Σ sections open t
   await step($, 'claude-opus-5-5', 'high')
   await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
   await clock.advance(5100)
-  const saved = writes.filter(w => w.path.endsWith('/the-index-turns.json')).at(-1)
-  expect(saved?.path).toBe('C:/nobody/.claude/the-index-turns.json')
+  const saved = writes.filter(w => w.path.endsWith('/abc.json')).at(-1)
+  expect(saved?.path).toBe(`C:/nobody/.claude/the-index/usage/${monthKey(START)}/abc.json`)
   expect((JSON.parse(saved?.text ?? '{}') as { turns: { id: string; session: string; tokens: number }[] }).turns).toEqual([
     expect.objectContaining({ id: 't', session: 'abc', tokens: 20_400 }),
   ])
@@ -871,16 +883,19 @@ test('each step adds to the shared usage file, and hovering the rate limits char
   })
   const today = new Date(START + 60_000)
   const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
-  const other = JSON.stringify({ version: 1, days: { [day]: { other: { tokens: 1_000_000, costStart: 0, costEnd: 2 } } } })
-  await startSession($, on, { files: { 'the-index-usage.json': other } })
+  const other = JSON.stringify({ version: 1, session: 'other', name: 'peer', days: { [day]: { tokens: 1_000_000, costStart: 0, costEnd: 2 } }, turns: [] })
+  const shareDir = `C:/nobody/.claude/the-index/usage/${day.slice(0, 7)}`
+  await startSession($, on, { paths: { [`${shareDir}/other.json`]: other } })
   await step($, 'claude-opus-5-5', 'high')
   await step($, 'claude-sonnet-5-5', 'low', 'a1')
   await clock.advance(5100)
-  const write = writes.filter(w => w.path.endsWith('/the-index-usage.json')).at(-1)
-  expect(write?.path).toBe('C:/nobody/.claude/the-index-usage.json')
-  const saved = JSON.parse(write?.text ?? '{}') as { days: Record<string, Record<string, { tokens: number }>> }
-  expect(saved.days[day]?.['other']?.tokens).toBe(1_000_000)
-  expect(saved.days[day]?.['abc']?.tokens).toBe(2 * 10_200)
+  expect(writes.some(w => w.path.endsWith('/other.json'))).toBe(false)
+  const write = writes.filter(w => w.path.endsWith('/abc.json')).at(-1)
+  expect(write?.path).toBe(`${shareDir}/abc.json`)
+  const saved = JSON.parse(write?.text ?? '{}') as { session: string; days: Record<string, { tokens: number; agents?: Record<string, number> }> }
+  expect(saved.session).toBe('abc')
+  expect(saved.days[day]?.tokens).toBe(2 * 10_200)
+  expect(saved.days[day]?.agents?.['main']).toBe(10_200)
 
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   await band.post({ hover: true }, { in: 'usage-chip' })
@@ -888,7 +903,7 @@ test('each step adds to the shared usage file, and hovering the rate limits char
   const lines = ((await band.find({ key: 'usage-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
   expect(lines.map(l => l.at(-1)?.text)).toContain('today 1.0M')
   expect(lines.map(l => l.at(-1)?.text)).toContain(`since ${day}`)
-  expect(lines.at(-1)?.at(-1)?.text).toBe('hover a day for its tokens')
+  expect(lines.map(l => l.at(-1)?.text)).toContain('hover a day for its tokens')
   await band.unmount()
 })
 
@@ -1051,15 +1066,12 @@ test('after a /clear the new session writes its own share of the files, without 
   await step($, 'claude-opus-5-5', 'high', undefined, 'after')
   await $.turn.complete({ turnId: 'after', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
   await clock.advance(5100)
-  const turns = (JSON.parse(files.get('the-index-turns.json') ?? '{}') as { turns: { id: string; session: string }[] }).turns
-  expect(turns.map(t => [t.id, t.session])).toEqual([
-    ['before', 'abc'],
-    ['after', 'def'],
-  ])
-  const days = (JSON.parse(files.get('the-index-usage.json') ?? '{}') as { days: Record<string, Record<string, { tokens: number }>> }).days
-  const today = Object.values(days)[0] ?? {}
-  expect(today['abc']?.tokens).toBe(10_200)
-  expect(today['def']?.tokens).toBe(10_200)
+  type Saved = { session: string; days: Record<string, { tokens: number }>; turns: { id: string; session: string }[] }
+  const saved = (name: string) => JSON.parse(files.get(name) ?? '{}') as Saved
+  expect(saved('abc.json').turns.map(t => [t.id, t.session])).toEqual([['before', 'abc']])
+  expect(saved('def.json').turns.map(t => [t.id, t.session])).toEqual([['after', 'def']])
+  expect(Object.values(saved('abc.json').days).map(d => d.tokens)).toEqual([10_200])
+  expect(Object.values(saved('def.json').days).map(d => d.tokens)).toEqual([10_200])
 })
 
 test('an open row follows new props: a pinned effort row picks for the subagent whose transcript opened', async ($, on) => {

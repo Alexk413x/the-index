@@ -51,6 +51,7 @@ function view(over: Partial<PanelView> = {}): PanelView {
     uncommitted: null,
     mergedPrs: [],
     turnHistory: [],
+    turnWeek: null,
     links: {},
     basePrs: [],
     cacheLeftMs: null,

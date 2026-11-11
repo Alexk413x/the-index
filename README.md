@@ -37,11 +37,15 @@ claude plugin install the-index@alexk413x
   turn and session scorecards, and commit history with uncommitted changes. Click to
   pin it.
 - **Detail pane.** Click ▤ at the end of line 1 to dock a pane beside the transcript, with
-  the Context, Prompts and Usage tabs. Context lists each compaction with its before and
+  the Context, Usage and Prompts tabs. Context lists each compaction with its before and
   after size, then the system prompt, MCP instructions, memory files, MCP tools by
   server, skills and agents behind the window, largest first, each section summed.
-  Click the Prompts row to open the Prompts tab, which lists each turn and its API
-  calls. Usage lists each day. Click ▤ again to close the pane. Claude Code reports no
+  Click the Prompts row to open the Prompts tab, which lists each day, then the model
+  and effort its turns ran at, then each turn by time and its API calls. Usage shows the totals for the last 7 days, the last 30 days and all time, your
+  account's limits, model shares and use by surface, then each month. A month opens to its
+  days, a day to its sessions, and a session to one row for each agent, model and effort
+  level it used, with tokens, cost and prompts. Click a row to open that session's
+  prompts in the Prompts tab. Click ▤ again to close the pane. Claude Code reports no
   per-item figures for built-in tools and single messages, so they show only inside the
   Prompts and System Tools totals, and the per-section figures for the system prompt,
   system tools and MCP instructions are estimates shared by text length.
@@ -94,7 +98,9 @@ collects no telemetry.
   - agent files in `~/.claude/agents` and `.claude/agents`, for agent colours;
   - your Claude Code settings, for the saved model and effort.
 - **Writes:**
-  - `the-index-usage.json` and `the-index-turns.json` in your Claude config folder;
+  - one file for each session and month in `the-index/usage/<month>/` in your Claude config folder, holding
+    that session's tokens, cost and turns, and a file of day totals in `the-index/usage/totals/` for each month
+    that has passed. It removes a month's folder after three more full months;
   - `claude-statusline-ratelimits.json` in the temp folder, shared with other sessions.
 - **Calls:** the ide-agent-tabs plugin's tools, when installed, to list agent CLIs and
   open one in a new tab, and to open the Agent Tabs Messages pane; and the
@@ -112,6 +118,12 @@ Change settings in the `/config` menu. Every setting is optional.
   - `glyphs`: the context circle style, `unicode` or `nerd` (needs a Nerd Font).
 - **Cache timer**
   - `cache_ttl`: the cache lifetime the countdown starts from, `1h` or `5m`.
+- **Account limits**
+  - `account_limits`: while a session is active, ask your Anthropic account for the
+    per-model weekly limits, such as Fable. All sessions share one cached reply in
+    `~/.claude/the-index/account-limits.json`, and one of them asks again only when it
+    is over 5 minutes old. Claude Code signs the request, and the plugin never reads
+    your login. On by default; turn it off to make no account request.
 - **Segments to show** (all on by default)
   - Line 1: `show_remote`, `show_session`, `show_model`, `show_ide`, `show_cache`,
     `show_context`, `show_uptime`, `show_rate_limits`, `show_agent_view`.
@@ -135,7 +147,7 @@ Run every check before you commit:
 
 ```sh
 claude plugin test .
-npx -p typescript@5 tsc -p .
+npx -p typescript@7 tsc -p .
 claude plugin validate --strict .
 ```
 

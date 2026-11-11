@@ -7,7 +7,7 @@ import { CONTEXT_PICK, DETAIL_PICK, EFFORTS, FOLDER_PICK, MESSAGES_PICK, PANELS,
 import { isRecord, samePath } from './lib/git'
 import { openFolder, openHarness, openMessages, openSwarm, openUrl, refreshSessionRow } from './host'
 import { refreshDevice, refreshWorktreesSoon } from './repo'
-import { toggleDetail } from './pane'
+import { showDetailTab, toggleDetail } from './pane'
 
 // The validator reads an atom only in the file that declares it, so each file declares the atoms it uses.
 const agents = atom({ plugin: 'the-index', key: 'agents' } as const, {})
@@ -154,6 +154,10 @@ async function applyPick($: EngineInterface, panel: IndexPanel, target: string, 
   if (panel === 'context') {
     if (pick === DETAIL_PICK) await toggleDetail($)
     else if (pick.startsWith(CONTEXT_PICK)) await update($, contextSeries, () => pick.slice(CONTEXT_PICK.length) || null)
+    return
+  }
+  if (panel === 'usage') {
+    if (pick === DETAIL_PICK) await showDetailTab($, 'usage')
     return
   }
   if (panel === 'branch' || panel === 'base') {
