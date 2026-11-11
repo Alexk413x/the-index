@@ -1,7 +1,7 @@
 import { expect, test } from 'claude-code/testing'
 
 import type { IndexCallPoint, IndexContextDetail, IndexContextPoint, IndexTurnRecord, IndexUsageSummary } from '../types'
-import { DETAIL_BAR, DETAIL_PERCENT, TURN_TITLES, callKind, cellWidths, tableHeadLine, tableParts, tableTitles, isIdle, columnTitles, percentText, detailRows, headKey, headLine, isCollapsed, isUserPrompt, rowKey, markdownRows, mcpSections, rowParts, splitMax, titledHead, toContextDetail, valueWidthOf, visibleRows, type DetailView } from '../hooks/lib/detail'
+import { DETAIL_BAR, DETAIL_PERCENT, TURN_TITLES, callKind, cellWidths, tableHeadLine, tableParts, tableTitles, isIdle, columnTitles, percentText, detailRows, headKey, headLine, isCollapsed, isUserPrompt, rowKey, markdownRows, mcpSections, rowParts, centered, splitMax, titledHead, toContextDetail, valueWidthOf, visibleRows, sectionBlocks, splitCount, turnDayKey, type DetailView } from '../hooks/lib/detail'
 
 const CONTEXT: IndexContextDetail = {
   window: 200_000,
@@ -138,13 +138,23 @@ test('the turns tab lists this session newest first, each turn with its calls un
   expect(rows[0]?.label).toBe('Prompts 0 · Turns 2 · Calls 0')
   expect(rows[0]?.titles).toEqual(TURN_TITLES)
   expect(rows[0]?.cells).toEqual(['8s', '6.0k', '6.0k', '0', '+6 -2', '$0.20'])
-  expect(rows.map(r => r.kind)).toEqual(['head', 'note', 'sub', 'item', 'sub', 'item', 'item'])
+  expect(rows.map(r => r.kind)).toEqual(['head', 'note', 'sub', 'sub', 'sub', 'item', 'sub', 'item', 'item'])
   expect(rows[1]).toMatchObject({ divider: true })
-  expect(rows[2]?.cells).toEqual(['4s', '4.0k', '4.0k', '0', '+3 -1', '$0.10'])
-  expect(rows[3]).toMatchObject({ indent: 1 })
-  expect(rows[3]?.cells?.slice(1, 4)).toEqual(['500', '400', '100'])
-  expect(rows[5]?.cells?.[1]).toBe('1.0k')
-  expect(rows[6]?.cells?.[1]).toBe('3.0k')
+  expect(rows[2]).toMatchObject({ count: 2, cells: rows[0]?.cells })
+  expect(rows[2]?.closed).toBeUndefined()
+  expect(rows[2]?.key).toBe(turnDayKey(rows[2]?.label ?? ''))
+  expect(rows[3]).toMatchObject({ label: 'Model not recorded', count: 2, depth: 1, under: [rows[2]?.key] })
+  expect(rows[4]).toMatchObject({ key: 'c', depth: 2, count: 0, closed: true, under: [rows[2]?.key, rows[3]?.key] })
+  expect(rows[4]?.cells).toEqual(['4s', '4.0k', '4.0k', '0', '+3 -1', '$0.10'])
+  expect(rows[5]).toMatchObject({ depth: 3, under: [rows[2]?.key, rows[3]?.key, 'c'] })
+  expect(rows[5]?.cells?.slice(1, 4)).toEqual(['500', '400', '100'])
+  expect(rows[7]?.cells?.[1]).toBe('1.0k')
+  expect(rows[8]?.cells?.[1]).toBe('3.0k')
+  const modelled = detailRows('turns', view({ turnHistory: [{ ...TURN('m', 's1', 1_800_000_000_000, 2000), model: 'claude-fable-5-2', effort: 'high' }, { ...TURN('old', 's1', 1_800_000_000_000 - 3 * 86_400_000, 2000), model: 'claude-fable-5-2', effort: 'low' }] }))
+  expect(modelled.filter(r => r.depth === 1).map(r => r.label)).toEqual(['main · Fable 5.2 · high', 'main · Fable 5.2 · low'])
+  expect(modelled.filter(r => r.depth === undefined && r.kind === 'sub').map(r => r.closed)).toEqual([undefined, true])
+  expect(modelled.find(r => r.key === 'm')?.kind).toBe('item')
+  expect(visibleRows(modelled, []).map(r => r.key).filter(Boolean)).toHaveLength(4)
 })
 
 test('calls of a turn with no finished record still list under a turn row built from them', () => {
@@ -157,10 +167,10 @@ test('calls of a turn with no finished record still list under a turn row built 
       ],
     }),
   )
-  expect(rows.map(r => r.kind)).toEqual(['head', 'note', 'sub', 'item', 'item'])
+  expect(rows.map(r => r.kind)).toEqual(['head', 'note', 'sub', 'sub', 'sub', 'item', 'item'])
   expect(rows[0]?.label).toBe('Prompts 0 · Turns 1 · Calls 2')
-  expect(rows[2]?.label.endsWith('(2)')).toBe(true)
-  expect(rows[2]?.cells?.[1]).toBe('4.0k')
+  expect(rows[4]).toMatchObject({ key: 'live', count: 2 })
+  expect(rows[4]?.cells?.[1]).toBe('4.0k')
 })
 
 test('a call is labelled by the tools it runs, MCP tools by server, and the first call as the prompt', () => {
@@ -169,7 +179,7 @@ test('a call is labelled by the tools it runs, MCP tools by server, and the firs
   expect(callKind(2, ['Edit', 'Edit', 'mcp__github__get_me'])).toBe('Edit ×2, github:get_me')
   expect(callKind(3, [])).toBe('Answer')
   const rows = detailRows('turns', view({ callLog: [{ ...CALL(1_800_000_001_000, 1000), turnId: 'a', kind: 'Prompt → Read' }], turnHistory: [TURN('a', 's1', 1_800_000_000_000, 2000)] }))
-  expect(rows[3]?.label.endsWith(' Prompt → Read')).toBe(true)
+  expect(rows[5]?.label.endsWith(' Prompt → Read')).toBe(true)
 })
 
 test('a turn starts closed, opens when listed, and the Turns head never collapses', () => {
@@ -177,11 +187,13 @@ test('a turn starts closed, opens when listed, and the Turns head never collapse
     'turns',
     view({ callLog: [{ ...CALL(1_800_000_001_000, 1000), turnId: 'a' }], turnHistory: [TURN('a', 's1', 1_800_000_000_000, 2000)] }),
   )
-  const turn = rows.find(r => r.kind === 'sub')!
+  const turn = rows.find(r => r.key === 'a')!
   const key = rowKey(turn)
-  expect(visibleRows(rows, []).map(r => r.kind)).toEqual(['head', 'note', 'sub'])
-  expect(visibleRows(rows, [key]).map(r => r.kind)).toEqual(['head', 'note', 'sub', 'item'])
-  expect(visibleRows(rows, ['Turns', key]).map(r => r.kind)).toEqual(['head', 'note', 'sub', 'item'])
+  expect(visibleRows(rows, []).map(r => r.kind)).toEqual(['head', 'note', 'sub', 'sub', 'sub'])
+  expect(visibleRows(rows, [key]).map(r => r.kind)).toEqual(['head', 'note', 'sub', 'sub', 'sub', 'item'])
+  expect(visibleRows(rows, ['Turns', key]).map(r => r.kind)).toEqual(['head', 'note', 'sub', 'sub', 'sub', 'item'])
+  expect(visibleRows(rows, [key, rowKey(rows[3]!)]).map(r => r.kind)).toEqual(['head', 'note', 'sub', 'sub'])
+  expect(visibleRows(rows, [key, rowKey(rows[2]!)]).map(r => r.kind)).toEqual(['head', 'note', 'sub'])
 })
 
 test('the turns table sizes each column to its widest cell or title, and every row lines up', () => {
@@ -195,17 +207,22 @@ test('the turns table sizes each column to its widest cell or title, and every r
   const lines = rows.filter(r => r.cells).map(r => (r.kind === 'head' ? tableHeadLine(r, 60, widths) : (() => { const p = tableParts(r, 60, widths); return p.label + p.tail })()))
   expect(new Set(lines.map(l => l.length)).size).toBe(1)
   expect(tableTitles(rows[0]!, 60, widths)).toHaveLength(lines[0]!.length)
-  expect(tableTitles(rows[0]!, 60, widths).startsWith('   Turn (Calls)')).toBe(true)
+  expect(tableTitles(rows[0]!, 60, widths).startsWith(`   ${TURN_TITLES[0]}`)).toBe(true)
   expect(tableHeadLine(rows[0]!, 60, widths).startsWith(' Prompts 0 · Turns')).toBe(true)
-  expect(rows[3]?.cells?.at(-1)).toBe('░')
+  expect(rows[5]?.cells?.at(-1)).toBe('░')
+  expect(tableParts(rows[4]!, 60, widths, '▸').label.startsWith('     ▸ ')).toBe(true)
 })
 
 test('the usage tab lists days with tokens, newest first, and the all-time note', () => {
   const rows = detailRows('usage', view({ usage: USAGE }))
   expect(rows[0]).toMatchObject({ label: 'Last 3 days', value: '4.0k · $2.00', fixed: true })
   expect(rows[1]).toMatchObject({ kind: 'head', label: 'All time since 2026-09-01', value: '9.0k · $4.00', fixed: true })
-  expect(rows[2]).toMatchObject({ kind: 'note', divider: true, columns: ['Day', 'Peak', 'Tokens · cost'] })
-  expect(rows.filter(r => r.kind === 'item').map(r => r.label)).toEqual(['2026-10-21', '2026-10-19'])
+  expect(rows[2]).toMatchObject({ kind: 'note', label: '' })
+  expect(rows.filter(r => r.kind === 'item')).toEqual([])
+  const week = { days: 7, tokens: 3000, costUsd: 1.5, models: [] }
+  const heads = detailRows('usage', view({ usage: { ...USAGE, week } })).filter(r => r.kind === 'head')
+  expect(heads[0]).toMatchObject({ label: 'Last 7 days', value: '3.0k · $1.50', fixed: true })
+  expect(heads.map(r => r.label)).toEqual(['Last 7 days', 'Last 3 days', 'All time since 2026-09-01'])
 })
 
 test('empty tabs show a note', () => {
@@ -281,7 +298,8 @@ test('a head draws its arrow, title and value, then dashes to the full width', (
   const memory = rows.find(r => r.kind === 'head' && r.label === 'Memory Files (2)')
   expect(memory).toBeDefined()
   const open = headLine(memory!, 50, false, 6, false)
-  expect(open.startsWith(' ▾ Memory Files (2) ')).toBe(true)
+  expect(open.startsWith(' ▾ Memory Files · 2 ')).toBe(true)
+  expect(splitCount(open, memory!)).toEqual([' ▾ Memory Files', open.slice(' ▾ Memory Files'.length)])
   expect(open.includes('─')).toBe(false)
   expect(open).toHaveLength(49)
   expect(open.endsWith('2.0k    1.0%')).toBe(true)
@@ -312,7 +330,7 @@ test('an expanded head with items under it gets column titles as wide as its row
   expect(titledHead(rows, at('Memory Files (2)'), [])).toEqual(['File       Type     Folder', 'Context', 'Tokens'])
   expect(titledHead(rows, at('Memory Files (2)'), ['Memory Files'])).toBeNull()
   expect(titledHead(rows, at('Context window · 200k'), [])).toBeNull()
-  const valueWidth = valueWidthOf(rows, [])
+  const valueWidth = valueWidthOf(rows)
   const sample = rows.find(r => r.kind === 'item')!
   const line = (() => {
     const p = rowParts(sample, 50, valueWidth)
@@ -394,7 +412,7 @@ test('a head puts its total and share in the same columns as the rows under it',
   const rows = detailRows('context', { contextDetail: CONTEXT, callLog: [], turnHistory: [], usage: null, session: 's' })
   const categories = rows.find(r => r.kind === 'head' && r.label === 'Memory Files (2)')!
   const first = rows.find(r => r.kind === 'item')!
-  const valueWidth = valueWidthOf(rows, [])
+  const valueWidth = valueWidthOf(rows)
   const p = rowParts(first, 60, valueWidth, false)
   const itemLine = p.label + p.tail
   const headText = headLine(categories, 60, false, valueWidth, false)
@@ -425,7 +443,7 @@ test('an MCP server row puts its active total in the token and percent columns, 
   const rows = detailRows('context', view())
   const github = rows.find(r => r.kind === 'sub' && r.label.startsWith('github'))!
   const slack = rows.find(r => r.kind === 'sub' && r.label.startsWith('slack'))!
-  const valueWidth = valueWidthOf(rows, [])
+  const valueWidth = valueWidthOf(rows)
   const g = rowParts({ ...github, label: '▾ github (2)' }, 60, valueWidth, false)
   const s = rowParts({ ...slack, label: '▾ slack (1)' }, 60, valueWidth, false)
   expect(g.tail.trim().startsWith(github.value)).toBe(true)
@@ -547,16 +565,16 @@ test('the Prompts row in the Context tab counts prompts, then the session turns,
   expect(turns?.goto).toBe('turns')
   expect(rows.filter(r => r.goto).length).toBe(1)
 })
-test('the Context tab puts a collapsible Compactions section above the window head, reading 0% until one happens', () => {
+test('the Context tab ends with a collapsible Compactions section, reading 0% until one happens', () => {
   const rows = (contextLog?: IndexContextPoint[]) => detailRows('context', view({ contextDetail: CONTEXT, ...(contextLog ? { contextLog } : {}) }))
   const none = rows()
   const at = none.findIndex(r => r.kind === 'head' && r.label === 'Compactions (0)')
   expect(at).toBeGreaterThan(-1)
-  expect(at).toBe(0)
+  expect(at).toBe(none.length - 2)
+  expect(none[0]).toMatchObject({ kind: 'head', label: 'Context window · 200k' })
   expect(none[at]).toMatchObject({ value: '', share: 0 })
   expect(none[at]?.fixed).toBeUndefined()
   expect(none[at + 1]?.label).toContain('No compactions')
-  expect(none[at + 2]).toMatchObject({ kind: 'head', label: 'Context window · 200k' })
   expect(visibleRows(none, ['Compactions']).some(r => r.label.includes('No compactions'))).toBe(false)
   expect(visibleRows(none, []).some(r => r.kind === 'head' && r.label === 'Memory Files (2)')).toBe(true)
   expect(visibleRows(none, []).filter(r => r.kind === 'item').length).toBe(visibleRows(none, ['Compactions']).filter(r => r.kind === 'item').length)
@@ -576,4 +594,99 @@ test('only the user\'s own submissions count as prompts', () => {
   expect(isUserPrompt('bridge')).toBe(true)
   expect(isUserPrompt('composer', true)).toBe(false)
   for (const kind of ['scheduled-trigger', 'task-notification', 'peer', 'sdk', 'plugin', 'unclassified']) expect(isUserPrompt(kind)).toBe(false)
+})
+
+test('the usage tab lists each account limit with its reset, the surfaces and the model shares', () => {
+  const now = 1_800_000_000_000
+  const account = {
+    fetchedAt: now,
+    limits: [
+      { kind: 'seven_day', label: 'Weekly', usedPercentage: 67, resetsAt: now + 3_600_000, severity: 'normal' },
+      { kind: 'seven_day_fable', label: 'Fable', usedPercentage: 15.9, resetsAt: 0, severity: 'warning' },
+    ],
+    surfaces: [{ name: 'Chats', percent: 0 }, { name: 'Cowork', percent: 1 }, { name: 'Claude Code', percent: 99 }],
+    shares: [{ label: 'Fable', usedPercent: 8, allowancePercent: 50 }],
+    extraUsage: false,
+  }
+  const all = detailRows('usage', view({ account, now }))
+  const rows = all.slice(all.findIndex(r => r.label === 'Weekly Stats'))
+  expect(all[0]?.kind).toBe('note')
+  expect(rows[0]).toMatchObject({ kind: 'head', label: 'Weekly Stats', side: 'Weekly 67% · Fable 15% warning · 1h', value: '' })
+  expect(rows[0]?.fixed).toBeUndefined()
+  expect(headLine(rows[0]!, 60, false)).toBe(` ▾ Weekly Stats ${'Weekly 67% · Fable 15% warning · 1h'.padStart(44)}`)
+  expect(centered('ab', 6)).toBe('  ab  ')
+  const apart = { ...account, limits: account.limits.map((l, n) => ({ ...l, resetsAt: now + (n + 1) * 90_300_000 })) }
+  expect(detailRows('usage', view({ account: apart, now })).find(r => r.label === 'Weekly Stats')?.side).toBe('Weekly 67% (1d 1h 5m) · Fable 15% warning (2d 2h 10m)')
+  expect(rows.filter(r => r.kind === 'head' && !r.fixed).map(r => r.label)).toEqual(['Weekly Stats'])
+  const stats = rows.slice(rows.findIndex(r => r.label === 'Weekly Stats'))
+  expect(stats.slice(1, 4).map(r => [r.kind, r.label])).toEqual([['item', 'Fable'], ['note', ''], ['item', 'Claude Code']])
+  expect(rows.filter(r => ['Chats', 'Cowork', 'Claude Code'].includes(r.label)).map(r => [r.label, isIdle(r)])).toEqual([['Claude Code', false], ['Cowork', false], ['Chats', true]])
+  expect(rows.find(r => r.label === 'Claude Code')).toMatchObject({ value: '', share: 0.99 })
+  expect(rows.find(r => r.value === '8% · up to 50%')).toMatchObject({ label: 'Fable', share: 0.16 })
+  expect(rows.at(-1)).toMatchObject({ label: 'Extra usage credits are off.', center: true })
+  expect(detailRows('usage', view()).map(r => r.kind)).toEqual(['note', 'note'])
+})
+
+test('the usage tab folds a month over its days, a day over its sessions, and a session over its split', () => {
+  const session = (id: string, name: string, tokens: number, costUsd: number | null) => ({ id, name, tokens, costUsd, agents: [{ name: 'main', tokens }], models: [{ name: 'claude-fable-5-2', tokens }], parts: id.startsWith('a') ? [{ agent: 'main', model: 'claude-fable-5-2', effort: 'high', tokens: 2000, costUsd: 2, turns: 3 }, { agent: 'Explore', model: 'claude-haiku-5-5', effort: '', tokens: 500, costUsd: null, turns: 1 }] : [], turns: 2 })
+  const logs = [
+    { month: '2026-11', days: [{ date: '2026-11-02', tokens: 4000, costUsd: 3, sessions: [session('aaaaaaaabbbb', 'alpha', 3000, 3), session('ccccccccdddd', '', 1000, null)] }] },
+    { month: '2026-07', days: [{ date: '2026-07-04', tokens: 500, costUsd: 0.5, sessions: [] }] },
+  ]
+  const all = detailRows('usage', view({ logs }))
+  const rows = all.slice(all.findIndex(r => r.kind === 'head'))
+  const months = ['2026-11', '2026-07']
+  const labels = (collapsed: string[]) => visibleRows(rows, collapsed).map(r => r.label).filter(Boolean)
+  expect(rows[0]).toMatchObject({ kind: 'head', label: 'November 2026', value: '4.0k · $3.00', key: '2026-11', closed: true, bold: true })
+  expect(labels([])).toEqual(['November 2026', 'July 2026'])
+  expect(labels(months)).toEqual(['November 2026', '2026-11-02', 'July 2026', '2026-07-04'])
+  expect(labels([...months, '2026-11/2026-11-02'])).toEqual(['November 2026', '2026-11-02', 'alpha', 'cccccccc', 'July 2026', '2026-07-04'])
+  const open = visibleRows(rows, [...months, '2026-11/2026-11-02', '2026-11-02/aaaaaaaabbbb'])
+  expect(open.map(r => r.label).slice(2, 6)).toEqual(['alpha', 'main · Fable 5.2 · high · 3', 'Explore · Haiku 5.5 · 1', 'cccccccc'])
+  expect(open.find(r => r.label === 'alpha')).toMatchObject({ count: 2, after: '2 agents' })
+  expect(open.find(r => r.label === 'cccccccc')).toMatchObject({ count: 2 })
+  expect(open.find(r => r.label === 'cccccccc')?.after).toBeUndefined()
+  const sessionRow = open.find(r => r.label === 'alpha')!
+  expect(splitCount(rowParts(sessionRow, 60, 12, false, '▾').label, sessionRow)[1].trimEnd()).toBe(' · 2 · 2 agents')
+  expect(open.slice(3, 5).map(r => [r.value, r.depth, r.kind])).toEqual([['2.0k · $2.00', 2, 'item'], ['500 · ░', 2, 'item']])
+  const day = open.find(r => r.label === '2026-11-02')
+  expect(day?.count).toBe(2)
+  const drawn = rowParts(day ?? rows[0]!, 60, 12, false, '▾').label
+  expect(splitCount(drawn, day ?? rows[0]!)).toEqual([drawn.slice(0, drawn.indexOf(' · 2')), drawn.slice(drawn.indexOf(' · 2'))])
+  expect(splitCount(drawn, day ?? rows[0]!)[0].trimStart()).toBe('▾ 2026-11-02')
+  expect(splitCount('plain', { kind: 'item', label: 'plain', value: '', share: null, indent: 0 })).toEqual(['plain', ''])
+  const old = visibleRows(rows, [...months, '2026-11/2026-11-02', '2026-11-02/ccccccccdddd']).map(r => r.label)
+  expect(old.slice(old.indexOf('cccccccc') + 1, old.indexOf('cccccccc') + 2)).toEqual(['main · Fable 5.2 · 2'])
+  expect(open.filter(r => r.open !== undefined).map(r => r.open)).toEqual(['2026-11/aaaaaaaabbbb/2026-11-02/0', '2026-11/aaaaaaaabbbb/2026-11-02/1'])
+  expect(rowParts(open.find(r => r.open !== undefined)!, 60, 12, false, '›').label.trimStart().startsWith('› main')).toBe(true)
+  expect(labels([...months, '2026-11-02/aaaaaaaabbbb'])).not.toContain('main · Fable 5.2 · high · 3')
+  expect(open.find(r => r.label === 'alpha')).toMatchObject({ kind: 'sub', depth: 1, share: 0.75 })
+  expect(sectionBlocks(open).map(b => b.isSection)).toEqual([true, false, true])
+})
+
+test('the Prompts tab lists an opened session by turn, with a way back to this session', () => {
+  const turn = (id: string, hour: number, tokens: number) => ({ id, session: 'aaaaaaaabbbb', at: new Date(2026, 10, 2, hour).getTime(), tokens, input: 1000, cacheRead: 0, output: 500, apiMs: 900, spanMs: 2000, costUsd: 1.5, linesAdded: 3, linesRemoved: 1, files: 1, calls: 2 })
+  const sessionLog = { month: '2026-11', id: 'aaaaaaaabbbb', name: 'alpha', turns: [turn('t2', 11, 500), turn('t1', 9, 1500)] }
+  const rows = detailRows('turns', view({ sessionLog }))
+  expect(rows[0]).toMatchObject({ kind: 'item', open: '' })
+  expect(rows[1]).toMatchObject({ kind: 'head', fixed: true, label: 'alpha · November 2026 · Turns 2 · Calls 4', titles: TURN_TITLES })
+  expect(rows[1]?.cells).toEqual(['4s', '2.0k', '2.0k', '1.0k', rows[1]?.cells?.[4], '$3.00'])
+  expect(rows[3]).toMatchObject({ kind: 'sub', label: '2026-11-02', key: turnDayKey('2026-11-02'), count: 2 })
+  expect(rows.filter(r => r.depth === 2).map(r => [r.key, r.kind, r.cells?.[1], r.cells?.[5]])).toEqual([['t2', 'item', '500', '$1.50'], ['t1', 'item', '1.5k', '$1.50']])
+  expect(detailRows('turns', view({ sessionLog: { ...sessionLog, turns: [] } })).at(-1)?.label).toBe('This file holds no prompts.')
+  expect(detailRows('turns', view({ sessionLog: { ...sessionLog, id: view().session } }))[0]?.open).toBeUndefined()
+  expect(detailRows('usage', view({ sessionLog })).some(r => r.open === '')).toBe(false)
+  const usage = sectionBlocks(visibleRows([
+    { kind: 'head', label: 'Total', value: '', share: null, indent: 0, fixed: true },
+    { kind: 'head', label: 'Sessions', value: '', share: null, indent: 0 },
+    { kind: 'item', label: 'one', value: '', share: null, indent: 0 },
+    { kind: 'head', label: 'Agents', value: '', share: null, indent: 0 },
+    { kind: 'item', label: 'main', value: '', share: null, indent: 0 },
+  ], []))
+  expect(usage.map(b => [b.isSection, b.items.map(i => i.row.label)])).toEqual([
+    [false, ['Total']],
+    [true, ['Sessions', 'one']],
+    [false, ['']],
+    [true, ['Agents', 'main']],
+  ])
 })

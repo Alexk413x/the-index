@@ -12,6 +12,8 @@ import type {
   IndexPullRequest,
   IndexTurn,
   IndexTurnRecord,
+  IndexTurnWeek,
+  IndexUsage,
   IndexUsageSummary,
   IndexWorktree,
 } from '../../types'
@@ -137,6 +139,7 @@ export type PanelView = {
   turn: IndexTurn | null
   sessionCostUsd: number | null
   usage: IndexUsageSummary | null
+  limits?: Pick<IndexUsage, 'fiveHour' | 'sevenDay' | 'otherLimits'> | null
   contextLog: readonly IndexContextPoint[]
   contextLimit: IndexContextLimit | null
   contextSeries: string | null
@@ -146,6 +149,7 @@ export type PanelView = {
   uncommitted: { added: number; removed: number; filesAdded: number; filesModified: number; filesDeleted: number } | null
   mergedPrs: readonly IndexMergedPr[]
   turnHistory: readonly IndexTurnRecord[]
+  turnWeek: IndexTurnWeek | null
   links: GitLinks
   basePrs: readonly IndexPullRequest[]
   worktrees?: readonly IndexWorktree[]

@@ -1,4 +1,4 @@
-import type { IndexCommit, IndexDeviceRepo, IndexGit, IndexMergedPr, IndexPullRequest, IndexRateLimit } from '../../types'
+import type { IndexCommit, IndexDeviceRepo, IndexGit, IndexAccountLimit, IndexAccountUsage, IndexMergedPr, IndexNamedLimit, IndexPullRequest, IndexRateLimit } from '../../types'
 import { repoWebFromRemote } from './format'
 
 export const BASE_REFS = [
@@ -350,7 +350,7 @@ export function parseJson(text: string): unknown {
   }
 }
 
-export type SharedLimits = { sevenDay: IndexRateLimit | null }
+export type SharedLimits = { fiveHour: IndexRateLimit | null; sevenDay: IndexRateLimit | null }
 
 export function parseSharedLimits(raw: unknown): SharedLimits {
   const pick = (key: string): IndexRateLimit | null => {
@@ -361,7 +361,56 @@ export function parseSharedLimits(raw: unknown): SharedLimits {
       resetsAt: (Number(w['resets_at']) || 0) * 1000,
     }
   }
-  return { sevenDay: pick('seven_day') }
+  return { fiveHour: pick('five_hour'), sevenDay: pick('seven_day') }
+}
+
+// The account usage reply, kept whole in the shared cache file with the time it was fetched.
+export function parseAccountUsage(raw: unknown, fetchedAt: number): IndexAccountUsage | null {
+  if (!isRecord(raw)) return null
+  const list: unknown[] = Array.isArray(raw['limits']) ? raw['limits'] : []
+  const modelOf = (entry: unknown): string => {
+    const scope = isRecord(entry) ? entry['scope'] : undefined
+    const model = isRecord(scope) ? scope['model'] : undefined
+    const name = isRecord(model) ? model['display_name'] : undefined
+    return typeof name === 'string' ? name.trim() : ''
+  }
+  const labelOf = (entry: Record<string, unknown>): string =>
+    modelOf(entry) || (entry['kind'] === 'weekly_all' ? 'Weekly' : String(entry['kind'] ?? '').replace(/_/g, ' '))
+  const limits = list.flatMap((entry): IndexAccountLimit[] => {
+    if (!isRecord(entry) || typeof entry['percent'] !== 'number') return []
+    const model = modelOf(entry)
+    const resetsAt = Date.parse(String(entry['resets_at'] ?? ''))
+    return [
+      {
+        kind: entry['kind'] === 'weekly_scoped' && model ? `seven_day_${model.toLowerCase()}` : entry['kind'] === 'weekly_all' ? 'seven_day' : String(entry['kind'] ?? ''),
+        label: labelOf(entry),
+        usedPercentage: entry['percent'],
+        resetsAt: Number.isFinite(resetsAt) ? resetsAt : 0,
+        severity: typeof entry['severity'] === 'string' ? entry['severity'] : '',
+      },
+    ]
+  })
+  const breakdown = raw['seven_day_breakdown']
+  const rows: unknown[] = isRecord(breakdown) && Array.isArray(breakdown['rows']) ? breakdown['rows'] : []
+  const surfaces = rows.flatMap((row): IndexAccountUsage['surfaces'][number][] =>
+    isRecord(row) && typeof row['display_name'] === 'string' && typeof row['percent'] === 'number' ? [{ name: row['display_name'], percent: row['percent'] }] : [],
+  )
+  const scoped: unknown[] = Array.isArray(raw['weekly_scoped_shares']) ? raw['weekly_scoped_shares'] : []
+  const shares = scoped.flatMap((row): IndexAccountUsage['shares'][number][] => {
+    if (!isRecord(row) || typeof row['used_percent_of_weekly'] !== 'number' || typeof row['allowance_percent_of_weekly'] !== 'number') return []
+    const entry = typeof row['limit_index'] === 'number' ? list[row['limit_index']] : undefined
+    return isRecord(entry) ? [{ label: labelOf(entry), usedPercent: row['used_percent_of_weekly'], allowancePercent: row['allowance_percent_of_weekly'] }] : []
+  })
+  const extra = raw['extra_usage']
+  return { fetchedAt, limits, surfaces, shares, extraUsage: isRecord(extra) && typeof extra['is_enabled'] === 'boolean' ? extra['is_enabled'] : null }
+}
+
+export function parseAccountCache(raw: unknown): IndexAccountUsage | null {
+  return isRecord(raw) && typeof raw['fetchedAt'] === 'number' ? parseAccountUsage(raw['reply'], raw['fetchedAt']) : null
+}
+
+export function accountModelLimits(account: IndexAccountUsage | null): IndexNamedLimit[] {
+  return (account?.limits ?? []).filter(l => l.kind.startsWith('seven_day_')).map(l => ({ kind: l.kind, usedPercentage: l.usedPercentage, resetsAt: l.resetsAt }))
 }
 
 export function serializeSharedLimits(limits: SharedLimits): string {
@@ -369,6 +418,7 @@ export function serializeSharedLimits(limits: SharedLimits): string {
   const put = (key: string, rl: IndexRateLimit | null) => {
     if (rl) out[key] = { used_percentage: rl.usedPercentage, resets_at: Math.round(rl.resetsAt / 1000) }
   }
+  put('five_hour', limits.fiveHour)
   put('seven_day', limits.sevenDay)
   return JSON.stringify(out)
 }

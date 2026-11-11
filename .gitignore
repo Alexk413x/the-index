@@ -5,6 +5,10 @@
 # Per-project local config
 .claude/*.local.md
 
+# Git worktrees and scratch copies made inside the project
+.claude/worktrees/
+.claude/scratch/
+
 # codebase-kg working file: a snapshot, not a source.
 .kg-export.json
 

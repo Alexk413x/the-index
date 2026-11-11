@@ -1,15 +1,20 @@
-import type { IndexPanel } from '../../../types'
+import type { IndexPanel, IndexRateLimit } from '../../../types'
 import { barChart, bucketReadings, lineChart } from '../charts'
-import { categoryLabel, fmtClock, fmtCost, fmtDur, fmtNum, fmtPercent, fmtStamp } from '../format'
+import { OWN_WEEK_FAMILY, categoryLabel, fmtClock, fmtCost, fmtDur, fmtNum, fmtPercent, fmtStamp, fmtUntil, modelFamily, modelWindowLabel } from '../format'
 import type { PanelView, RowItem } from '../panels'
-import { otherSessionAverages, sessionTotals, turnAverages, turnToRecord, type Averages, type SessionTotals } from '../turns'
-import { CHART_HEIGHT, CONTEXT_PICK, DETAIL_PICK, MIDDLE_WIDTH, TITLE_WIDTH, USAGE_DAYS } from './constants'
+import { sessionTotals, turnAverages, turnToRecord, type Averages, type SessionTotals } from '../turns'
+import { CHART_HEIGHT, CONTEXT_PICK, DETAIL_PICK, MIDDLE_WIDTH, ROW_GAP, TITLE_WIDTH, USAGE_DAYS } from './constants'
 import { padTo, type Kit } from './kit'
 
 const CONTEXT_CATEGORIES = ['System prompt', 'System tools', 'MCP tools', 'Custom agents', 'Memory files', 'Skills', 'Messages'] as const
 const CARD_LABEL = 18
 const CARD_COLUMN = 14
 const CONTEXT_STEP = 4
+const LIMIT_LABEL = 8
+const LIMIT_BAR = Math.max(1, Math.floor(MIDDLE_WIDTH / USAGE_DAYS)) * USAGE_DAYS - LIMIT_LABEL - ROW_GAP
+const LIMIT_FULL = '━'
+const LIMIT_EMPTY = '─'
+const LIMIT_UNKNOWN = '░'
 // None is orange: the Total line owns that colour.
 const CONTEXT_COLORS = ['#00afd7', '#5faf5f', '#d7d700', '#af5fd7', '#5f87ff', '#ff5faf', '#00d7af', '#c80000', '#afafff', '#87afaf']
 
@@ -180,19 +185,21 @@ function cardLines(panel: IndexPanel, view: PanelView, kit: Kit): RowItem[][] {
     }),
     [note(footer)],
   ]
-  const sessions = new Set(history.map(t => t.session)).size
-  const footer = history.length
-    ? `7-day avg covers ${history.length} ${history.length === 1 ? 'turn' : 'turns'} in ${sessions} ${sessions === 1 ? 'session' : 'sessions'}`
+  const week = view.turnWeek
+  const weekTurns = week?.turns ?? 0
+  const sessions = week?.sessions ?? 0
+  const footer = weekTurns
+    ? `7-day avg covers ${weekTurns} ${weekTurns === 1 ? 'turn' : 'turns'} in ${sessions} ${sessions === 1 ? 'session' : 'sessions'}`
     : 'the 7-day column fills as you work'
 
   if (panel === 'calls' || panel === 'callLines') {
     if (!current) return [[label('Last turn'), note('no turns yet')]]
     const now = turnAverages([current])
     const here = turnAverages(sessionTurns)
-    const week = turnAverages(history)
+    const weekly = weekTurns && week ? week.averages : null
     const row = (name: string, pick: (a: Averages) => number | null, show: (v: number) => string, better: Metric['better']): Metric => ({
       name,
-      values: [pick(now), pick(here), history.length ? pick(week) : null],
+      values: [pick(now), pick(here), weekly ? pick(weekly) : null],
       show,
       better,
     })
@@ -217,7 +224,7 @@ function cardLines(panel: IndexPanel, view: PanelView, kit: Kit): RowItem[][] {
       [
         {
           name: 'Lines changed',
-          values: [now, here, history.length ? week : null].map(a => (a ? linesText(a) : null)),
+          values: [now, here, weekly].map(a => (a ? linesText(a) : null)),
           show: whole,
           better: null,
         },
@@ -231,7 +238,7 @@ function cardLines(panel: IndexPanel, view: PanelView, kit: Kit): RowItem[][] {
 
   if (sessionTurns.length === 0) return [[label('Session'), note('no turns yet')]]
   const totals = sessionTotals(sessionTurns, view.sessionCostUsd)
-  const others = otherSessionAverages(history, sid)
+  const others = week?.others ?? null
   const pair = (name: string, pick: (s: SessionTotals) => number | null, show: (v: number) => string, better: Metric['better']): Metric => ({
     name,
     values: [pick(totals), others ? pick(others) : null],
@@ -291,10 +298,59 @@ function usageLines(view: PanelView, kit: Kit): RowItem[][] {
     notes[3] = note(`all time ${fmtNum(usage.allTokens)} · $${fmtCost(usage.allCostUsd)}`)
     notes[CHART_HEIGHT - 1] = note(`since ${usage.since}`)
   }
-  return [
+  const details: RowItem = { text: 'Details', color: cfg.colors.branch, pick: DETAIL_PICK, link: true, pad: TITLE_WIDTH - 7, detail: 'click to open the full usage breakdown' }
+  const lines = [
     ...chartRows('Usage', chart, notes),
     ...(usage?.since ? [[blankTitle(), { text: 'hover a day for its tokens', color: cfg.colors.icons, footer: true }]] : []),
+    ...limitLines(view, kit),
   ]
+  const middle = Math.floor(lines.length / 2)
+  const at = lines[middle]?.[0]?.text === '' ? middle : 1
+  return lines.map((row, r) => (r === at ? [details, ...row.slice(1)] : row))
+}
+
+function limitLines(view: PanelView, kit: Kit): RowItem[][] {
+  const { cfg } = view
+  const { title, blankTitle, colored, tokensColor } = kit
+  const limits = view.limits
+  const week = view.usage?.week
+  const live = (rl: IndexRateLimit | null | undefined): rl is IndexRateLimit => !!rl && !(rl.resetsAt && rl.resetsAt <= view.now)
+  const levelColor = (pct: number) => (pct > 80 ? cfg.colors.bad : pct > 60 ? cfg.colors.high : pct > 40 ? cfg.colors.warn : cfg.colors.good)
+  const familyTokens = (family: string) => (week ? week.models.filter(m => modelFamily(m.name) === family).reduce((sum, m) => sum + m.tokens, 0) : null)
+  const row = (label: string, rl: IndexRateLimit | null, tokens: number | null): RowItem[] => {
+    const pct = rl ? Math.trunc(rl.usedPercentage) : null
+    const shown = pct === null ? `${LIMIT_UNKNOWN.repeat(2)}%` : `${pct}%`
+    const figures = [
+      shown,
+      ...(tokens === null ? [] : [fmtNum(tokens)]),
+      ...(rl?.resetsAt ? [fmtUntil(rl.resetsAt, view.now)] : []),
+    ].join(' · ')
+    const filled = pct === null ? 0 : Math.round((Math.min(100, Math.max(0, pct)) / 100) * LIMIT_BAR)
+    const color = pct === null ? cfg.colors.icons : levelColor(pct)
+    const bar: RowItem[] =
+      pct === null
+        ? [{ text: LIMIT_UNKNOWN.repeat(LIMIT_BAR), color }]
+        : [
+            ...(filled > 0 ? [{ text: LIMIT_FULL.repeat(filled), color }] : []),
+            ...(filled < LIMIT_BAR ? [{ text: LIMIT_EMPTY.repeat(LIMIT_BAR - filled), color: cfg.colors.icons, ...(filled > 0 ? { tight: true } : {}) }] : []),
+          ]
+    return [
+      colored(label.padEnd(LIMIT_LABEL), tokensColor),
+      ...bar,
+      { text: figures, color },
+    ]
+  }
+  const own = `seven_day_${OWN_WEEK_FAMILY}`
+  const others = (limits?.otherLimits ?? []).filter(live)
+  const rows: RowItem[][] = []
+  if (live(limits?.fiveHour)) rows.push(row('5-hour', limits.fiveHour, null))
+  rows.push(row(modelWindowLabel(own) ?? OWN_WEEK_FAMILY, others.find(rl => rl.kind === own) ?? null, familyTokens(OWN_WEEK_FAMILY)))
+  rows.push(row('Weekly', live(limits?.sevenDay) ? limits.sevenDay : null, week?.tokens ?? null))
+  for (const rl of others) {
+    const label = modelWindowLabel(rl.kind)
+    if (label && rl.kind !== own) rows.push(row(label, rl, familyTokens(label.toLowerCase())))
+  }
+  return rows.map((line, r) => [r === 0 ? title('Limits') : blankTitle(), ...line])
 }
 
 export function meterLines(panel: IndexPanel, view: PanelView, kit: Kit): RowItem[][] {

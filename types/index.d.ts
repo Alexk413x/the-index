@@ -20,6 +20,8 @@ export type IndexTurn = {
   files: readonly string[]
   start: number
   end: number
+  model?: string
+  effort?: string
 }
 
 export type IndexTotals = {
@@ -44,12 +46,16 @@ export type IndexRateLimit = {
   resetsAt: number
 }
 
+export type IndexNamedLimit = IndexRateLimit & { kind: string }
+
 export type IndexUsage = {
   startedAt: number
   contextPercent: number | null
   contextTokens: number | null
   costUsd: number | null
+  fiveHour?: IndexRateLimit | null
   sevenDay: IndexRateLimit | null
+  otherLimits?: readonly IndexNamedLimit[]
   compactions: number
 }
 
@@ -128,6 +134,8 @@ export type IndexCallPoint = {
   linesRemoved?: number
   files?: readonly string[]
   kind?: string
+  model?: string
+  effort?: string
 }
 
 export type IndexTurnRecord = {
@@ -146,6 +154,8 @@ export type IndexTurnRecord = {
   files: number
   calls?: number
   sessionCostUsd?: number | null
+  model?: string
+  effort?: string
 }
 
 export type IndexContextPoint = {
@@ -159,6 +169,33 @@ export type IndexContextPoint = {
 export type IndexContextLimit = { window: number; threshold: number | null }
 
 export type IndexDetailTab = 'context' | 'turns' | 'usage'
+
+export type IndexAccountLimit = IndexNamedLimit & { label: string; severity: string }
+
+export type IndexAccountUsage = {
+  fetchedAt: number
+  limits: readonly IndexAccountLimit[]
+  surfaces: readonly { name: string; percent: number }[]
+  shares: readonly { label: string; usedPercent: number; allowancePercent: number }[]
+  extraUsage: boolean | null
+}
+
+export type IndexUsageLogSession = {
+  id: string
+  name: string
+  tokens: number
+  costUsd: number | null
+  agents: readonly IndexAgentTotal[]
+  models: readonly IndexAgentTotal[]
+  parts: readonly IndexUsagePart[]
+  turns: number
+}
+
+export type IndexUsageLogDay = IndexDayTotal & { sessions: readonly IndexUsageLogSession[] }
+
+export type IndexUsageLogMonth = { month: string; days: readonly IndexUsageLogDay[] }
+
+export type IndexSessionLog = { month: string; id: string; name: string; turns: readonly IndexTurnRecord[] }
 
 export type IndexContextDetail = {
   window: number
@@ -201,7 +238,59 @@ export type IndexMergedPr = {
 
 export type IndexDayTotal = { date: string; tokens: number; costUsd: number | null }
 
-export type IndexUsageSummary = { days: readonly IndexDayTotal[]; allTokens: number; allCostUsd: number; since: string | null }
+export type IndexAgentTotal = { name: string; tokens: number }
+
+export type IndexUsagePart = { agent: string; model: string; effort: string; tokens: number; costUsd: number | null; turns: number | null }
+
+export type IndexWeekUsage = {
+  days: number
+  tokens: number
+  costUsd: number | null
+  models: readonly IndexAgentTotal[]
+}
+
+export type IndexUsageSummary = {
+  days: readonly IndexDayTotal[]
+  allTokens: number
+  allCostUsd: number
+  since: string | null
+  week?: IndexWeekUsage
+}
+
+export type IndexTurnWeek = {
+  turns: number
+  sessions: number
+  averages: IndexAverages
+  others: IndexSessionTotals | null
+}
+
+export type IndexAverages = {
+  calls: number | null
+  cost: number | null
+  costPerMTok: number | null
+  cacheHit: number | null
+  tps: number | null
+  output: number | null
+  linesAdded: number | null
+  linesRemoved: number | null
+  linesPerMin: number | null
+  costPerLine: number | null
+  files: number | null
+}
+
+export type IndexSessionTotals = {
+  turns: number
+  calls: number | null
+  tokens: number
+  cacheHit: number | null
+  tps: number | null
+  cost: number | null
+  costPerTurn: number | null
+  linesAdded: number
+  linesRemoved: number
+  linesPerMin: number | null
+  costPerLine: number | null
+}
 
 export type IndexHover = { panel: IndexPanel; closing: boolean }
 
@@ -237,12 +326,16 @@ declare module 'claude-code' {
       baseCommits: readonly IndexCommit[]
       branchCommits: readonly IndexCommit[]
       turnHistory: readonly IndexTurnRecord[]
+      turnWeek: IndexTurnWeek | null
       mergedPrs: readonly IndexMergedPr[]
       basePrs: readonly IndexPullRequest[]
       worktrees: readonly IndexWorktree[]
       deviceRepos: readonly IndexDeviceRepo[]
       swarm: IndexSwarm | null
       usageSummary: IndexUsageSummary | null
+      accountUsage: IndexAccountUsage | null
+      usageLogs: readonly IndexUsageLogMonth[]
+      sessionLog: IndexSessionLog | null
     }
   }
 }

@@ -1,36 +1,11 @@
-import type { IndexTurn, IndexTurnRecord } from '../../types'
+import type { IndexAverages, IndexSessionTotals, IndexTurn, IndexTurnRecord, IndexTurnWeek } from '../../types'
 import { isRecord } from './git'
 
 const VERSION = 1
 export const HISTORY_MS = 7 * 86_400_000
 
-export type Averages = {
-  calls: number | null
-  cost: number | null
-  costPerMTok: number | null
-  cacheHit: number | null
-  tps: number | null
-  output: number | null
-  linesAdded: number | null
-  linesRemoved: number | null
-  linesPerMin: number | null
-  costPerLine: number | null
-  files: number | null
-}
-
-export type SessionTotals = {
-  turns: number
-  calls: number | null
-  tokens: number
-  cacheHit: number | null
-  tps: number | null
-  cost: number | null
-  costPerTurn: number | null
-  linesAdded: number
-  linesRemoved: number
-  linesPerMin: number | null
-  costPerLine: number | null
-}
+export type Averages = IndexAverages
+export type SessionTotals = IndexSessionTotals
 
 const KEYS = ['at', 'tokens', 'input', 'cacheRead', 'output', 'apiMs', 'spanMs', 'linesAdded', 'linesRemoved', 'files'] as const
 
@@ -50,6 +25,8 @@ export function parseTurns(data: unknown): IndexTurnRecord[] {
         costUsd: typeof cost === 'number' && Number.isFinite(cost) ? cost : null,
         ...(typeof calls === 'number' && Number.isFinite(calls) ? { calls } : {}),
         ...(typeof sessionCost === 'number' && Number.isFinite(sessionCost) ? { sessionCostUsd: sessionCost } : {}),
+        ...(typeof t['model'] === 'string' ? { model: t['model'] } : {}),
+        ...(typeof t['effort'] === 'string' ? { effort: t['effort'] } : {}),
       },
     ]
   })
@@ -73,6 +50,8 @@ export function turnToRecord(turn: IndexTurn, session: string, sessionCostUsd: n
     files: turn.files.length,
     calls: turn.calls,
     sessionCostUsd,
+    ...(turn.model ? { model: turn.model } : {}),
+    ...(turn.effort ? { effort: turn.effort } : {}),
   }
 }
 
@@ -180,7 +159,9 @@ export function otherSessionAverages(history: readonly IndexTurnRecord[], sessio
   const bySession = new Map<string, IndexTurnRecord[]>()
   for (const t of history) {
     if (t.session === session) continue
-    bySession.set(t.session, [...(bySession.get(t.session) ?? []), t])
+    const group = bySession.get(t.session)
+    if (group) group.push(t)
+    else bySession.set(t.session, [t])
   }
   const totals = [...bySession.values()].map(turns => sessionTotals(turns))
   if (totals.length === 0) return null
@@ -200,5 +181,14 @@ export function otherSessionAverages(history: readonly IndexTurnRecord[], sessio
     linesRemoved: mean(s => s.linesRemoved) ?? 0,
     linesPerMin: mean(s => s.linesPerMin),
     costPerLine: mean(s => s.costPerLine),
+  }
+}
+
+export function turnWeekOf(history: readonly IndexTurnRecord[], session: string): IndexTurnWeek {
+  return {
+    turns: history.length,
+    sessions: new Set(history.map(t => t.session)).size,
+    averages: turnAverages(history),
+    others: otherSessionAverages(history, session),
   }
 }

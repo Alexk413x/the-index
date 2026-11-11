@@ -5,6 +5,8 @@ import {
   MAIN,
   buildLines,
   cacheGlyph,
+  fiveHourGlyph,
+  modelWindowLabel,
   contextGlyph,
   nextChangeMs,
   dimHex,
@@ -33,6 +35,9 @@ import {
   applyStatus,
   emptyGit,
   parsePullRequests,
+  accountModelLimits,
+  parseAccountCache,
+  parseAccountUsage,
   parseSharedLimits,
   parseWorktrees,
   samePath,
@@ -135,7 +140,7 @@ describe('band lines', () => {
   test('before the first call every value is a placeholder', () => {
     const lines = buildLines(snapshot(), readConfig({}))
     expect(lines).toHaveLength(2)
-    expect(lineText(lines[0] ?? [])).toBe('Unknown ░░ | ☀ ░░m ○ ░░% ⧈ ░░% ░d░░h')
+    expect(lineText(lines[0] ?? [])).toBe('Unknown ░░ | ☀ ░░m ○ ░░% ◈ ░░% ⧈ ░░% ░d░░h')
     expect(lineText(lines[1] ?? [])).toBe(
       'Δ »░ ↑░░ ⤒░░░░ ⤓░░░░ ↓░░░░ ↯░░ ⌖░░% ≡+░░ -░░ ◷ ░░s $░.░░ | Σ ◦░ »░ ↑░░░ ⤒░░░░░ ⤓░░░░░ ↓░░░░ ↯░░ ⌖░░% ░░% ≡+░░░ -░░░ ◷ ░░m░░s $░.░░',
     )
@@ -224,7 +229,7 @@ describe('band lines', () => {
     })
     const lines = buildLines(snap, readConfig({}))
     expect(lineText(lines[0] ?? [])).toBe(
-      'Claude Opus 5.5 ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ⧈ ░░% ░d░░h',
+      'Claude Opus 5.5 ░░ | ☀ 50m 💥💥 ◑ 45% 1h2m ◈ ░░% ⧈ ░░% ░d░░h',
     )
     expect(lineText(lines[1] ?? [])).toBe(
       'Δ »3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ◷ 4.0s $0.12 | Σ ◦2 »5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ◷ 1m5s $1.50',
@@ -244,6 +249,41 @@ describe('band lines', () => {
     const line = lineText(buildLines(snapshot({ totals }), readConfig({}))[1] ?? [])
     expect(line).toContain('↓░░░░ ↯░░')
     expect(line).not.toContain('NaN')
+  })
+
+  test('a 5-hour window draws before the 7-day one only when the API reports it', () => {
+    const base = { startedAt: NOW, contextPercent: 10, contextTokens: 1, costUsd: null, compactions: 0 }
+    const sevenDay = { usedPercentage: 61, resetsAt: NOW + 2 * 86_400_000 }
+    const week = `◈ ░░% ⧈ 61% ${fmtUntil(sevenDay.resetsAt, NOW)}`
+    const without = lineText(buildLines(snapshot({ usage: { ...base, sevenDay } }), readConfig({}))[0] ?? [])
+    expect(without).toEndWith(week)
+    expect(without).not.toContain('◶')
+    expect(without).not.toContain('◷')
+    const fiveHour = { usedPercentage: 30, resetsAt: NOW + 3 * 3_600_000 }
+    const withFive = lineText(buildLines(snapshot({ usage: { ...base, fiveHour, sevenDay } }), readConfig({}))[0] ?? [])
+    expect(withFive).toEndWith(`${fiveHourGlyph(fiveHour, NOW)} 30% ${fmtUntil(fiveHour.resetsAt, NOW)} ${week}`)
+    const expired = lineText(buildLines(snapshot({ usage: { ...base, fiveHour: { usedPercentage: 30, resetsAt: NOW - 1 }, sevenDay } }), readConfig({}))[0] ?? [])
+    expect(expired).toBe(without)
+  })
+
+  test('the 5-hour glyph turns a quarter for each quarter of the window used', () => {
+    const left = (hours: number) => fiveHourGlyph({ usedPercentage: 1, resetsAt: NOW + hours * 3_600_000 }, NOW)
+    expect([left(4.9), left(3), left(2), left(0.5)]).toEqual(['◷', '◶', '◵', '◴'])
+    expect(fiveHourGlyph(null, NOW)).toBe('◷')
+  })
+
+  test('the Fable gauge draws before the 7-day one, and another model window after it, named', () => {
+    const sevenDay = { usedPercentage: 61, resetsAt: NOW + 2 * 86_400_000 }
+    const fable = { kind: 'seven_day_fable', usedPercentage: 12, resetsAt: NOW + 86_400_000 }
+    const usage = { startedAt: NOW, contextPercent: 10, contextTokens: 1, costUsd: null, compactions: 0, sevenDay, otherLimits: [fable, { ...fable, kind: 'spend_limit' }] }
+    const line = lineText(buildLines(snapshot({ usage }), readConfig({}))[0] ?? [])
+    expect(line).toEndWith(`◈ 12% ⧈ 61% ${fmtUntil(sevenDay.resetsAt, NOW)}`)
+    const opus = { ...fable, kind: 'seven_day_opus' }
+    const named = lineText(buildLines(snapshot({ usage: { ...usage, otherLimits: [opus] } }), readConfig({}))[0] ?? [])
+    expect(named).toEndWith(`◈ ░░% ⧈ 61% ${fmtUntil(sevenDay.resetsAt, NOW)} ⧈ Opus 12% ${fmtUntil(opus.resetsAt, NOW)}`)
+    expect(modelWindowLabel('seven_day_fable')).toBe('Fable')
+    expect(modelWindowLabel('seven_day')).toBeNull()
+    expect(modelWindowLabel('five_hour')).toBeNull()
   })
 
   test('toggled-off segments leave the band', () => {
@@ -342,9 +382,47 @@ describe('shared rate limits', () => {
   })
 
   test('the file keeps statusline.py seconds-based shape', () => {
-    const text = serializeSharedLimits({ sevenDay: { usedPercentage: 12, resetsAt: 1_700_000_000_000 } })
+    const text = serializeSharedLimits({ fiveHour: null, sevenDay: { usedPercentage: 12, resetsAt: 1_700_000_000_000 } })
     expect(JSON.parse(text)).toEqual({ seven_day: { used_percentage: 12, resets_at: 1_700_000_000 } })
-    expect(parseSharedLimits(JSON.parse(text)).sevenDay).toEqual({ usedPercentage: 12, resetsAt: 1_700_000_000_000 })
+    expect(parseSharedLimits(JSON.parse(text))).toEqual({ fiveHour: null, sevenDay: { usedPercentage: 12, resetsAt: 1_700_000_000_000 } })
+    const both = serializeSharedLimits({ fiveHour: { usedPercentage: 40, resetsAt: 1_700_000_100_000 }, sevenDay: null })
+    expect(JSON.parse(both)).toEqual({ five_hour: { used_percentage: 40, resets_at: 1_700_000_100 } })
+    expect(parseSharedLimits(JSON.parse(both)).fiveHour).toEqual({ usedPercentage: 40, resetsAt: 1_700_000_100_000 })
+  })
+
+  test('the account usage reply gives its limits, surfaces and model shares, and the band takes the per-model ones', () => {
+    const resets = '2026-11-11T14:00:00.156901+00:00'
+    const reply = {
+      limits: [
+        { kind: 'weekly_all', percent: 67, severity: 'normal', resets_at: resets, scope: null },
+        { kind: 'weekly_scoped', percent: 15, severity: 'warning', resets_at: resets, scope: { model: { id: null, display_name: 'Fable' }, surface: null } },
+        { kind: 'weekly_scoped', percent: null, scope: { model: { display_name: 'Opus' } } },
+      ],
+      seven_day_breakdown: { rows: [{ key: 'claude_code', display_name: 'Claude Code', percent: 99 }, { key: 'x' }] },
+      weekly_scoped_shares: [{ limit_index: 1, used_percent_of_weekly: 8, allowance_percent_of_weekly: 50 }],
+      extra_usage: { is_enabled: false },
+    }
+    const at = Date.parse(resets)
+    const account = parseAccountUsage(reply, NOW)
+    expect(account).toEqual({
+      fetchedAt: NOW,
+      limits: [
+        { kind: 'seven_day', label: 'Weekly', usedPercentage: 67, resetsAt: at, severity: 'normal' },
+        { kind: 'seven_day_fable', label: 'Fable', usedPercentage: 15, resetsAt: at, severity: 'warning' },
+      ],
+      surfaces: [{ name: 'Claude Code', percent: 99 }],
+      shares: [{ label: 'Fable', usedPercent: 8, allowancePercent: 50 }],
+      extraUsage: false,
+    })
+    expect(accountModelLimits(account)).toEqual([{ kind: 'seven_day_fable', usedPercentage: 15, resetsAt: at }])
+    expect(accountModelLimits(null)).toEqual([])
+    expect(parseAccountUsage('none', NOW)).toBeNull()
+    expect(parseAccountUsage({}, NOW)).toEqual({ fetchedAt: NOW, limits: [], surfaces: [], shares: [], extraUsage: null })
+    expect(parseAccountCache({ fetchedAt: NOW, reply })).toEqual(account)
+    expect(parseAccountCache({ fetchedAt: NOW, reply: null })).toBeNull()
+    expect(parseAccountCache({ reply })).toBeNull()
+    expect(readConfig({}).accountLimits).toBe(true)
+    expect(readConfig({ account_limits: false }).accountLimits).toBe(false)
   })
 })
 

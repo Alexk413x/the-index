@@ -145,6 +145,21 @@ async function shellOpen($: EngineInterface, target: string): Promise<void> {
   $.ui.toast(`Could not open ${target}`)
 }
 
+// The mod API has no delete call, so the platform's own command removes the folder. The path
+// travels in an environment variable on Windows, as in shellOpen.
+export async function removeFolder($: EngineInterface, dir: string): Promise<boolean> {
+  const isWindows = (await $.env.get('OS')) === 'Windows_NT'
+  const argv = isWindows
+    ? ['powershell', '-NoProfile', '-NonInteractive', '-Command', 'Remove-Item -LiteralPath $env:THE_INDEX_REMOVE -Recurse -Force']
+    : ['rm', '-rf', '--', dir]
+  const env = isWindows ? { THE_INDEX_REMOVE: dir.replace(/\//g, '\\') } : undefined
+  try {
+    return (await $.process.run(argv, env ? { timeoutMs: 30_000, env } : { timeoutMs: 30_000 })).exitCode === 0
+  } catch {
+    return false
+  }
+}
+
 export async function openUrl($: EngineInterface, href: string): Promise<void> {
   let url: URL
   try {

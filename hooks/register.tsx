@@ -16,24 +16,28 @@ import {
   recordEdit,
   recordTurn,
   recordUsage,
+  refreshAccountLimits,
   refreshCompactThreshold,
   scheduleTick,
   seedLedgerCost,
   setCacheTtl,
   startCall,
   startSessionShare,
-  syncLedger,
+  syncShared,
 } from './usage'
 
 const GIT_STAT_EVERY_MS = 10_000
 const GIT_LOCAL_EVERY_MS = 60_000
 const GIT_FULL_EVERY_MS = 300_000
 const HOST_MIN_GAP_MS = 300_000
+const FAULT_REDRAW_MS = 3000
+const FAULT_REDRAWS_MAX = 5
 const PR_COMMAND = /\b(gh\s+pr|git\s+push)\b/
 // The validator reads a matcher's value only from a const in this file, so the pane id is repeated here.
 const DETAIL_PANE: typeof PANE_ID = 'the-index-detail'
 
 let hostAt = 0
+let faultRedraws = 0
 
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
@@ -47,13 +51,15 @@ export const register: Register = (on, options) => {
       refreshWorktrees($),
       loadHarnesses($),
       seedLedgerCost($),
-      syncLedger($),
       refreshCompactThreshold($),
       $.session.usage().then(u => recordUsage($, u)),
       refreshSwarm($),
     ])
     hostAt = await $.clock.now()
     await stampRepo($)
+    // Not awaited: the first pass reads every session's file of two months.
+    void syncShared($)
+    if (cfg.accountLimits) void refreshAccountLimits($)
     scheduleTick($, cfg)
     $.clock.every(GIT_STAT_EVERY_MS, () => {
       pollRepo($)
@@ -67,7 +73,7 @@ export const register: Register = (on, options) => {
     })
     $.clock.every(GIT_FULL_EVERY_MS, () => {
       refreshWorktreesSoon($)
-      void syncLedger($)
+      void syncShared($)
       void refreshCompactThreshold($)
     })
     return result
@@ -76,6 +82,19 @@ export const register: Register = (on, options) => {
   on('ui.message', { component: 'AbovePrompt' }, async ($, e) => onBandMessage($, e))
 
   on('ui.message', { component: 'Pane' }, async ($, e) => onPaneMessage($, e))
+
+  // After a Client fails twice the engine draws nothing at its site until a plugin asks for a redraw.
+  on('ui.fault', async ($, e, next) => {
+    const result = await next(e)
+    $.ui.log(`the-index: ${e.module} failed while ${e.phase}: ${e.reason}`, { to: 'debug' })
+    if (faultRedraws < FAULT_REDRAWS_MAX) {
+      faultRedraws += 1
+      $.clock.after(FAULT_REDRAW_MS, () => {
+        $.ui.invalidate('ui.render')
+      })
+    }
+    return result
+  })
 
   on('ui.close', async ($, e, next) => {
     const result = await next(e)
@@ -154,6 +173,7 @@ export const register: Register = (on, options) => {
 
   on('session.measure', async ($, e, next) => {
     await recordUsage($, e)
+    if (cfg.accountLimits) void refreshAccountLimits($)
     return next(e)
   })
 

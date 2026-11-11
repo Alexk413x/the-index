@@ -1,16 +1,19 @@
 import { expect, mock, test, type MockClock, type TestBody } from 'claude-code/testing'
 import type { On } from 'claude-code'
 
+import { monthKey, monthsBack } from '../hooks/lib/share'
+
 const START = 1_800_000_000_000
 const REPO = 'C:/work/app'
+const SHARE = `C:/nobody/.claude/the-index/usage/${monthKey(START)}`
 const TRANSCRIPT = 'C:/nobody/.claude/projects/C--work-app/abc.jsonl'
 
-type Calls = { usage: number; breakdown: number; reads: Map<string, number>; writes: Map<string, number> }
+type Calls = { usage: number; breakdown: number; reads: Map<string, number>; writes: Map<string, number>; runs: { argv: readonly string[]; env?: Record<string, string> }[] }
 
 type Harness = { clock: MockClock; calls: Calls; files: Map<string, string>; sizes: Map<string, number> }
 
 function harness(on: On): Harness {
-  const calls: Calls = { usage: 0, breakdown: 0, reads: new Map(), writes: new Map() }
+  const calls: Calls = { usage: 0, breakdown: 0, reads: new Map(), writes: new Map(), runs: [] }
   const files = new Map<string, string>()
   const sizes = new Map<string, number>()
   const clock = mock.clock(on, { now: START })
@@ -51,7 +54,11 @@ function harness(on: On): Harness {
   on('session.version', () => ({ value: { version: '2.1.288' } }) as never)
   on('session.measure', () => ({ changed: [] }))
   on('classic.UserPromptSubmit', () => ({}))
-  on('process.run', () => ({ value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }))
+  on('process.run', ($, e) => {
+    const { argv, init } = e as { argv: readonly string[]; init?: { env?: Record<string, string> } }
+    calls.runs.push({ argv, ...(init?.env ? { env: init.env } : {}) })
+    return { value: { exitCode: 1, stdout: '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false } }
+  })
   on('turn.step', async function* ($, e) {
     return {
       turnId: e.turnId,
@@ -67,7 +74,10 @@ function harness(on: On): Harness {
   on('fs.list', ($, e) => {
     const dir = slash(e)
     const names = [...files.keys()].filter(p => p.startsWith(`${dir}/`) && !p.slice(dir.length + 1).includes('/')).map(p => p.slice(dir.length + 1))
-    return { value: names.map(entry) } as never
+    const folders = [...new Set([...files.keys()].filter(p => p.startsWith(`${dir}/`) && p.slice(dir.length + 1).includes('/')).map(p => p.slice(dir.length + 1).split('/')[0] ?? ''))]
+    return {
+      value: [...names.map(name => ({ ...entry(name), size: files.get(`${dir}/${name}`)?.length ?? 0 })), ...folders.map(name => ({ ...entry(name), kind: 'dir' }))],
+    } as never
   })
   on('fs.stat', ($, e) => {
     const path = slash(e)
@@ -93,7 +103,7 @@ function harness(on: On): Harness {
   return { clock, calls, files, sizes }
 }
 
-const props = { hasSurvey: false, isWorking: false, maxRows: 10, bodyColumns: 200, scroll: { offset: 0, bodyRows: 10 }, view: {} }
+const props = { hasSurvey: false, isCollapsed: false, isWorking: false, maxRows: 10, bodyColumns: 200, scroll: { offset: 0, bodyRows: 10 }, view: {} }
 
 async function start($: Parameters<TestBody>[0]): Promise<void> {
   await $.session.start({ cwd: REPO, surface: 'terminal', isInteractive: true } as never)
@@ -173,8 +183,67 @@ test('the shared usage file is written when a step adds to it, not on a sync wit
   await start($)
   await step($)
   await h.clock.advance(5100)
-  const path = 'C:/nobody/.claude/the-index-usage.json'
+  const path = `${SHARE}/abc.json`
   expect(h.calls.writes.get(path)).toBe(1)
   await h.clock.advance(300_000)
   expect(h.calls.writes.get(path)).toBe(1)
+})
+
+test('another session file is read once, and again only after it changes', async ($, on) => {
+  const h = harness(on)
+  const otherPath = `${SHARE}/other.json`
+  const turn = (id: string) => ({ id, session: 'other', at: START - 1000, tokens: 100, input: 90, cacheRead: 80, output: 10, apiMs: 1000, spanMs: 2000, linesAdded: 0, linesRemoved: 0, files: 0, costUsd: 0.1, calls: 1 })
+  const file = (count: number) => JSON.stringify({ version: 1, session: 'other', name: 'peer', days: {}, turns: Array.from({ length: count }, (_, i) => turn(`o${i}`)) })
+  h.files.set(otherPath, file(50))
+  await start($)
+  await h.clock.advance(1)
+  expect(h.calls.reads.get(otherPath)).toBe(1)
+  await step($)
+  await h.clock.advance(5100)
+  await h.clock.advance(300_000)
+  expect(h.calls.reads.get(otherPath)).toBe(1)
+  expect(h.calls.writes.get(otherPath)).toBeUndefined()
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props })
+  await band.post({ hover: true }, { in: 'calls-chip' })
+  await h.clock.advance(310)
+  const lines = ((await band.find({ key: 'calls-row' }))?.props['props'] as { lines: { text: string }[][] }).lines
+  expect(lines.at(-1)?.at(-1)?.text).toBe('7-day avg covers 50 turns in 1 session')
+  await band.unmount()
+  h.files.set(otherPath, file(51))
+  await h.clock.advance(300_000)
+  expect(h.calls.reads.get(otherPath)).toBe(2)
+})
+
+test('a resumed session adds to the file it left', async ($, on) => {
+  const h = harness(on)
+  const today = new Date(START)
+  const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
+  const path = `${SHARE}/abc.json`
+  h.files.set(path, JSON.stringify({ version: 1, session: 'abc', name: 'app', days: { [day]: { tokens: 5000, costStart: 0, costEnd: 0.25, agents: { main: 5000 } } }, turns: [] }))
+  await start($)
+  await h.clock.advance(1)
+  await step($)
+  await h.clock.advance(5100)
+  const saved = JSON.parse(h.files.get(path) ?? '{}') as { days: Record<string, { tokens: number; agents: Record<string, number> }> }
+  expect(saved.days[day]?.tokens).toBe(5000 + 10_200)
+  expect(saved.days[day]?.agents['main']).toBe(5000 + 10_200)
+})
+
+test('a passed month keeps its day totals, and its folder goes after three more months', async ($, on) => {
+  const h = harness(on)
+  const root = 'C:/nobody/.claude/the-index/usage'
+  const file = (date: string) => JSON.stringify({ version: 1, session: 'old', name: 'old', days: { [date]: { tokens: 700, costStart: 0, costEnd: 1 } }, turns: [] })
+  const kept = monthsBack(monthKey(START), 2)
+  const gone = monthsBack(monthKey(START), 4)
+  h.files.set(`${root}/${kept}/old.json`, file(`${kept}-10`))
+  h.files.set(`${root}/${gone}/old.json`, file(`${gone}-10`))
+  await start($)
+  await h.clock.advance(1)
+  expect(JSON.parse(h.files.get(`${root}/totals/${kept}.json`) ?? '{}')).toEqual({ version: 1, days: [{ date: `${kept}-10`, tokens: 700, costUsd: 1 }] })
+  expect(JSON.parse(h.files.get(`${root}/totals/${gone}.json`) ?? '{}')).toEqual({ version: 1, days: [{ date: `${gone}-10`, tokens: 700, costUsd: 1 }] })
+  const removals = h.calls.runs.filter(r => [...r.argv, ...Object.values(r.env ?? {})].some(text => text.replace(/\\/g, '/').endsWith(`/the-index/usage/${gone}`)))
+  expect(removals).toHaveLength(1)
+  expect(h.calls.runs.some(r => [...r.argv, ...Object.values(r.env ?? {})].some(text => text.replace(/\\/g, '/').endsWith(`/the-index/usage/${kept}`)))).toBe(false)
+  await h.clock.advance(300_000)
+  expect(h.calls.runs.filter(r => r === removals[0] || [...r.argv, ...Object.values(r.env ?? {})].some(text => text.replace(/\\/g, '/').endsWith(`/the-index/usage/${gone}`)))).toHaveLength(1)
 })

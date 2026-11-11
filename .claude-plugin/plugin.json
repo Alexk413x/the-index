@@ -1,7 +1,7 @@
 {
   "name": "the-index",
   "displayName": "The Index",
-  "version": "0.20.0",
+  "version": "0.21.0",
   "description": "A band above the prompt that shows the status line: session, model, context, cache, rate limits, per-call and session telemetry, and git diffs. With a subagent transcript open, it shows that agent's model, effort, type and status.",
   "author": {
     "name": "Alexk413x",
@@ -93,8 +93,14 @@
     },
     "show_rate_limits": {
       "type": "boolean",
-      "title": "Show: 7-day rate limit",
-      "description": "Draw the 7-day rate limit segment.",
+      "title": "Show: rate limits",
+      "description": "Draw the 7-day rate limit, and the 5-hour one on plans that have it.",
+      "default": true
+    },
+    "account_limits": {
+      "type": "boolean",
+      "title": "Read per-model weekly limits",
+      "description": "While a session is active, and at most every 5 minutes across all sessions, ask your Anthropic account for the per-model weekly limits, such as Fable. Claude Code signs the request; the plugin never reads your login. Turn off to make no account request.",
       "default": true
     },
     "show_calls": {

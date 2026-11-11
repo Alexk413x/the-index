@@ -18,8 +18,8 @@ through the `alexk413x` marketplace in the `Alexk413x/marketplace` repo.
   - `hooks/pane.tsx` — the Details pane: opening, its messages, the texts it reads, and
     its drawing.
   - `hooks/usage.ts` — rate limits and the shared limits file, the context log and
-    limit, compactions, call and turn totals, the band's tick, and the shared usage and
-    turn files.
+    limit, compactions, call and turn totals, the band's tick, and the per-session usage
+    files.
   - `hooks/repo.ts` — git snapshots, pull requests, worktrees, device repos, and the
     polls that keep them current.
   - `hooks/host.ts` — session and IDE info, agent colours, agent tabs, sentinel-swarm,
@@ -39,8 +39,10 @@ through the `alexk413x` marketplace in the `Alexk413x/marketplace` repo.
   - `git.ts` — git output parsers and the shared rate-limit file's format.
   - `agents.ts` — agent file frontmatter and the theme key of an agent colour.
   - `charts.ts` — braille line charts and block bar charts as row items.
-  - `ledger.ts` — the shared daily usage file's format, merge and summary.
-  - `turns.ts` — the shared turn history file's format, merge, and the cards' averages.
+  - `ledger.ts` — a day's usage entry, its split by agent, model and effort, and the usage summary.
+  - `share.ts` — the per-session usage files' format, their split by month, a passed month's totals, and
+    the month, day and session listing for the Details pane.
+  - `turns.ts` — a turn record's format and the cards' averages.
   - `detail.ts` — the Details pane's tabs, rows and column layout, and the context
     breakdown.
 - `hooks/clients/` — the `Client` modules. They have no `$`.
@@ -72,5 +74,11 @@ through the `alexk413x` marketplace in the `Alexk413x/marketplace` repo.
 - A render hook never writes state. Timers and event hooks write; the band reads.
 - Never show an invented figure. A value the API doesn't give is a `░` placeholder.
 - Keep the shared rate-limit file's path and shape the same as `statusline.py`'s.
-- Before committing, run `claude plugin test .`, `npx -p typescript@5 tsc -p .` and
+- A session writes only its own file under `the-index/usage/<month>/`. Never write
+  another session's file; the one shared write is a passed month's file in `totals/`,
+  which every session computes the same. A month's folder is removed only after its
+  totals file reads back, and only once three more full months have passed.
+- State holds only what the band draws. Other sessions' turns stay in module memory:
+  the band reads state on every draw.
+- Before committing, run `claude plugin test .`, `npx -p typescript@7 tsc -p .` and
   `claude plugin validate --strict .`. Local results are the gate.

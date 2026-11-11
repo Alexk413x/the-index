@@ -31,6 +31,12 @@ const SYM_TOT = 'Σ'
 const SYM_CALLS = '»'
 const SYM_TURNS = '◦'
 const SYM_7D = '⧈'
+const SYM_5H = ['◷', '◶', '◵', '◴'] as const
+const FIVE_HOURS_MS = 5 * 3_600_000
+const MODEL_WINDOW = /^seven_day_(.+)$/
+const SYM_FABLE = '◈'
+// Fable has a weekly limit of its own, so its week draws beside the 7-day window.
+export const OWN_WEEK_FAMILY = 'fable'
 const SYM_CTX = ['○', '◔', '◑', '◕', '●'] as const
 const NERD_CTX_EMPTY = 0xf0766
 const NERD_CTX_SLICE_1 = 0xf0a9e
@@ -99,6 +105,7 @@ export type Config = {
   dim: number
   cacheTtlMs: number
   glyphs: 'unicode' | 'nerd'
+  accountLimits: boolean
   show: Readonly<Record<Segment, boolean>>
   colors: Readonly<Record<ColorName, string>>
   tinted: readonly ColorName[]
@@ -143,7 +150,7 @@ export function readConfig(options: PluginOptions): Config {
   }
   const cacheTtlMs = options['cache_ttl'] === '5m' ? 300_000 : 3_600_000
   const glyphs = options['glyphs'] === 'nerd' ? 'nerd' : 'unicode'
-  return { dim, cacheTtlMs, glyphs, show, colors, tinted }
+  return { dim, cacheTtlMs, glyphs, accountLimits: options['account_limits'] !== false, show, colors, tinted }
 }
 
 export function tint(cfg: Config, color: string | undefined): Config {
@@ -270,6 +277,18 @@ export function contextGlyph(pct: number, glyphs: Config['glyphs']): string {
   return SYM_CTX[0]
 }
 
+export function fiveHourGlyph(rl: IndexRateLimit | null | undefined, nowMs: number): string {
+  if (!rl?.resetsAt || rl.resetsAt <= nowMs) return SYM_5H[0]
+  const elapsed = FIVE_HOURS_MS - (rl.resetsAt - nowMs)
+  const quarter = Math.min(4, Math.max(1, Math.ceil(elapsed / (FIVE_HOURS_MS / 4))))
+  return SYM_5H[quarter - 1] ?? SYM_5H[0]
+}
+
+export function modelWindowLabel(kind: string): string | null {
+  const name = MODEL_WINDOW.exec(kind)?.[1]
+  return name ? name.charAt(0).toUpperCase() + name.slice(1).replace(/_/g, ' ') : null
+}
+
 export function cacheGlyph(frac: number): string {
   if (frac <= 0) return SYM_COLD
   if (frac > 0.5) return SYM_CACHE[0]
@@ -287,8 +306,9 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   const last = snap.totals.lastResponseAt
   if (cfg.show.cache && last !== null) candidates.push(untilStep(last + (snap.totals.cacheTtlMs ?? cfg.cacheTtlMs) - snap.now))
   if (cfg.show.rate_limits) {
-    const rl = snap.usage?.sevenDay
-    if (rl?.resetsAt) candidates.push(untilStep(rl.resetsAt - snap.now))
+    for (const rl of [snap.usage?.fiveHour, snap.usage?.sevenDay, ...(snap.usage?.otherLimits ?? [])]) {
+      if (rl?.resetsAt) candidates.push(untilStep(rl.resetsAt - snap.now))
+    }
   }
   return Math.max(1000, Math.min(...candidates))
 }
@@ -420,15 +440,29 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
   if (window.length) gauges.push(withMenu(window, 'context'))
 
   if (cfg.show.rate_limits) {
-    const rl = usage?.sevenDay
-    if (rl && !(rl.resetsAt && rl.resetsAt <= snap.now)) {
+    const live = (rl: IndexRateLimit | null | undefined): rl is IndexRateLimit => !!rl && !(rl.resetsAt && rl.resetsAt <= snap.now)
+    const reading = (rl: IndexRateLimit, lead: Seg[]): Seg[] => {
       const p = Math.trunc(rl.usedPercentage)
-      const bits: Seg[] = [icon(SYM_7D), sp, seg(`${p}%`, ctxColor(p))]
+      const bits = [...lead, sp, seg(`${p}%`, ctxColor(p))]
       if (rl.resetsAt) bits.push(sp, seg(fmtUntil(rl.resetsAt, snap.now), c.resets))
-      gauges.push(withMenu(bits, 'usage'))
-    } else {
-      gauges.push(withMenu([icon(SYM_7D), sp, seg(`${SHADE.repeat(2)}%`, c.good), sp, seg(`${SHADE}d${SHADE.repeat(2)}h`, c.resets)], 'usage'))
+      return bits
     }
+    const limits: Seg[][] = []
+    // Only some plans have a 5-hour window, so it draws when the API reports one and has no placeholder.
+    if (live(usage?.fiveHour)) limits.push(reading(usage.fiveHour, [icon(fiveHourGlyph(usage.fiveHour, snap.now))]))
+    const ownWeek = usage?.otherLimits?.find(rl => rl.kind === `seven_day_${OWN_WEEK_FAMILY}` && live(rl))
+    const ownPct = ownWeek ? Math.trunc(ownWeek.usedPercentage) : null
+    limits.push([icon(SYM_FABLE), sp, ownPct === null ? seg(`${SHADE.repeat(2)}%`, c.good) : seg(`${ownPct}%`, ctxColor(ownPct))])
+    limits.push(
+      live(usage?.sevenDay)
+        ? reading(usage.sevenDay, [icon(SYM_7D)])
+        : [icon(SYM_7D), sp, seg(`${SHADE.repeat(2)}%`, c.good), sp, seg(`${SHADE}d${SHADE.repeat(2)}h`, c.resets)],
+    )
+    for (const rl of usage?.otherLimits ?? []) {
+      const label = modelWindowLabel(rl.kind)
+      if (label && rl !== ownWeek && live(rl)) limits.push(reading(rl, [icon(SYM_7D), sp, seg(label, c.model)]))
+    }
+    gauges.push(withMenu(joinWith(limits, sp), 'usage'))
   }
   if (gauges.length) line1.push(joinWith(gauges, sp))
 

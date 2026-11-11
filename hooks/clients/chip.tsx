@@ -5,7 +5,8 @@ type ChipProps = {
   color: string
   look?: 'button' | 'link'
   isActive?: boolean
-  parts?: { text: string; color: string; inverse?: boolean }[]
+  isBold?: boolean
+  parts?: { text: string; color: string; inverse?: boolean; bold?: boolean }[]
 }
 type ChipState = { isHovered: boolean }
 
@@ -36,6 +37,7 @@ const Chip: ClientModule<ChipProps, ChipState> = (props, surface) => {
             key={`part${i}`}
             color={part.color}
             inverse={part.inverse === true}
+            bold={part.bold === true}
             underline={isHovered || props.isActive === true}
           >
             {part.text}
@@ -45,7 +47,7 @@ const Chip: ClientModule<ChipProps, ChipState> = (props, surface) => {
     )
   }
   return props.look === 'link' ? (
-    <Text color={props.color} underline={isHovered}>
+    <Text color={props.color} underline={isHovered} bold={props.isBold === true}>
       {props.text}
     </Text>
   ) : (
