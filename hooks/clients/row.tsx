@@ -2,7 +2,7 @@ import type { ClientModule } from 'claude-code'
 
 import type { RowItem } from '../lib/panels'
 
-type RowProps = { lines: RowItem[][]; gap: number; hoverColor: string; fade: boolean; closing?: boolean; target: string }
+type RowProps = { lines: RowItem[][]; gap: number; fade: boolean; closing?: boolean; target: string }
 type RowState = { step: number; goal: number; hovered: string | null; focus: number }
 
 const FADE_STEPS = 10
@@ -103,8 +103,8 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
               : [
                   <Text
                     key={`item${y}-${i}`}
-                    color={fadeColor(hoverKey(item) !== null && hoverKey(item) === state.hovered ? props.hoverColor : (swap?.color ?? item.color), amount)}
-                    underline={item.link === true && item.pick === state.hovered}
+                    color={fadeColor(swap?.color ?? item.color, amount)}
+                    inverse={hoverKey(item) !== null && hoverKey(item) === state.hovered}
                   >
                     {item.footer && detail !== undefined ? detail : (swap?.text ?? item.text)}
                   </Text>,

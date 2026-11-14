@@ -3,7 +3,6 @@ import type { ClientModule } from 'claude-code'
 type ChipProps = {
   text: string
   color: string
-  look?: 'button' | 'link'
   isActive?: boolean
   isBold?: boolean
   parts?: { text: string; color: string; inverse?: boolean; bold?: boolean }[]
@@ -29,31 +28,22 @@ const Chip: ClientModule<ChipProps, ChipState> = (props, surface) => {
     })
   }
   const isHovered = surface.state?.isHovered === true
-  if (props.parts) {
-    return (
-      <Box flexDirection="row">
-        {props.parts.map((part, i) => (
-          <Text
-            key={`part${i}`}
-            color={part.color}
-            inverse={part.inverse === true}
-            bold={part.bold === true}
-            underline={isHovered || props.isActive === true}
-          >
-            {part.text}
-          </Text>
-        ))}
-      </Box>
-    )
-  }
-  return props.look === 'link' ? (
-    <Text color={props.color} underline={isHovered} bold={props.isBold === true}>
-      {props.text}
-    </Text>
-  ) : (
-    <Text color={props.color} inverse={isHovered || props.isActive === true}>
-      {props.text}
-    </Text>
+  const isActive = props.isActive === true
+  const parts = props.parts ?? [{ text: props.text, color: props.color, bold: props.isBold === true }]
+  return (
+    <Box flexDirection="row">
+      {parts.map((part, i) => (
+        <Text
+          key={`part${i}`}
+          color={part.color}
+          inverse={isHovered !== (part.inverse === true)}
+          bold={part.bold === true}
+          underline={isActive}
+        >
+          {part.text}
+        </Text>
+      ))}
+    </Box>
   )
 }
 

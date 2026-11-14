@@ -187,7 +187,7 @@ async function drawBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, cfg: 
           <Client
             key={`${panel}-pin`}
             module="./clients/chip.tsx"
-            props={{ text: isPinnedRow ? PIN_ON : PIN_OFF, color: look.colors.model }}
+            props={{ text: isPinnedRow ? PIN_ON : PIN_OFF, color: look.colors.model, isActive: isPinnedRow }}
           />
           {rows.slice(1).map((_, i) => (
             <Text key={`${panel}-pin-space${i}`}>{PIN_SPACE}</Text>
@@ -199,7 +199,6 @@ async function drawBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, cfg: 
           props={{
             lines: rows,
             gap: ROW_GAP,
-            hoverColor: look.colors.model,
             fade: true,
             closing: !isPinnedRow && hovering?.panel === panel && hovering.closing,
             target,
@@ -265,7 +264,6 @@ async function drawBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, cfg: 
                 props={{
                   text: run.map(s => s.text).join(''),
                   color: first.color,
-                  look: 'link',
                   ...(run.length > 1 ? { parts: run.map(s => ({ text: s.text, color: s.color })) } : {}),
                 }}
               />

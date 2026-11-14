@@ -658,8 +658,7 @@ test('a click in a row picks the choice under the pointer, and Left, Right and E
   await band.advance(400)
   await band.pointer({ type: 'move', x: TITLE_WIDTH + ROW_GAP, y: 0, in: 'effort-row' })
   const low = await band.find({ in: 'effort-row', type: 'Text', text: /low/ })
-  expect(low?.props['underline']).toBe(false)
-  expect(low?.props['color']).toBe(readConfig({}).colors.model)
+  expect(low?.props['inverse']).toBe(true)
   await band.pointer({ type: 'up', x: TITLE_WIDTH + ROW_GAP, y: 0, button: 'left', in: 'effort-row' })
   expect(commands).toEqual(['effort low'])
 
@@ -730,6 +729,20 @@ test('a pinned row stays open when the pointer leaves it', async ($, on) => {
   await band.unmount()
 })
 
+test('a hovered chip draws inverse and a pinned chip draws underlined', async ($, on) => {
+  engine(on)
+  await step($, 'claude-opus-5-5', 'high')
+  const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
+  const chipText = async () => band.find({ in: 'effort-chip', type: 'Text' })
+  expect((await chipText())?.props).toMatchObject({ inverse: false, underline: false })
+  await band.pointer({ type: 'enter', x: 0, y: 0, in: 'effort-chip' })
+  expect((await chipText())?.props).toMatchObject({ inverse: true, underline: false })
+  await band.pointer({ type: 'up', x: 0, y: 0, button: 'left', in: 'effort-chip' })
+  await band.pointer({ type: 'leave', x: 0, y: 0, in: 'effort-chip' })
+  expect((await chipText())?.props).toMatchObject({ inverse: false, underline: true })
+  await band.unmount()
+})
+
 test('off Windows the folder opens with open, then xdg-open, and a failure says so', async ($, on) => {
   engine(on)
   const runs: string[] = []
@@ -783,8 +796,8 @@ test('the git rows hold the GitHub links as buttons, which open over https only'
     ['View PRs ↗', 'https://github.com/acme/app/pulls'],
   ])
   await band.pointer({ type: 'move', x: TITLE_WIDTH + ROW_GAP, y: 0, in: 'branch-row' })
-  const underlined = await band.find({ in: 'branch-row', type: 'Text', text: /View Branch/ })
-  expect(underlined?.props['underline']).toBe(true)
+  const hovered = await band.find({ in: 'branch-row', type: 'Text', text: /View Branch/ })
+  expect(hovered?.props['inverse']).toBe(true)
   await band.post({ pick: 'http://example.com/x', target: 'main' }, { in: 'branch-row' })
   await band.post({ pick: 'file:///C:/Windows', target: 'main' }, { in: 'branch-row' })
   expect(opened).toEqual([])

@@ -9,10 +9,10 @@ export function worktreeLines(view: PanelView, kit: Kit): RowItem[][] {
   const { note, title, blankTitle } = kit
   const sep = (): RowItem => note('|')
   const asItems = (segs: readonly { text: string; color: string }[], pick?: string): RowItem[] =>
-    segs.map((s, i) => ({ text: s.text, color: s.color, ...(i > 0 ? { tight: true } : {}), ...(pick ? { pick, link: true } : {}) }))
+    segs.map((s, i) => ({ text: s.text, color: s.color, ...(i > 0 ? { tight: true } : {}), ...(pick ? { pick } : {}) }))
   const folder = (name: string, path: string): RowItem[] => [
     note(`${SYM_WT} `),
-    { text: name, color: c.project, pick: `${FOLDER_PICK}${path}`, link: true, tight: true },
+    { text: name, color: c.project, pick: `${FOLDER_PICK}${path}`, tight: true },
   ]
   type Row = { folder: RowItem[]; branch: RowItem[]; base: RowItem[]; current: boolean }
   const repos = view.deviceRepos ?? []
