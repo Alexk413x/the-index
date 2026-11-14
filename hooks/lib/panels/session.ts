@@ -9,12 +9,12 @@ export function sessionLines(view: PanelView, kit: Kit): RowItem[][] {
   const host = view.host
   if (!host) return []
   const value = (text: string, color = cfg.colors.session): RowItem => ({ text, color })
-  const messages: RowItem = { text: 'Open Messages', color: cfg.colors.branch, pick: MESSAGES_PICK, link: true }
+  const messages: RowItem = { text: 'Open Messages', color: cfg.colors.branch, pick: MESSAGES_PICK }
   const rows: [string, RowItem[], RowItem | null][] = [
     ['Name', [host.title ? value(host.title) : note('untitled')], host.messages ? messages : null],
     [
       'Session',
-      [host.sessionName ? { ...value(host.sessionName), pick: 'name', link: true } : value('unnamed'), note('·'), value(host.sessionId ?? '')],
+      [host.sessionName ? { ...value(host.sessionName), pick: 'name' } : value('unnamed'), note('·'), value(host.sessionId ?? '')],
       view.startedAt === null ? null : note(`started ${fmtClock(view.startedAt)}`),
     ],
   ]

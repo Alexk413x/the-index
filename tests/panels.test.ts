@@ -204,7 +204,7 @@ describe('row layout', () => {
     expect(plain.map(l => l[0]?.text)).toEqual(['Name', 'Session', 'Agent', 'Folder'])
     expect(plain[2]?.map(i => i.text.trim())).toEqual(['Agent', 'none'])
     expect(plain[1]?.at(-1)?.text).toBe('started 09:05')
-    expect(plain[1]?.find(i => i.pick === 'name')).toMatchObject({ text: expect.stringContaining(HOST.sessionName), link: true })
+    expect(plain[1]?.find(i => i.pick === 'name')).toMatchObject({ text: expect.stringContaining(HOST.sessionName) })
     const linked = panelLines(
       'session',
       view({ host: { ...HOST, agent: 'reviewer', bridged: true, bridgeId: 'cse_1', messages: true }, agentColor: 'blue', attached: 2, startedAt: 0 }),
@@ -221,7 +221,7 @@ describe('row layout', () => {
     expect(plain[0]?.map(i => i.text.trim())).toEqual(['Name', 'untitled'])
     const rows = panelLines('session', view({ host: { ...HOST, title: 'Fix the band', messages: true } }))
     expect(rows[0]?.map(i => i.text.trim())).toEqual(['Name', 'Fix the band', 'Open Messages'])
-    expect(rows[0]?.at(-1)).toMatchObject({ pick: MESSAGES_PICK, link: true })
+    expect(rows[0]?.at(-1)).toMatchObject({ pick: MESSAGES_PICK })
   })
 
   test('the transcript title is the last rename, else the last generated title', () => {

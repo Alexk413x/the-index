@@ -22,7 +22,7 @@ function clip(text: string, max: number): string {
 function gitHelpers(view: PanelView, kit: Kit) {
   const { cfg } = view
   const { note, title, blankTitle, chartRows, colored } = kit
-  const action = (text: string, url: string): RowItem => ({ text: `${text} ↗`, color: cfg.colors.branch, pick: url, link: true })
+  const action = (text: string, url: string): RowItem => ({ text: `${text} ↗`, color: cfg.colors.branch, pick: url })
   const baseActions = (): RowItem[] => {
     const base = view.links.base
     return [

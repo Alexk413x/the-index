@@ -142,7 +142,7 @@ function contextLines(view: PanelView, kit: Kit): RowItem[][] {
         r === 0
           ? title('Context')
           : r === Math.floor(body.length / 2)
-            ? { text: 'Details', color: cfg.colors.branch, pick: DETAIL_PICK, link: true, pad: TITLE_WIDTH - 7, detail: 'click to open the detailed breakdown' }
+            ? { text: 'Details', color: cfg.colors.branch, pick: DETAIL_PICK, pad: TITLE_WIDTH - 7, detail: 'click to open the detailed breakdown' }
             : blankTitle()
       return [left, ...row, ...(side ? [side] : [])]
     }),
@@ -298,7 +298,7 @@ function usageLines(view: PanelView, kit: Kit): RowItem[][] {
     notes[3] = note(`all time ${fmtNum(usage.allTokens)} · $${fmtCost(usage.allCostUsd)}`)
     notes[CHART_HEIGHT - 1] = note(`since ${usage.since}`)
   }
-  const details: RowItem = { text: 'Details', color: cfg.colors.branch, pick: DETAIL_PICK, link: true, pad: TITLE_WIDTH - 7, detail: 'click to open the full usage breakdown' }
+  const details: RowItem = { text: 'Details', color: cfg.colors.branch, pick: DETAIL_PICK, pad: TITLE_WIDTH - 7, detail: 'click to open the full usage breakdown' }
   const lines = [
     ...chartRows('Usage', chart, notes),
     ...(usage?.since ? [[blankTitle(), { text: 'hover a day for its tokens', color: cfg.colors.icons, footer: true }]] : []),

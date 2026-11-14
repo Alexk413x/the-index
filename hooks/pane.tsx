@@ -265,7 +265,7 @@ export async function renderDetail($: EngineInterface, e: RenderInput<'Pane'>, c
               props={
                 row.max || headRest
                   ? { text: line, color: tone, parts: [...(headRest ? [{ text: headName, color: tone, bold: true }] : []), ...splitMax(headRest || line, row, tone, cfg.colors.icons)] }
-                  : { text: line, color: tone, look: 'link', ...(row.bold ? { isBold: true } : {}) }
+                  : { text: line, color: tone, ...(row.bold ? { isBold: true } : {}) }
               }
             />
             {titles ? <Text color={cfg.colors.icons}>{` ${columnTitles(titles, inner, valueWidth, bars, rows[i + 1]?.kind === 'sub')} `}</Text> : null}
@@ -306,7 +306,7 @@ export async function renderDetail($: EngineInterface, e: RenderInput<'Pane'>, c
           <Client
             key={`${LOG_ELEMENT}${row.open}`}
             module="./clients/chip.tsx"
-            props={{ text: ` ${opener.label}${opener.bar}${opener.tail} `, color: cfg.colors.model, look: 'link' }}
+            props={{ text: ` ${opener.label}${opener.bar}${opener.tail} `, color: cfg.colors.model }}
           />
         )
       }
@@ -315,7 +315,7 @@ export async function renderDetail($: EngineInterface, e: RenderInput<'Pane'>, c
           <Client
             key={`${GOTO_ELEMENT}${row.goto}`}
             module="./clients/chip.tsx"
-            props={{ text: ` ${parts.label}${parts.bar}${parts.tail} `, color: cfg.colors.model, look: 'link' }}
+            props={{ text: ` ${parts.label}${parts.bar}${parts.tail} `, color: cfg.colors.model }}
           />
         )
       }

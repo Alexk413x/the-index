@@ -54,7 +54,6 @@ export type RowItem = {
   footer?: boolean
   swaps?: Readonly<Record<string, { text: string; color: string }>>
   details?: Readonly<Record<string, readonly DetailPart[]>>
-  link?: boolean
 }
 
 export type DetailPart = { text: string; color: string }
