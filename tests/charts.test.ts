@@ -337,6 +337,13 @@ describe('usage ledger', () => {
     expect(summary.allCostUsd).toBe(2)
   })
 
+  test('an all-time cost with no known day is unknown, not zero', () => {
+    const ledger: Ledger = { [day]: { a: { tokens: 20, costStart: null, costEnd: null } } }
+    expect(summarize(ledger, day, 3).allCostUsd).toBeNull()
+    expect(summarize({}, day, 3, [{ date: '2026-08-01', tokens: 5, costUsd: null }]).allCostUsd).toBeNull()
+    expect(summarize(ledger, day, 3, [{ date: '2026-08-01', tokens: 5, costUsd: 1.5 }]).allCostUsd).toBe(1.5)
+  })
+
   test('the week sums every session and lists its models', () => {
     const ledger: Ledger = {
       '2026-09-01': { old: { tokens: 999, costStart: 0, costEnd: 9 } },
@@ -440,6 +447,10 @@ describe('usage ledger', () => {
     const reported = lines({ fiveHour: { usedPercentage: 30, resetsAt: now + 3_600_000 }, sevenDay, otherLimits: [{ kind: 'seven_day_fable', usedPercentage: 12, resetsAt: now + 86_400_000 }] })
     expect(hover(find(reported, '5-hour'))).toBe(`30% · ${fmtUntil(now + 3_600_000, now)}`)
     expect(hover(find(reported, 'Fable'))).toBe(`12% · 2.0M · ${fmtUntil(now + 86_400_000, now)}`)
+    const afterReset = find(lines({ sevenDay: { ...sevenDay, resets: 1 } }), 'Weekly')
+    expect(hover(afterReset)).toBe(`161% · 1 reset · 3.0M · ${fmtUntil(sevenDay.resetsAt, now)}`)
+    expect(afterReset.map(i => i.text).join('')).toContain(`${'━'.repeat(31)}${'─'.repeat(19)}`)
+    expect(hover(find(lines({ sevenDay: { ...sevenDay, resets: 2 } }), 'Weekly'))).toContain('261% · 2 resets')
     expect(summarize({}, day, 30).week?.models).toEqual([])
   })
 

@@ -30,7 +30,7 @@ export type DetailRow = {
   side?: string
 }
 
-export type DetailColumns = readonly [name: string, share: string, value: string]
+type DetailColumns = readonly [name: string, share: string, value: string]
 
 // Puts a head's value in the value column without a row of column titles under it.
 const NO_TITLES: DetailColumns = ['', '', '']

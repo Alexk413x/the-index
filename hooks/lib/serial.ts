@@ -1,4 +1,4 @@
-export type Serial = { running: Promise<void> | null; again: boolean }
+type Serial = { running: Promise<void> | null; again: boolean }
 
 export function serial(): Serial {
   return { running: null, again: false }

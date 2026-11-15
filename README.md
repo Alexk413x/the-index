@@ -4,7 +4,7 @@ A three-line band above the Claude Code prompt that shows what your session cost
 close you are to a limit, and where your code stands, without leaving the prompt.
 
 ```
-● peer | Claude Opus 5.5 high | VS Code | ☼ 50m 💥💥 ◑ 45% 1h2m ⧈ 61% 3d4h
+● peer | Claude Opus 5.5 high | VS Code | ☼ 50m 💥💥 ◑ 45% 1h2m ◈ 12% 3d4h ⧈ 61% 3d4h
 Δ »3 ↑50k ⤒1.5k ⤓48k ↓800 ↯200 ⌖96% ≡+3 -1 ◷ 4.0s $0.12 | Σ ◦2 »5 ↑100k ⤒20k ⤓80k ↓3.0k ↯75 ⌖79% 90% ≡+40 -7 ◷ 1m5s $1.50
 □ app | ⎇ feat/x ◻ 1 2 0 ≡ +10 -4 | ↑3 ↓0 ⎇ #42 origin/main ◻ 0 4 0 ≡ +50 -9
 ```
@@ -23,7 +23,12 @@ claude plugin install the-index@alexk413x
 
 - **Session at a glance.** See the model, effort, context fill, prompt-cache time left
   and rate limits, so you know when to compact, switch models or slow down. 💥 appears once per compaction,
-  manual or automatic, up to three, then reads 💥x4 and up.
+  manual or automatic, up to three, then reads 💥x4 and up. ◈ is the Fable weekly limit
+  and ⧈ the weekly limit for all models, each with its percent used and the time to its
+  reset. The band shows the latest reading any open session or your account has. When a
+  limit is reset early, the band adds 100 for each reset it saw, so 26% after one reset
+  reads 126%, and the colour follows the current 26%. Claude Code reports no early reset,
+  so the band infers one when a window's reading drops by 5 points or more.
 - **Cost and token telemetry.** See what the last turn and the whole session cost in
   tokens, cache hits, speed and dollars, so expensive turns stand out.
 - **Git state.** See what your next commit and your next PR hold, so you don't need to
@@ -56,7 +61,8 @@ claude plugin install the-index@alexk413x
   effort and status.
 - **GitHub buttons.** Open the repo, the branch, the commits, your PR or the open PR
   list from the git rows.
-- **Copy the session name.** Click it in the session table.
+- **Copy session values.** Click the title, the session name, the session ID or the
+  Remote Control ID in the session table to copy it.
 - **Session title.** The session table's first row shows the session's title, the one
   Remote Control and the session list show.
 
@@ -101,7 +107,9 @@ collects no telemetry.
   - one file for each session and month in `the-index/usage/<month>/` in your Claude config folder, holding
     that session's tokens, cost and turns, and a file of day totals in `the-index/usage/totals/` for each month
     that has passed. It removes a month's folder after three more full months;
-  - `claude-statusline-ratelimits.json` in the temp folder, shared with other sessions.
+  - `claude-statusline-ratelimits.json` in the temp folder, shared with other sessions;
+  - `the-index/limit-resets.json` in your Claude config folder, shared with other
+    sessions, holding each limit window's last reading and its count of early resets.
 - **Calls:** the ide-agent-tabs plugin's tools, when installed, to list agent CLIs and
   open one in a new tab, and to open the Agent Tabs Messages pane; and the
   sentinel-swarm plugin's tools, when installed, every 30 seconds to check for a swarm
@@ -120,7 +128,7 @@ Change settings in the `/config` menu. Every setting is optional.
   - `cache_ttl`: the cache lifetime the countdown starts from, `1h` or `5m`.
 - **Account limits**
   - `account_limits`: while a session is active, ask your Anthropic account for the
-    per-model weekly limits, such as Fable. All sessions share one cached reply in
+    weekly limit and the per-model weekly limits, such as Fable. All sessions share one cached reply in
     `~/.claude/the-index/account-limits.json`, and one of them asks again only when it
     is over 5 minutes old. Claude Code signs the request, and the plugin never reads
     your login. On by default; turn it off to make no account request.

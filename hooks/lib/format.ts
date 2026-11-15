@@ -55,7 +55,7 @@ export const SYM_WT = '⑂'
 const SYM_REMOTE_ON = '●'
 const SYM_REMOTE_OFF = '○'
 const SYM_AGENT = '⤷'
-export const SYM_SWARM = '⌬'
+const SYM_SWARM = '⌬'
 
 const SEGMENTS = [
   'remote',
@@ -75,7 +75,7 @@ const SEGMENTS = [
   'agent_view',
 ] as const
 
-export type Segment = (typeof SEGMENTS)[number]
+type Segment = (typeof SEGMENTS)[number]
 
 const COLOR_DEFAULTS = {
   session: '#d75f00',
@@ -99,7 +99,7 @@ const COLOR_DEFAULTS = {
 export const PRIMARY_DEFAULT = '#d75f00'
 const PRIMARY: readonly ColorName[] = ['session', 'model', 'ide', 'uptime', 'resets', 'calls', 'totals', 'project', 'branch']
 
-export type ColorName = keyof typeof COLOR_DEFAULTS
+type ColorName = keyof typeof COLOR_DEFAULTS
 
 export type Config = {
   dim: number
@@ -313,10 +313,10 @@ export function nextChangeMs(snap: Snapshot, cfg: Config): number {
   return Math.max(1000, Math.min(...candidates))
 }
 
-export type Menu = IndexPanel | 'project' | 'swarm'
+type Menu = IndexPanel | 'project' | 'swarm'
 export type Seg = { text: string; color: string; menu?: Menu }
-export type Part = readonly Seg[]
-export type Line = readonly Part[]
+type Part = readonly Seg[]
+type Line = readonly Part[]
 
 export type Snapshot = {
   now: number
@@ -443,7 +443,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     const live = (rl: IndexRateLimit | null | undefined): rl is IndexRateLimit => !!rl && !(rl.resetsAt && rl.resetsAt <= snap.now)
     const reading = (rl: IndexRateLimit, lead: Seg[]): Seg[] => {
       const p = Math.trunc(rl.usedPercentage)
-      const bits = [...lead, sp, seg(`${p}%`, ctxColor(p))]
+      const bits = [...lead, sp, seg(`${p + 100 * (rl.resets ?? 0)}%`, ctxColor(p))]
       if (rl.resetsAt) bits.push(sp, seg(fmtUntil(rl.resetsAt, snap.now), c.resets))
       return bits
     }
@@ -451,8 +451,7 @@ export function buildLines(snap: Snapshot, cfg: Config, viewed?: ViewedAgent): L
     // Only some plans have a 5-hour window, so it draws when the API reports one and has no placeholder.
     if (live(usage?.fiveHour)) limits.push(reading(usage.fiveHour, [icon(fiveHourGlyph(usage.fiveHour, snap.now))]))
     const ownWeek = usage?.otherLimits?.find(rl => rl.kind === `seven_day_${OWN_WEEK_FAMILY}` && live(rl))
-    const ownPct = ownWeek ? Math.trunc(ownWeek.usedPercentage) : null
-    limits.push([icon(SYM_FABLE), sp, ownPct === null ? seg(`${SHADE.repeat(2)}%`, c.good) : seg(`${ownPct}%`, ctxColor(ownPct))])
+    limits.push(ownWeek ? reading(ownWeek, [icon(SYM_FABLE)]) : [icon(SYM_FABLE), sp, seg(`${SHADE.repeat(2)}%`, c.good)])
     limits.push(
       live(usage?.sevenDay)
         ? reading(usage.sevenDay, [icon(SYM_7D)])
@@ -656,6 +655,14 @@ export function swarmRunning(reply: { text?: string; result?: unknown }): boolea
   return isRecord(status) && status['running'] === true
 }
 
+const PANE_OPENED = /\bpane opened\b/i
+
+// The Messages pane holds toasts while it is shown, so a toast that says it opened is never seen.
+// Any other answer, such as one that asks for a wider window, is passed on.
+export function messagesNotice(text: string | undefined): string {
+  return !text || PANE_OPENED.test(text) ? '' : text
+}
+
 export function projectName(cwd: string): string {
   const segs = cwd.split(/[\\/]+/).filter(Boolean)
   return segs[segs.length - 1] ?? ''
@@ -713,19 +720,56 @@ export const EMPTY_TOTALS: IndexTotals = {
   lastResponseAt: null,
 }
 
-export function mergeRateLimit(
-  candidates: readonly (IndexRateLimit | null | undefined)[],
-): IndexRateLimit | null {
-  let best: IndexRateLimit | null = null
+export type TimedLimit = { limit: IndexRateLimit | null | undefined; at: number }
+
+const RESET_JITTER_MS = 300_000
+
+export type LimitReading = { limit: IndexRateLimit; at: number }
+
+// The latest reading wins, not the highest: a window that is reset early reads lower than before with the same reset time.
+export function mergeRateLimit(candidates: readonly (TimedLimit | null | undefined)[], now: number): LimitReading | null {
+  let best: LimitReading | null = null
   for (const c of candidates) {
-    if (!c) continue
-    if (best === null) {
-      best = c
-      continue
+    const limit = c?.limit
+    if (!c || !limit || (limit.resetsAt && limit.resetsAt <= now)) continue
+    if (best === null || c.at > best.at) {
+      best = { limit, at: c.at }
+    } else if (c.at === best.at) {
+      const held = best.limit
+      const isLaterWindow = limit.resetsAt > held.resetsAt + RESET_JITTER_MS
+      const isHigherReading = Math.abs(limit.resetsAt - held.resetsAt) <= RESET_JITTER_MS && limit.usedPercentage > held.usedPercentage
+      if (isLaterWindow || isHigherReading) best = { limit, at: c.at }
     }
-    const jitter = 300_000
-    if (c.resetsAt > best.resetsAt + jitter) best = c
-    else if (Math.abs(c.resetsAt - best.resetsAt) <= jitter && c.usedPercentage > best.usedPercentage) best = c
   }
   return best
+}
+
+export type LimitTrack = { resetsAt: number; last: number; lastAt: number; resets: number }
+
+const RESET_DROP_MIN = 5
+
+// The API reports no early reset. A window's use only grows, so a later reading of the same window
+// that is RESET_DROP_MIN points or more lower is counted as one. The band adds 100 for each: an inferred figure.
+export function trackLimit(track: LimitTrack | undefined, reading: LimitReading): LimitTrack {
+  const { limit, at } = reading
+  const started: LimitTrack = { resetsAt: limit.resetsAt, last: limit.usedPercentage, lastAt: at, resets: 0 }
+  if (!track || !limit.resetsAt || limit.resetsAt > track.resetsAt + RESET_JITTER_MS) return started
+  if (limit.resetsAt < track.resetsAt - RESET_JITTER_MS || at <= track.lastAt) return track
+  const isReset = limit.usedPercentage <= track.last - RESET_DROP_MIN
+  return { resetsAt: track.resetsAt, last: limit.usedPercentage, lastAt: at, resets: track.resets + (isReset ? 1 : 0) }
+}
+
+export function resetsOf(track: LimitTrack | undefined, limit: IndexRateLimit): number {
+  return track && limit.resetsAt > 0 && Math.abs(track.resetsAt - limit.resetsAt) <= RESET_JITTER_MS ? track.resets : 0
+}
+
+export function parseLimitTracks(raw: unknown, now: number): Record<string, LimitTrack> {
+  const tracks: Record<string, LimitTrack> = {}
+  if (!isRecord(raw)) return tracks
+  for (const [kind, entry] of Object.entries(raw)) {
+    if (!isRecord(entry)) continue
+    const track = { resetsAt: Number(entry['resetsAt']), last: Number(entry['last']), lastAt: Number(entry['lastAt']), resets: Number(entry['resets']) }
+    if (Object.values(track).every(Number.isFinite) && track.resetsAt > now) tracks[kind] = track
+  }
+  return tracks
 }

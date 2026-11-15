@@ -3,7 +3,7 @@ import type { EngineInterface, Timer, TurnStepInput, TurnStepResult, UiMessageAr
 
 import type { IndexEffort, IndexPanel } from '../types'
 import { MAIN, MODEL_FAMILIES, learnModels, modelLabel } from './lib/format'
-import { CONTEXT_PICK, DETAIL_PICK, EFFORTS, FOLDER_PICK, MESSAGES_PICK, PANELS, knownModels, savedEffortFor, worktreePaths } from './lib/panels'
+import { CONTEXT_PICK, COPY_PICK, DETAIL_PICK, EFFORTS, FOLDER_PICK, MESSAGES_PICK, PANELS, knownModels, savedEffortFor, sessionCopyText, worktreePaths } from './lib/panels'
 import { isRecord, samePath } from './lib/git'
 import { openFolder, openHarness, openMessages, openSwarm, openUrl, refreshSessionRow } from './host'
 import { refreshDevice, refreshWorktreesSoon } from './repo'
@@ -37,10 +37,9 @@ async function switchMainModel($: EngineInterface, alias: string): Promise<void>
 }
 
 async function seeModels($: EngineInterface, ids: readonly unknown[]): Promise<void> {
-  await update($, seenModels, prev => {
-    const next = learnModels(prev, ids)
-    return Object.keys(next).some(k => next[k] !== prev[k]) ? next : prev
-  })
+  const seen = await read($, seenModels)
+  const learned = learnModels(seen, ids)
+  if (Object.keys(learned).some(k => learned[k] !== seen[k])) await update($, seenModels, prev => learnModels(prev, ids))
 }
 
 export async function followModel($: EngineInterface, model: string): Promise<void> {
@@ -64,8 +63,7 @@ export function setPinned($: EngineInterface, panel: IndexPanel, isPinned: boole
 }
 
 const HOVER_OPEN_MS = 300
-const HOVER_CLOSE_MS = 300
-const FADE_OUT_FALLBACK_MS = 1000
+const HOVER_CLOSE_MS = 1000
 let hoverTimer: Timer | undefined
 const pointerOver = new Set<string>()
 
@@ -100,7 +98,7 @@ function dropSlot($: EngineInterface, panel: IndexPanel): Promise<unknown> {
 function hoverOpenSoon($: EngineInterface, panel: IndexPanel): void {
   hoverTimer?.cancel()
   hoverTimer = $.clock.after(HOVER_OPEN_MS, () => {
-    void placeSlot($, panel).then(() => update($, hover, () => ({ panel, closing: false })))
+    void placeSlot($, panel).then(() => update($, hover, () => ({ panel })))
   })
 }
 
@@ -108,24 +106,21 @@ async function hoverKeep($: EngineInterface, panel: IndexPanel): Promise<void> {
   const h = await read($, hover)
   if (h && h.panel !== panel) return
   hoverTimer?.cancel()
-  if (h?.closing) await update($, hover, () => ({ ...h, closing: false }))
 }
 
 function hoverCloseSoon($: EngineInterface): void {
   hoverTimer?.cancel()
   hoverTimer = $.clock.after(HOVER_CLOSE_MS, () => {
-    void update($, hover, h => (h && !h.closing ? { ...h, closing: true } : h))
-    hoverTimer = $.clock.after(FADE_OUT_FALLBACK_MS, () => {
-      void hoverClose($)
-    })
+    void hoverClose($)
   })
 }
 
 async function hoverClose($: EngineInterface): Promise<void> {
   hoverTimer?.cancel()
-  const [closing, pinnedList] = await Promise.all([read($, hover), read($, pinned)])
+  const [hovered, pinnedList] = await Promise.all([read($, hover), read($, pinned)])
+  if (!hovered) return
   await update($, hover, () => null)
-  if (closing && !pinnedList.includes(closing.panel)) await dropSlot($, closing.panel)
+  if (!pinnedList.includes(hovered.panel)) await dropSlot($, hovered.panel)
 }
 
 async function togglePin($: EngineInterface, panel: IndexPanel): Promise<void> {
@@ -135,7 +130,7 @@ async function togglePin($: EngineInterface, panel: IndexPanel): Promise<void> {
   if (!wasPinned) {
     await placeSlot($, panel)
   } else if ([...pointerOver].some(key => key.startsWith(`${panel}-`))) {
-    await update($, hover, () => ({ panel, closing: false }))
+    await update($, hover, () => ({ panel }))
   } else {
     await dropSlot($, panel)
   }
@@ -229,7 +224,8 @@ export async function chooseStep($: EngineInterface, e: TurnStepInput) {
   const chosenModel = chosenModels[key]
   const effort = chosen ?? e.effort
   const model = chosenModel ?? e.model
-  await update($, agents, prev => ({ ...prev, [key]: { model, effort } }))
+  const shown = (await read($, agents))[key]
+  if (shown?.model !== model || shown.effort !== effort) await update($, agents, prev => ({ ...prev, [key]: { model, effort } }))
   const sent = chosen === undefined && chosenModel === undefined ? e : { ...e, model, effort }
   return { key, effort, chosenModel, sent }
 }
@@ -272,14 +268,11 @@ export async function onBandMessage($: EngineInterface, e: UiMessageArgument): P
     if (![...pointerOver].some(key => key.startsWith(`${panel}-`))) hoverCloseSoon($)
   } else if (data['press'] === true && (isName || e.element === `${panel}-pin`)) {
     await togglePin($, panel)
-  } else if (data['faded'] === true && e.element === `${panel}-row`) {
-    const h = await read($, hover)
-    if (h?.closing && h.panel === panel) await hoverClose($)
-  } else if (panel === 'session' && data['pick'] === 'name' && e.element === `${panel}-row`) {
-    const name = (await read($, host))?.sessionName
-    if (name) {
-      const copied = await $.ui.copy({ text: name, surface: e.surface })
-      $.ui.toast(copied.isCopied ? `Copied: ${name}` : `Could not copy ${name}: ${copied.reason}`)
+  } else if (panel === 'session' && typeof data['pick'] === 'string' && data['pick'].startsWith(COPY_PICK) && e.element === `${panel}-row`) {
+    const text = sessionCopyText(await read($, host), data['pick'])
+    if (text) {
+      const copied = await $.ui.copy({ text, surface: e.surface })
+      $.ui.toast(copied.isCopied ? `Copied: ${text}` : `Could not copy ${text}: ${copied.reason}`)
     }
   } else if (panel === 'session' && data['pick'] === MESSAGES_PICK && e.element === `${panel}-row`) {
     await openMessages($)

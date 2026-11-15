@@ -106,7 +106,7 @@ async function drawBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, cfg: 
   let viewed: ViewedAgent | undefined
   const agentId = e.props.view.agentId
   if (agentId !== undefined && cfg.show.agent_view) {
-    const info = (await $.agent.list()).find(a => a.id === agentId)
+    const info = (await $.agent.list().catch(() => [])).find(a => a.id === agentId)
     const label = info?.name ?? info?.description ?? ''
     viewed = {
       id: agentId,
@@ -196,13 +196,7 @@ async function drawBand($: EngineInterface, e: RenderInput<'AbovePrompt'>, cfg: 
         <Client
           key={`${panel}-row`}
           module="./clients/row.tsx"
-          props={{
-            lines: rows,
-            gap: ROW_GAP,
-            fade: true,
-            closing: !isPinnedRow && hovering?.panel === panel && hovering.closing,
-            target,
-          }}
+          props={{ lines: rows, gap: ROW_GAP, target }}
         />
       </Box>
     )

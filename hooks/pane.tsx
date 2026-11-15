@@ -97,7 +97,7 @@ async function readContextTexts($: EngineInterface) {
 export async function toggleDetail($: EngineInterface): Promise<void> {
   if (await read($, detailOpen)) {
     await $.ui.close({ id: DETAIL_PANE })
-    await update($, detailOpen, () => false)
+    await detailClosed($)
     return
   }
   await update($, detailOpen, () => true)
@@ -117,7 +117,7 @@ export async function showDetailTab($: EngineInterface, tab: IndexDetailTab): Pr
 }
 
 export async function detailClosed($: EngineInterface): Promise<void> {
-  await update($, detailOpen, () => false)
+  if (await read($, detailOpen)) await update($, detailOpen, () => false)
 }
 
 export async function countPrompt($: EngineInterface): Promise<void> {

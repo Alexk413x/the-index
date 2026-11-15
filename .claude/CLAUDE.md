@@ -48,8 +48,8 @@ through the `alexk413x` marketplace in the `Alexk413x/marketplace` repo.
 - `hooks/clients/` — the `Client` modules. They have no `$`.
   - `chip.tsx` — clickable coloured text (the effort, model and session names, the pins
     and the folder name). It posts `{ press }` and `{ hover }` to the hooks module.
-  - `row.tsx` — a hover or pinned row: draws its lines, fades in and out, and posts
-    `{ hover }`, `{ pick, target }` and `{ faded }` to the hooks module.
+  - `row.tsx` — a hover or pinned row: draws its lines and posts `{ hover }` and
+    `{ pick, target }` to the hooks module.
 - `types/index.d.ts` — the `$.state` contract.
 - `tests/` — `*.test.ts(x)` files for `claude plugin test`.
 - `knowledge/code_graph.db` — the codebase-kg map of this repo. Committed.
@@ -73,6 +73,8 @@ through the `alexk413x` marketplace in the `Alexk413x/marketplace` repo.
 - Keep the files in `hooks/lib/` free of `$`, so tests call them directly.
 - A render hook never writes state. Timers and event hooks write; the band reads.
 - Never show an invented figure. A value the API doesn't give is a `░` placeholder.
+  The one inferred figure is a limit's percent over 100: each early reset the band saw
+  adds 100 (`trackLimit` in `hooks/lib/format.ts`).
 - Keep the shared rate-limit file's path and shape the same as `statusline.py`'s.
 - A session writes only its own file under `the-index/usage/<month>/`. Never write
   another session's file; the one shared write is a passed month's file in `totals/`,

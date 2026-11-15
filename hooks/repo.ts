@@ -174,6 +174,7 @@ export async function resolveGitDirs($: EngineInterface, cwd: string): Promise<v
   gitDir = dir.replace(/\\/g, '/')
   commonDir = common.replace(/\\/g, '/')
   if (moved) {
+    forgetPrs()
     refreshWorktreesSoon($)
     void refreshDevice($)
   }
@@ -269,7 +270,11 @@ async function refreshWorktreesOnce($: EngineInterface): Promise<void> {
     }),
   )
   const others = trees.filter(t => !t.current && belongsToRepo(t.gitDir, commonDir))
-  worktreeDirs = others.map(t => t.gitDir)
+  const dirs = others.map(t => t.gitDir)
+  const isSameList = same(dirs, worktreeDirs)
+  worktreeDirs = dirs
+  // The stamp covers one segment for each worktree, so a changed list needs a stamp of its own or the next poll refreshes again.
+  if (!isSameList) lastWorktreeStamp = await worktreeStamp($)
   const snaps = new Map(await Promise.all(others.map(async t => [t.path, await withPr($, t.path, await gitSnapshot($, t.path))] as const)))
   const shown = trees.length > 1 ? trees.map(t => ({ path: t.path, name: worktreeName(t.path), current: t.current, git: snaps.get(t.path) ?? null })) : []
   if (!same(await read($, worktrees), shown)) await update($, worktrees, () => shown)
