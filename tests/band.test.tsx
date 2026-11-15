@@ -329,22 +329,21 @@ test('hovering a name opens its row after a pause, and leaving closes it after a
   expect(await band.find({ key: 'model-row' })).toBeUndefined()
   await clock.advance(60)
   const row = await band.find({ key: 'model-row' })
-  expect(row?.props['props']).toMatchObject({ fade: true })
+  expect(row).toBeDefined()
   const items = (row?.props['props'] as { lines: { text: string; pick?: string }[][] }).lines[0] ?? []
   expect(items.filter(i => i.pick).map(i => i.pick)).toEqual(['fable', 'sonnet', 'haiku'])
 
   await band.post({ hover: false }, { in: 'model-chip' })
-  await clock.advance(200)
-  expect((await band.find({ key: 'model-row' }))?.props['props']).toMatchObject({ closing: false })
+  await clock.advance(900)
+  expect(await band.find({ key: 'model-row' })).toBeDefined()
   await band.post({ hover: true }, { in: 'model-row' })
-  expect((await band.find({ key: 'model-row' }))?.props['props']).toMatchObject({ closing: false })
-  await clock.advance(400)
+  await clock.advance(1100)
   expect(await band.find({ key: 'model-row' })).toBeDefined()
 
   await band.post({ hover: false }, { in: 'model-row' })
-  await clock.advance(310)
-  expect((await band.find({ key: 'model-row' }))?.props['props']).toMatchObject({ closing: true })
-  await band.post({ faded: true }, { in: 'model-row' })
+  await clock.advance(900)
+  expect(await band.find({ key: 'model-row' })).toBeDefined()
+  await clock.advance(110)
   expect(await band.find({ key: 'model-row' })).toBeUndefined()
   await band.unmount()
 })
@@ -510,8 +509,8 @@ test('moving from the name onto its row keeps the row, whichever message arrives
   await clock.advance(310)
   await band.post({ hover: true }, { in: 'effort-row' })
   await band.post({ hover: false }, { in: 'effort-chip' })
-  await clock.advance(400)
-  expect((await band.find({ key: 'effort-row' }))?.props['props']).toMatchObject({ closing: false })
+  await clock.advance(1100)
+  expect(await band.find({ key: 'effort-row' })).toBeDefined()
   await band.post({ hover: false }, { in: 'effort-row' })
   await clock.advance(1310)
   expect(await band.find({ key: 'effort-row' })).toBeUndefined()
@@ -682,17 +681,18 @@ test('the name chip opens its row on pointer enter and pins it on click', async 
   await band.unmount()
 })
 
-test('a hovered row fades out by its own frames and then closes', async ($, on) => {
+test('a pointer that crosses a name without resting opens no row', async ($, on) => {
   engine(on)
   await step($, 'claude-opus-5-5', 'high')
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   await band.post({ hover: true }, { in: 'effort-chip' })
-  await clock.advance(310)
-  await band.advance(400)
+  await clock.advance(200)
   await band.post({ hover: false }, { in: 'effort-chip' })
-  await clock.advance(310)
-  await band.advance(700)
-  expect(await band.find({ key: 'effort-row' })).toBeUndefined()
+  await band.post({ hover: true }, { in: 'model-chip' })
+  await clock.advance(200)
+  await band.post({ hover: false }, { in: 'model-chip' })
+  await clock.advance(1500)
+  expect(await blockOrder(band)).toEqual([])
   await band.unmount()
 })
 
@@ -724,7 +724,6 @@ test('a pinned row stays open when the pointer leaves it', async ($, on) => {
   await band.post({ hover: true }, { in: 'effort-row' })
   await band.post({ hover: false }, { in: 'effort-row' })
   await clock.advance(1100)
-  expect((await band.find({ key: 'effort-row' }))?.props['props']).toMatchObject({ closing: false })
   expect(await blockOrder(band)).toEqual(['effort'])
   await band.unmount()
 })
@@ -881,7 +880,7 @@ test('a finished turn joins the saved history, and the Δ and Σ sections open t
     const lines = ((await band.find({ key: `${panel}-row` }))?.props['props'] as { lines: { text: string }[][] }).lines
     expect(lines[0]?.[0]?.text.trim()).toBe(first)
     await band.post({ hover: false }, { in: `${panel}-chip` })
-    await band.post({ faded: true }, { in: `${panel}-row` })
+    await clock.advance(1010)
   }
   await band.unmount()
 })
@@ -1102,7 +1101,7 @@ test('an open row follows new props: a pinned effort row picks for the subagent 
   expect(seenEfforts[seenEfforts.length - 1]).toBe('medium')
 })
 
-test('a hovered row fading out keeps fading while the pointer rests on a different pinned row', async ($, on) => {
+test('a hovered row still closes while the pointer rests on a different pinned row', async ($, on) => {
   engine(on)
   await step($, 'claude-opus-5-5', 'high')
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
@@ -1112,8 +1111,9 @@ test('a hovered row fading out keeps fading while the pointer rests on a differe
   await clock.advance(310)
   await band.post({ hover: false }, { in: 'effort-chip' })
   await band.post({ hover: true }, { in: 'model-row' })
-  await clock.advance(310)
-  expect((await band.find({ key: 'effort-row' }))?.props['props']).toMatchObject({ closing: true })
+  await clock.advance(1010)
+  expect(await band.find({ key: 'effort-row' })).toBeUndefined()
+  expect(await blockOrder(band)).toEqual(['model'])
   await band.unmount()
 })
 

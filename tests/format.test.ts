@@ -22,11 +22,15 @@ import {
   gitLinks,
   lineText,
   mergeRateLimit,
+  messagesNotice,
   modelLabel,
+  parseLimitTracks,
   patchLineCounts,
   readConfig,
   repoWebFromRemote,
+  resetsOf,
   swarmRunning,
+  trackLimit,
   type Snapshot,
 } from '../hooks/lib/format'
 import {
@@ -35,7 +39,9 @@ import {
   applyStatus,
   emptyGit,
   parsePullRequests,
+  accountAskedAt,
   accountModelLimits,
+  accountWeekLimit,
   parseAccountCache,
   parseAccountUsage,
   parseSharedLimits,
@@ -277,7 +283,7 @@ describe('band lines', () => {
     const fable = { kind: 'seven_day_fable', usedPercentage: 12, resetsAt: NOW + 86_400_000 }
     const usage = { startedAt: NOW, contextPercent: 10, contextTokens: 1, costUsd: null, compactions: 0, sevenDay, otherLimits: [fable, { ...fable, kind: 'spend_limit' }] }
     const line = lineText(buildLines(snapshot({ usage }), readConfig({}))[0] ?? [])
-    expect(line).toEndWith(`◈ 12% ⧈ 61% ${fmtUntil(sevenDay.resetsAt, NOW)}`)
+    expect(line).toEndWith(`◈ 12% ${fmtUntil(fable.resetsAt, NOW)} ⧈ 61% ${fmtUntil(sevenDay.resetsAt, NOW)}`)
     const opus = { ...fable, kind: 'seven_day_opus' }
     const named = lineText(buildLines(snapshot({ usage: { ...usage, otherLimits: [opus] } }), readConfig({}))[0] ?? [])
     expect(named).toEndWith(`◈ ░░% ⧈ 61% ${fmtUntil(sevenDay.resetsAt, NOW)} ⧈ Opus 12% ${fmtUntil(opus.resetsAt, NOW)}`)
@@ -373,12 +379,65 @@ describe('git parsing', () => {
 })
 
 describe('shared rate limits', () => {
-  test('the newest window wins, then the higher reading', () => {
-    const a = { usedPercentage: 30, resetsAt: NOW }
-    const b = { usedPercentage: 10, resetsAt: NOW + 3600_000 }
-    expect(mergeRateLimit([a, b])).toEqual(b)
-    expect(mergeRateLimit([a, { usedPercentage: 35, resetsAt: NOW + 60_000 }])?.usedPercentage).toBe(35)
-    expect(mergeRateLimit([null, undefined])).toBeNull()
+  test('the latest reading wins; readings of one age fall back to the newest window, then the higher reading', () => {
+    const resetsAt = NOW + 3 * 86_400_000
+    const full = { usedPercentage: 100, resetsAt }
+    const afterReset = { usedPercentage: 26, resetsAt }
+    expect(mergeRateLimit([{ limit: full, at: NOW - 3_600_000 }, { limit: afterReset, at: NOW }], NOW)).toEqual({ limit: afterReset, at: NOW })
+    expect(mergeRateLimit([{ limit: afterReset, at: NOW }, { limit: full, at: NOW - 3_600_000 }], NOW)?.limit).toEqual(afterReset)
+    expect(mergeRateLimit([{ limit: afterReset, at: 0 }, { limit: full, at: NOW - 3_600_000 }], NOW)?.limit).toEqual(full)
+    const a = { usedPercentage: 30, resetsAt: NOW + 60_000 }
+    const b = { usedPercentage: 10, resetsAt: NOW + 3_600_000 }
+    expect(mergeRateLimit([{ limit: a, at: 0 }, { limit: b, at: 0 }], NOW)?.limit).toEqual(b)
+    expect(mergeRateLimit([{ limit: a, at: 0 }, { limit: { usedPercentage: 35, resetsAt: NOW + 120_000 }, at: 0 }], NOW)?.limit.usedPercentage).toBe(35)
+    expect(mergeRateLimit([null, undefined, { limit: null, at: NOW }], NOW)).toBeNull()
+  })
+
+  test('a reading whose window has ended is dropped, however late it was read', () => {
+    const ended = { usedPercentage: 90, resetsAt: NOW - 1 }
+    const open = { usedPercentage: 4, resetsAt: NOW + 86_400_000 }
+    expect(mergeRateLimit([{ limit: ended, at: NOW }, { limit: open, at: NOW - 60_000 }], NOW)?.limit).toEqual(open)
+    expect(mergeRateLimit([{ limit: ended, at: NOW }], NOW)).toBeNull()
+    expect(mergeRateLimit([{ limit: { usedPercentage: 7, resetsAt: 0 }, at: NOW }], NOW)?.limit).toEqual({ usedPercentage: 7, resetsAt: 0 })
+  })
+
+  test('a later, lower reading of one window counts a reset, once, and a new window starts the count over', () => {
+    const resetsAt = NOW + 3 * 86_400_000
+    const at = (usedPercentage: number, time: number, window = resetsAt) => ({ limit: { usedPercentage, resetsAt: window }, at: time })
+    const first = trackLimit(undefined, at(100, NOW))
+    expect(first).toEqual({ resetsAt, last: 100, lastAt: NOW, resets: 0 })
+    const reset = trackLimit(first, at(26, NOW + 1000))
+    expect(reset).toEqual({ resetsAt, last: 26, lastAt: NOW + 1000, resets: 1 })
+    expect(trackLimit(reset, at(26, NOW + 2000)).resets).toBe(1)
+    expect(trackLimit(reset, at(40, NOW + 2000)).resets).toBe(1)
+    expect(trackLimit(reset, at(100, NOW + 500))).toEqual(reset)
+    expect(trackLimit(first, at(97, NOW + 1000)).resets).toBe(0)
+    expect(trackLimit(trackLimit(reset, at(80, NOW + 3000)), at(3, NOW + 4000)).resets).toBe(2)
+    expect(trackLimit(reset, at(2, NOW + 5000, resetsAt + 7 * 86_400_000))).toEqual({ resetsAt: resetsAt + 7 * 86_400_000, last: 2, lastAt: NOW + 5000, resets: 0 })
+    expect(trackLimit(reset, at(90, NOW + 5000, resetsAt - 7 * 86_400_000))).toEqual(reset)
+    expect(trackLimit({ ...first, resetsAt: 0 }, at(10, NOW + 1000, 0)).resets).toBe(0)
+    expect(resetsOf(reset, { usedPercentage: 26, resetsAt: resetsAt + 1000 })).toBe(1)
+    expect(resetsOf(reset, { usedPercentage: 26, resetsAt: resetsAt + 7 * 86_400_000 })).toBe(0)
+    expect(resetsOf(undefined, { usedPercentage: 26, resetsAt })).toBe(0)
+  })
+
+  test('the saved reset counts keep only whole entries of windows still open', () => {
+    const open = { resetsAt: NOW + 1000, last: 26, lastAt: NOW - 5, resets: 1 }
+    const saved = { seven_day: open, five_hour: { ...open, resetsAt: NOW - 1 }, broken: { resetsAt: NOW + 1000, last: 'x' }, text: 'no' }
+    expect(parseLimitTracks(saved, NOW)).toEqual({ seven_day: open })
+    expect(parseLimitTracks(null, NOW)).toEqual({})
+  })
+
+  test('a counted reset adds 100 to the shown figure and keeps the colour of the current reading', () => {
+    const sevenDay = { usedPercentage: 26, resetsAt: NOW + 2 * 86_400_000, resets: 1 }
+    const fable = { kind: 'seven_day_fable', usedPercentage: 5, resetsAt: NOW + 86_400_000, resets: 2 }
+    const usage = { startedAt: NOW, contextPercent: 10, contextTokens: 1, costUsd: null, compactions: 0, sevenDay, otherLimits: [fable] }
+    const cfg = readConfig({})
+    const line = buildLines(snapshot({ usage }), cfg)[0] ?? []
+    expect(lineText(line)).toEndWith(`◈ 205% ${fmtUntil(fable.resetsAt, NOW)} ⧈ 126% ${fmtUntil(sevenDay.resetsAt, NOW)}`)
+    const plain = buildLines(snapshot({ usage: { ...usage, sevenDay: { usedPercentage: 26, resetsAt: sevenDay.resetsAt } } }), cfg)[0] ?? []
+    const colorOf = (parts: typeof line, text: string) => parts.flat().find(seg => seg.text === text)?.color
+    expect(colorOf(line, '126%')).toBe(colorOf(plain, '26%'))
   })
 
   test('the file keeps statusline.py seconds-based shape', () => {
@@ -416,6 +475,12 @@ describe('shared rate limits', () => {
     })
     expect(accountModelLimits(account)).toEqual([{ kind: 'seven_day_fable', usedPercentage: 15, resetsAt: at }])
     expect(accountModelLimits(null)).toEqual([])
+    expect(accountWeekLimit(account)).toEqual({ usedPercentage: 67, resetsAt: at })
+    expect(accountWeekLimit(null)).toBeNull()
+    expect(accountAskedAt({ fetchedAt: NOW, reply })).toBe(NOW)
+    expect(accountAskedAt({ fetchedAt: NOW - 600_000, askedAt: NOW, reply })).toBe(NOW)
+    expect(accountAskedAt(null)).toBe(0)
+    expect(parseAccountCache({ fetchedAt: NOW - 600_000, askedAt: NOW, reply })?.fetchedAt).toBe(NOW - 600_000)
     expect(parseAccountUsage('none', NOW)).toBeNull()
     expect(parseAccountUsage({}, NOW)).toEqual({ fetchedAt: NOW, limits: [], surfaces: [], shares: [], extraUsage: null })
     expect(parseAccountCache({ fetchedAt: NOW, reply })).toEqual(account)
@@ -543,6 +608,13 @@ describe('the sentinel-swarm button', () => {
     expect(swarmRunning({ text: 'not json' })).toBe(false)
     expect(swarmRunning({ text: '' })).toBe(false)
     expect(swarmRunning({})).toBe(false)
+  })
+
+  test('the Messages answer is passed on unless it only says the pane opened', () => {
+    expect(messagesNotice('Agent Messages pane opened.')).toBe('')
+    expect(messagesNotice("Agent Messages pane opened on peer's messages.")).toBe('')
+    expect(messagesNotice('Widen Window to Display Pane')).toBe('Widen Window to Display Pane')
+    expect(messagesNotice(undefined)).toBe('')
   })
 
   test('a reply answered by a hook with only a result string reads the same', () => {

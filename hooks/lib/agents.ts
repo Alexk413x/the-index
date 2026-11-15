@@ -1,6 +1,6 @@
 const AGENT_COLORS = ['red', 'blue', 'green', 'yellow', 'purple', 'orange', 'pink', 'cyan'] as const
 
-export type AgentColor = (typeof AGENT_COLORS)[number]
+type AgentColor = (typeof AGENT_COLORS)[number]
 
 function isAgentColor(value: unknown): value is AgentColor {
   return typeof value === 'string' && (AGENT_COLORS as readonly string[]).includes(value)

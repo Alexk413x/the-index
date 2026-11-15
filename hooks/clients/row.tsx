@@ -2,21 +2,10 @@ import type { ClientModule } from 'claude-code'
 
 import type { RowItem } from '../lib/panels'
 
-type RowProps = { lines: RowItem[][]; gap: number; fade: boolean; closing?: boolean; target: string }
-type RowState = { step: number; goal: number; hovered: string | null; focus: number }
+type RowProps = { lines: RowItem[][]; gap: number; target: string }
+type RowState = { hovered: string | null; focus: number }
 
-const FADE_STEPS = 10
-const FADE_FRAME_MS = 30
-const FADE_OUT_STEP = Math.ceil(FADE_STEPS / 3)
-const IDLE: RowState = { step: FADE_STEPS, goal: FADE_STEPS, hovered: null, focus: 0 }
-
-function fadeColor(hex: string, amount: number): string {
-  const m = /^#([0-9a-f]{6})$/i.exec(hex)
-  if (!m?.[1] || amount >= 1) return hex
-  const n = parseInt(m[1], 16)
-  const scale = 0.2 + 0.8 * amount
-  return `#${[16, 8, 0].map(shift => Math.round(((n >> shift) & 255) * scale).toString(16).padStart(2, '0')).join('')}`
-}
+const IDLE: RowState = { hovered: null, focus: 0 }
 
 function itemAt(lines: RowItem[][], gap: number, x: number, y: number): RowItem | null {
   let col = 0
@@ -36,20 +25,6 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
   const { Box, Text } = surface.elements
   const picks = props.lines.flat().flatMap(item => (item.pick ? [item.pick] : []))
 
-  const first: RowState = props.fade ? { ...IDLE, step: 0 } : IDLE
-  if (surface.state === undefined) {
-    surface.setState(first)
-    surface.every(FADE_FRAME_MS, () => {
-      const state = surface.state ?? IDLE
-      if (state.step < state.goal) {
-        surface.setState({ ...state, step: state.step + 1 })
-      } else if (state.step > state.goal) {
-        const step = Math.max(state.goal, state.step - FADE_OUT_STEP)
-        surface.setState({ ...state, step })
-        if (step === 0) surface.post({ faded: true })
-      }
-    })
-  }
   // Set on every call, not once: a call with new props would otherwise leave the listeners
   // reading the first props (an old target, stale picks and links).
   surface.onPointer(e => {
@@ -79,12 +54,7 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
     }
   })
 
-  const state = surface.state ?? first
-  const goal = props.closing ? 0 : FADE_STEPS
-  if (state.goal !== goal) {
-    surface.setState(goal === FADE_STEPS ? { ...state, goal, step: FADE_STEPS } : { ...state, goal })
-  }
-  const amount = state.step / FADE_STEPS
+  const state = surface.state ?? IDLE
   const detail = state.hovered === null ? undefined : props.lines.flat().find(item => hoverKey(item) === state.hovered && item.detail)?.detail
   const partsFor = (item: RowItem) => (item.footer && state.hovered !== null ? item.details?.[state.hovered] : undefined)
   return (
@@ -96,16 +66,12 @@ const Row: ClientModule<RowProps, RowState> = (props, surface) => {
             const swap = state.hovered === null ? undefined : item.swaps?.[state.hovered]
             const body = parts
               ? parts.map((part, p) => (
-                  <Text key={`part${y}-${i}-${p}`} color={fadeColor(part.color, amount)}>
+                  <Text key={`part${y}-${i}-${p}`} color={part.color}>
                     {part.text}
                   </Text>
                 ))
               : [
-                  <Text
-                    key={`item${y}-${i}`}
-                    color={fadeColor(swap?.color ?? item.color, amount)}
-                    inverse={hoverKey(item) !== null && hoverKey(item) === state.hovered}
-                  >
+                  <Text key={`item${y}-${i}`} color={swap?.color ?? item.color} inverse={hoverKey(item) !== null && hoverKey(item) === state.hovered}>
                     {item.footer && detail !== undefined ? detail : (swap?.text ?? item.text)}
                   </Text>,
                 ]

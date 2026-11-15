@@ -5,7 +5,7 @@ import { readConfig } from './lib/format'
 import { EFFORTS } from './lib/panels'
 import { isUserPrompt, type DETAIL_PANE as PANE_ID } from './lib/detail'
 import { renderBand } from './band'
-import { attachClient, detachClient, loadHarnesses, notePromptTitle, refreshHost, refreshLinkUntilLinked, refreshSwarm } from './host'
+import { attachClient, detachClient, loadHarnesses, notePromptTitle, refreshHost, refreshHostAfterClear, refreshLinkUntilLinked, refreshSwarm } from './host'
 import { countPrompt, detailClosed, onPaneMessage, renderDetail } from './pane'
 import { forgetPrs, pollRepo, refreshDevice, refreshGit, refreshGitSoon, refreshWorktrees, refreshWorktreesSoon, resolveGitDirs, stampRepo } from './repo'
 import { chooseStep, clearUltracode, followModel, onBandMessage, placeSlot, setMainEffort, setPinned, settleStep, syncUltracode } from './rows'
@@ -32,12 +32,15 @@ const GIT_FULL_EVERY_MS = 300_000
 const HOST_MIN_GAP_MS = 300_000
 const FAULT_REDRAW_MS = 3000
 const FAULT_REDRAWS_MAX = 5
+const FAULT_QUIET_MS = 60_000
+const CLEAR_SETTLE_MS = 1000
 const PR_COMMAND = /\b(gh\s+pr|git\s+push)\b/
 // The validator reads a matcher's value only from a const in this file, so the pane id is repeated here.
 const DETAIL_PANE: typeof PANE_ID = 'the-index-detail'
 
 let hostAt = 0
 let faultRedraws = 0
+let faultAt = 0
 
 export const register: Register = (on, options) => {
   const cfg = readConfig(options)
@@ -52,7 +55,7 @@ export const register: Register = (on, options) => {
       loadHarnesses($),
       seedLedgerCost($),
       refreshCompactThreshold($),
-      $.session.usage().then(u => recordUsage($, u)),
+      $.session.usage().then(u => recordUsage($, u, false)),
       refreshSwarm($),
     ])
     hostAt = await $.clock.now()
@@ -87,6 +90,9 @@ export const register: Register = (on, options) => {
   on('ui.fault', async ($, e, next) => {
     const result = await next(e)
     $.ui.log(`the-index: ${e.module} failed while ${e.phase}: ${e.reason}`, { to: 'debug' })
+    const now = await $.clock.now()
+    if (now - faultAt >= FAULT_QUIET_MS) faultRedraws = 0
+    faultAt = now
     if (faultRedraws < FAULT_REDRAWS_MAX) {
       faultRedraws += 1
       $.clock.after(FAULT_REDRAW_MS, () => {
@@ -113,7 +119,13 @@ export const register: Register = (on, options) => {
   on('session.end', async ($, e, next) => {
     if (e.reason === 'clear') await flushLedger($)
     const result = await next(e)
-    if (e.reason === 'clear') await startSessionShare($)
+    if (e.reason === 'clear') {
+      await startSessionShare($)
+      // Not awaited: session.end has a short time bound, and the new session id may not stand yet.
+      $.clock.after(CLEAR_SETTLE_MS, () => {
+        void refreshHostAfterClear($).catch(() => undefined)
+      })
+    }
     return result
   })
 
@@ -172,7 +184,7 @@ export const register: Register = (on, options) => {
   })
 
   on('session.measure', async ($, e, next) => {
-    await recordUsage($, e)
+    await recordUsage($, e, true)
     if (cfg.accountLimits) void refreshAccountLimits($)
     return next(e)
   })

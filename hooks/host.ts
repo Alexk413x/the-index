@@ -2,10 +2,11 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, ToolCallArgs } from 'claude-code'
 
 import type { IndexHarness, IndexSwarm } from '../types'
-import { normPath, projectName, swarmRunning } from './lib/format'
+import { messagesNotice, normPath, projectName, swarmRunning } from './lib/format'
 import { transcriptTitle } from './lib/panels'
 import { isRecord, parseJson } from './lib/git'
 import { parseAgentFile } from './lib/agents'
+import { same } from './lib/serial'
 
 // The validator reads an atom only in the file that declares it, so each file declares the atoms it uses.
 const host = atom({ plugin: 'the-index', key: 'host' } as const, null)
@@ -64,9 +65,9 @@ async function sessionEntry(
       const bridgeId = typeof entry['bridgeSessionId'] === 'string' ? entry['bridgeSessionId'] : ''
       return { name: String(entry['name'] ?? ''), bridged: bridgeId !== '', bridgeId }
     }
-    if (isRecord(entry)) otherSessions.files.add(name)
+    // The file that was this process's is never marked as another session's: after /clear it can hold the old id for a moment.
+    if (isRecord(entry) && name !== ownSessionFile) otherSessions.files.add(name)
   }
-  ownSessionFile = ''
   return { name: '', bridged: false, bridgeId: '' }
 }
 
@@ -110,7 +111,7 @@ export async function refreshHost($: EngineInterface): Promise<void> {
     loadAgentColors($),
   ])
   const agentSetting = settings['agent']
-  await update($, host, () => ({
+  const info = {
     sessionName: entry.name,
     sessionId: id,
     bridged: entry.bridged,
@@ -122,7 +123,14 @@ export async function refreshHost($: EngineInterface): Promise<void> {
     project: projectName(cwd),
     messages: tools.some(t => t.name === MESSAGES_TOOL),
     title,
-  }))
+  }
+  if (!same(await read($, host), info)) await update($, host, () => info)
+}
+
+// After /clear the process goes on under a new session id, and no session.start fires for it.
+export async function refreshHostAfterClear($: EngineInterface): Promise<void> {
+  promptTitle = ''
+  await refreshHost($)
 }
 
 // Windows: the shell's Open brings the window to the front (explorer.exe opens it behind the
@@ -259,20 +267,23 @@ export async function notePromptTitle($: EngineInterface, title: string | undefi
   if (!title || title === promptTitle) return
   promptTitle = title
   const shown = await sessionTitle($)
-  await update($, host, prev => (prev && prev.title !== shown ? { ...prev, title: shown } : prev))
+  const held = await read($, host)
+  if (held && held.title !== shown) await update($, host, prev => (prev ? { ...prev, title: shown } : prev))
 }
 
 export async function refreshSessionRow($: EngineInterface): Promise<void> {
+  const [held, id] = await Promise.all([read($, host), $.session.id()])
+  if (held && held.sessionId !== id) return refreshHostAfterClear($)
   const [tools, title] = await Promise.all([$.tool.list().catch(() => []), sessionTitle($)])
   const messages = tools.some(t => t.name === MESSAGES_TOOL)
-  await update($, host, prev => (prev && (prev.messages !== messages || prev.title !== title) ? { ...prev, messages, title } : prev))
+  if (held && (held.messages !== messages || held.title !== title)) await update($, host, prev => (prev ? { ...prev, messages, title } : prev))
 }
 
 export async function openMessages($: EngineInterface): Promise<void> {
   try {
     // The generated types list only the tools known when they were written; Agent Tabs registers this one at runtime.
-    const { text } = await $.tool.call({ tool: MESSAGES_TOOL } as ToolCallArgs)
-    if (text) $.ui.toast(text)
+    const notice = messagesNotice((await $.tool.call({ tool: MESSAGES_TOOL } as ToolCallArgs)).text)
+    if (notice) $.ui.toast(notice)
   } catch {
     $.ui.toast('Could not open Messages: agent tabs is not available')
   }

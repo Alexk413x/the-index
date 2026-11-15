@@ -291,11 +291,12 @@ function usageLines(view: PanelView, kit: Kit): RowItem[][] {
   } else {
     const known = days.filter(d => d.date >= (usage.since ?? ''))
     const monthTokens = known.reduce((sum, d) => sum + d.tokens, 0)
-    const monthCost = known.reduce((sum, d) => sum + (d.costUsd ?? 0), 0)
+    const monthCost = known.reduce<number | null>((sum, d) => (d.costUsd === null ? sum : (sum ?? 0) + d.costUsd), null)
+    const money = (usd: number | null) => (usd === null ? LIMIT_UNKNOWN : `$${fmtCost(usd)}`)
     notes[0] = colored(`peak ${fmtNum(Math.max(0, ...known.map(d => d.tokens)))} a day`, tokensColor)
     notes[1] = colored(`today ${fmtNum(days[days.length - 1]?.tokens ?? 0)}`, tokensColor)
-    notes[2] = note(`${days.length} days ${fmtNum(monthTokens)} · $${fmtCost(monthCost)}`)
-    notes[3] = note(`all time ${fmtNum(usage.allTokens)} · $${fmtCost(usage.allCostUsd)}`)
+    notes[2] = note(`${days.length} days ${fmtNum(monthTokens)} · ${money(monthCost)}`)
+    notes[3] = note(`all time ${fmtNum(usage.allTokens)} · ${money(usage.allCostUsd)}`)
     notes[CHART_HEIGHT - 1] = note(`since ${usage.since}`)
   }
   const details: RowItem = { text: 'Details', color: cfg.colors.branch, pick: DETAIL_PICK, pad: TITLE_WIDTH - 7, detail: 'click to open the full usage breakdown' }
@@ -319,9 +320,11 @@ function limitLines(view: PanelView, kit: Kit): RowItem[][] {
   const familyTokens = (family: string) => (week ? week.models.filter(m => modelFamily(m.name) === family).reduce((sum, m) => sum + m.tokens, 0) : null)
   const row = (label: string, rl: IndexRateLimit | null, tokens: number | null): RowItem[] => {
     const pct = rl ? Math.trunc(rl.usedPercentage) : null
-    const shown = pct === null ? `${LIMIT_UNKNOWN.repeat(2)}%` : `${pct}%`
+    const resets = rl?.resets ?? 0
+    const shown = pct === null ? `${LIMIT_UNKNOWN.repeat(2)}%` : `${pct + 100 * resets}%`
     const figures = [
       shown,
+      ...(resets > 0 ? [`${resets} reset${resets === 1 ? '' : 's'}`] : []),
       ...(tokens === null ? [] : [fmtNum(tokens)]),
       ...(rl?.resetsAt ? [fmtUntil(rl.resetsAt, view.now)] : []),
     ].join(' · ')

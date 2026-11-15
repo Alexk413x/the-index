@@ -195,7 +195,7 @@ export function applyPr(snap: IndexGit, raw: string, leftRight: string): void {
   }
 }
 
-export type WorktreeEntry = { path: string; branch: string }
+type WorktreeEntry = { path: string; branch: string }
 
 export function parseWorktrees(porcelain: string): WorktreeEntry[] {
   const entries: WorktreeEntry[] = []
@@ -217,7 +217,7 @@ export function worktreeName(path: string): string {
   return path.replace(/\/+$/, '').split('/').pop() ?? path
 }
 
-export function slashPath(path: string): string {
+function slashPath(path: string): string {
   return path.replace(/\\/g, '/').replace(/(.)\/+$/, '$1')
 }
 
@@ -230,7 +230,7 @@ export function samePath(a: string, b: string): boolean {
   return folderKey(a) === folderKey(b)
 }
 
-export function isUnder(path: string, root: string): boolean {
+function isUnder(path: string, root: string): boolean {
   const p = folderKey(dropDots(path))
   const r = folderKey(dropDots(root))
   return r !== '' && (p === r || p.startsWith(`${r}/`))
@@ -287,7 +287,7 @@ export function headBranch(head: string | null): string {
   return /^ref:\s*refs\/heads\/(.+)$/m.exec(head ?? '')?.[1]?.trim() ?? ''
 }
 
-export type RepoRead = { commonDir: string; main: string; trees: WorktreeEntry[] }
+type RepoRead = { commonDir: string; main: string; trees: WorktreeEntry[] }
 
 export async function readRepo(fs: GitFs, commonDir: string): Promise<RepoRead> {
   const common = slashPath(commonDir)
@@ -309,7 +309,7 @@ export async function readRepo(fs: GitFs, commonDir: string): Promise<RepoRead> 
   }
 }
 
-export function deviceRepo(read: RepoRead, current: boolean): IndexDeviceRepo {
+function deviceRepo(read: RepoRead, current: boolean): IndexDeviceRepo {
   return {
     key: folderKey(read.commonDir),
     name: worktreeName(read.main).replace(/\.git$/i, ''),
@@ -409,8 +409,18 @@ export function parseAccountCache(raw: unknown): IndexAccountUsage | null {
   return isRecord(raw) && typeof raw['fetchedAt'] === 'number' ? parseAccountUsage(raw['reply'], raw['fetchedAt']) : null
 }
 
+export function accountAskedAt(raw: unknown): number {
+  if (!isRecord(raw)) return 0
+  return Math.max(Number(raw['askedAt']) || 0, Number(raw['fetchedAt']) || 0)
+}
+
 export function accountModelLimits(account: IndexAccountUsage | null): IndexNamedLimit[] {
   return (account?.limits ?? []).filter(l => l.kind.startsWith('seven_day_')).map(l => ({ kind: l.kind, usedPercentage: l.usedPercentage, resetsAt: l.resetsAt }))
+}
+
+export function accountWeekLimit(account: IndexAccountUsage | null): IndexRateLimit | null {
+  const week = account?.limits.find(l => l.kind === 'seven_day')
+  return week ? { usedPercentage: week.usedPercentage, resetsAt: week.resetsAt } : null
 }
 
 export function serializeSharedLimits(limits: SharedLimits): string {

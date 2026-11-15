@@ -31,6 +31,7 @@ import { worktreeLines } from './panels/worktrees'
 export {
   CHART_HEIGHT,
   CONTEXT_PICK,
+  COPY_PICK,
   DETAIL_PICK,
   EFFORTS,
   FOLDER_PICK,
@@ -42,6 +43,7 @@ export {
   USAGE_DAYS,
 } from './panels/constants'
 export { padTo, sectionWidth } from './panels/kit'
+export { sessionCopyText } from './panels/session'
 
 export type RowItem = {
   text: string
@@ -97,7 +99,7 @@ export function mainStep(liveModel: string, step: IndexAgentStep | undefined, se
   return { model, effort: step?.effort ?? savedEffortFor(settings, model) }
 }
 
-export type Choices = {
+type Choices = {
   model: string
   effort: IndexEffort | undefined
   modelIsDefault: boolean

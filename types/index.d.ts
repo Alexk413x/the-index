@@ -44,6 +44,7 @@ export type IndexTotals = {
 export type IndexRateLimit = {
   usedPercentage: number
   resetsAt: number
+  resets?: number
 }
 
 export type IndexNamedLimit = IndexRateLimit & { kind: string }
@@ -252,7 +253,7 @@ export type IndexWeekUsage = {
 export type IndexUsageSummary = {
   days: readonly IndexDayTotal[]
   allTokens: number
-  allCostUsd: number
+  allCostUsd: number | null
   since: string | null
   week?: IndexWeekUsage
 }
@@ -292,7 +293,7 @@ export type IndexSessionTotals = {
   costPerLine: number | null
 }
 
-export type IndexHover = { panel: IndexPanel; closing: boolean }
+export type IndexHover = { panel: IndexPanel }
 
 declare module 'claude-code' {
   interface PluginState {

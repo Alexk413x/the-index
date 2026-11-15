@@ -2,10 +2,10 @@ import { atom, read, update } from 'claude-code'
 import type { EngineInterface, Timer, SessionContextBreakdown, SessionContextUsage, SessionCost, SessionRateLimit, SessionUsage, TurnStepInput, TurnStepResult } from 'claude-code'
 
 import type { IndexContextPoint, IndexDayTotal, IndexNamedLimit, IndexRateLimit, IndexTurnRecord, IndexUsage } from '../types'
-import { EMPTY_TOTALS, createdLines, mergeRateLimit, modelWindowLabel, nextChangeMs, patchLineCounts, type Config } from './lib/format'
+import { EMPTY_TOTALS, createdLines, mergeRateLimit, modelWindowLabel, nextChangeMs, parseLimitTracks, patchLineCounts, resetsOf, trackLimit, type Config, type LimitReading, type LimitTrack, type TimedLimit } from './lib/format'
 import { USAGE_DAYS } from './lib/panels'
-import { accountModelLimits, isRecord, parseAccountCache, parseAccountUsage, parseJson, parseSharedLimits, serializeSharedLimits } from './lib/git'
-import { MAIN_AGENT, dayKey, summarize, type LedgerEntry, partKey, modelKey } from './lib/ledger'
+import { accountAskedAt, accountModelLimits, accountWeekLimit, isRecord, parseAccountCache, parseAccountUsage, parseJson, parseSharedLimits, serializeSharedLimits, type SharedLimits } from './lib/git'
+import { MAIN_AGENT, dayKey, summarize, type LedgerEntry, type LedgerPart, partKey, modelKey } from './lib/ledger'
 import { KEEP_MONTHS, SHARE_DIR, TOTALS_DIR, isMonth, ledgerOf, monthKey, monthTotal, monthsBack, parseMonthTotal, parseSessionFile, previousMonth, serializeMonthTotal, serializeSessionFile, sessionFileName, splitByMonth, sessionLogOf, usageLogOf, type SessionFile } from './lib/share'
 import { HISTORY_MS, turnToRecord, turnWeekOf } from './lib/turns'
 import { callKind } from './lib/detail'
@@ -35,6 +35,7 @@ const CONTEXT_LOG_MAX = 500
 const ACCOUNT_USAGE_URL = 'https://api.anthropic.com/api/oauth/usage'
 const ACCOUNT_USAGE_BETA = 'oauth-2025-04-20'
 const ACCOUNT_CACHE = 'the-index/account-limits.json'
+const LIMIT_TRACKS = 'the-index/limit-resets.json'
 const ACCOUNT_FETCH_MS = 300_000
 const ACCOUNT_CHECK_MS = 60_000
 
@@ -50,18 +51,81 @@ function toLimit(rl: SessionRateLimit | undefined): IndexRateLimit | null {
   return { usedPercentage: rl.percentUsed, resetsAt: Number.isFinite(resetsAt) ? resetsAt : 0 }
 }
 
-let measuredLimits: IndexNamedLimit[] = []
+const ownLimits = new Map<string, { limit: IndexRateLimit; at: number }>()
 let accountLimits: IndexNamedLimit[] = []
+let accountWeek: IndexRateLimit | null = null
+let accountAt = 0
 let accountCheckedAt = 0
 
-function namedLimits(): IndexNamedLimit[] {
-  return [...measuredLimits, ...accountLimits.filter(a => !measuredLimits.some(m => m.kind === a.kind))]
+function noteOwnLimits(rateLimits: readonly SessionRateLimit[], at: number): void {
+  const kinds = new Set(rateLimits.map(r => r.kind))
+  for (const kind of [...ownLimits.keys()]) if (!kinds.has(kind)) ownLimits.delete(kind)
+  for (const r of rateLimits) {
+    const limit = toLimit(r)
+    if (limit && !same(ownLimits.get(r.kind)?.limit, limit)) ownLimits.set(r.kind, { limit, at })
+  }
+}
+
+// Every session reads and writes one file of windows and their counted resets. Each computes a count
+// from the reading the file holds, so two sessions that see one reset both write the same count.
+async function countResets($: EngineInterface, readings: ReadonlyMap<string, LimitReading>, now: number): Promise<Record<string, LimitTrack>> {
+  const path = `${await configDir($)}/${LIMIT_TRACKS}`
+  const saved = parseLimitTracks(await readJson($, path), now)
+  const tracks = { ...saved }
+  for (const [kind, reading] of readings) tracks[kind] = trackLimit(saved[kind], reading)
+  if (!same(saved, tracks)) await $.fs.write(path, JSON.stringify(tracks)).catch(() => undefined)
+  return tracks
+}
+
+// Shares claude-statusline-ratelimits.json with statusline.py: same path and
+// seconds-based shape, so the script and the band agree across open sessions.
+// The file holds no time of its own, so its modification time dates its readings.
+async function mergeWindows($: EngineInterface, now: number): Promise<UsageLimits> {
+  const sharedPath = `${await tempDir($)}/claude-statusline-ratelimits.json`
+  const [raw, sharedAt] = await Promise.all([
+    readJson($, sharedPath),
+    $.fs.stat(sharedPath).then(
+      st => st.mtimeMs,
+      () => 0,
+    ),
+  ])
+  const shared = parseSharedLimits(raw)
+  const readings = new Map<string, LimitReading>()
+  const merge = (kind: string, others: readonly TimedLimit[]) => {
+    const reading = mergeRateLimit([ownLimits.get(kind), ...others], now)
+    if (reading) readings.set(kind, reading)
+  }
+  merge('five_hour', [{ limit: shared.fiveHour, at: sharedAt }])
+  merge('seven_day', [{ limit: shared.sevenDay, at: sharedAt }, { limit: accountWeek, at: accountAt }])
+  const text = serializeSharedLimits({ fiveHour: readings.get('five_hour')?.limit ?? null, sevenDay: readings.get('seven_day')?.limit ?? null })
+  if (readings.size > 0 && text !== serializeSharedLimits(shared)) {
+    await $.fs.write(sharedPath, text).catch(() => undefined)
+  }
+  const named = [...new Set([...[...ownLimits.keys()].filter(kind => modelWindowLabel(kind) !== null), ...accountLimits.map(a => a.kind)])]
+  for (const kind of named) merge(kind, [{ limit: accountLimits.find(a => a.kind === kind), at: accountAt }])
+
+  const tracks = await countResets($, readings, now)
+  const counted = (kind: string): IndexRateLimit | null => {
+    const limit = readings.get(kind)?.limit
+    if (!limit) return null
+    const resets = resetsOf(tracks[kind], limit)
+    return { usedPercentage: limit.usedPercentage, resetsAt: limit.resetsAt, ...(resets > 0 ? { resets } : {}) }
+  }
+  return {
+    fiveHour: counted('five_hour'),
+    sevenDay: counted('seven_day'),
+    otherLimits: named.flatMap((kind): IndexNamedLimit[] => {
+      const limit = counted(kind)
+      return limit ? [{ kind, ...limit }] : []
+    }),
+  }
 }
 
 // The session's usage call carries no per-model weekly window; the account's usage endpoint does.
 // The host sets the credential header from the handle, so the token never reaches this module.
-// Every session shares one cache file. A session asks the account only when the file is older than
+// Every session shares one cache file. A session asks the account only when the last ask is older than
 // ACCOUNT_FETCH_MS, and stamps the file before it asks, so sessions that check meanwhile read the file.
+// The stamp is askedAt: fetchedAt stays the time of the reply the file holds, which dates its readings.
 export async function refreshAccountLimits($: EngineInterface): Promise<void> {
   const now = await $.clock.now()
   if (now - accountCheckedAt < ACCOUNT_CHECK_MS) return
@@ -70,10 +134,10 @@ export async function refreshAccountLimits($: EngineInterface): Promise<void> {
     const path = `${await configDir($)}/${ACCOUNT_CACHE}`
     const saved = await readJson($, path)
     let account = parseAccountCache(saved)
-    if (!account || now - account.fetchedAt >= ACCOUNT_FETCH_MS) {
+    if (now - accountAskedAt(saved) >= ACCOUNT_FETCH_MS) {
       const grant = await $.session.authorize()
       if (grant?.kind !== 'bearer') return
-      await $.fs.write(path, JSON.stringify({ fetchedAt: now, reply: isRecord(saved) ? saved['reply'] : null }))
+      await $.fs.write(path, JSON.stringify({ fetchedAt: account?.fetchedAt ?? 0, askedAt: now, reply: isRecord(saved) ? saved['reply'] : null }))
       const res = await $.http.fetch(ACCOUNT_USAGE_URL, { auth: grant.handle, headers: { 'anthropic-beta': ACCOUNT_USAGE_BETA } })
       if (!res.ok) return
       const reply = parseJson(res.text)
@@ -81,51 +145,55 @@ export async function refreshAccountLimits($: EngineInterface): Promise<void> {
       if (!account) return
       await $.fs.write(path, JSON.stringify({ fetchedAt: now, reply }))
     }
+    if (!account) return
     accountLimits = accountModelLimits(account)
+    accountWeek = accountWeekLimit(account)
+    accountAt = account.fetchedAt
     if (!same(await read($, accountUsage), account)) await update($, accountUsage, () => account)
   } catch {
     return
   }
-  const otherLimits = namedLimits()
+  const limits = await mergeWindows($, now)
+  const withLimits = (held: IndexUsage): IndexUsage => usageOf(held, limits)
   const before = await read($, usage)
-  if (before && !same(before.otherLimits ?? [], otherLimits)) await update($, usage, prev => (prev ? { ...prev, otherLimits } : prev))
+  if (before && !same(before, withLimits(before))) await update($, usage, prev => (prev ? withLimits(prev) : prev))
 }
 
-// Shares claude-statusline-ratelimits.json with statusline.py: same path and
-// seconds-based shape, so the script and the band agree across open sessions.
-export async function recordUsage($: EngineInterface, m: Measured): Promise<void> {
-  const sharedPath = `${await tempDir($)}/claude-statusline-ratelimits.json`
-  const shared = parseSharedLimits(await readJson($, sharedPath))
-  const fiveHour = mergeRateLimit([toLimit(m.rateLimits.find(r => r.kind === 'five_hour')), shared.fiveHour])
-  const sevenDay = mergeRateLimit([toLimit(m.rateLimits.find(r => r.kind === 'seven_day')), shared.sevenDay])
-  measuredLimits = m.rateLimits.flatMap((r): IndexNamedLimit[] => {
-    const limit = modelWindowLabel(r.kind) ? toLimit(r) : null
-    return limit ? [{ kind: r.kind, ...limit }] : []
-  })
-  const otherLimits = namedLimits()
-  const text = serializeSharedLimits({ fiveHour, sevenDay })
-  if ((fiveHour || sevenDay) && text !== serializeSharedLimits(shared)) {
-    await $.fs.write(sharedPath, text).catch(() => undefined)
+type UsageFigures = Pick<IndexUsage, 'startedAt' | 'contextPercent' | 'contextTokens' | 'costUsd' | 'compactions'>
+type UsageLimits = SharedLimits & { otherLimits: readonly IndexNamedLimit[] }
+
+// One key order for every writer: same() compares the serialized text.
+function usageOf(figures: UsageFigures, limits: UsageLimits): IndexUsage {
+  return {
+    startedAt: figures.startedAt,
+    contextPercent: figures.contextPercent,
+    contextTokens: figures.contextTokens,
+    costUsd: figures.costUsd,
+    fiveHour: limits.fiveHour,
+    sevenDay: limits.sevenDay,
+    ...(limits.otherLimits.length ? { otherLimits: limits.otherLimits } : {}),
+    compactions: figures.compactions,
   }
+}
+
+// A reading from a measure event is dated then. The reading at session start has no known age, so any dated one outranks it.
+export async function recordUsage($: EngineInterface, m: Measured, isMeasured: boolean): Promise<void> {
+  const [detailShown, log, now] = await Promise.all([read($, detailOpen), read($, contextLog), $.clock.now()])
+  noteOwnLimits(m.rateLimits, isMeasured ? now : 0)
+  const limits = await mergeWindows($, now)
 
   const pct = m.context.percent ?? null
   const compaction = pct === null ? undefined : pendingCompaction
   if (pct !== null) pendingCompaction = undefined
-  const [detailShown, log, now] = await Promise.all([read($, detailOpen), read($, contextLog), $.clock.now()])
   const unchanged = (p: IndexContextPoint | undefined) => p !== undefined && p.percent === pct && p.tokens === (m.context.tokens ?? null) && !compaction
   const wantsParts = pct !== null && !unchanged(log.at(-1))
   const measured = await usageNow($, detailShown || wantsParts)
   const breakdown = measured.context.breakdown
-  const fresh = (compactions: number): IndexUsage => ({
-    startedAt: measured.startedAt,
-    contextPercent: pct,
-    contextTokens: m.context.tokens ?? null,
-    costUsd: m.cost?.usd ?? null,
-    fiveHour,
-    sevenDay,
-    ...(otherLimits.length ? { otherLimits } : {}),
-    compactions,
-  })
+  const fresh = (compactions: number): IndexUsage =>
+    usageOf(
+      { startedAt: measured.startedAt, contextPercent: pct, contextTokens: m.context.tokens ?? null, costUsd: m.cost?.usd ?? null, compactions },
+      limits,
+    )
   const before = await read($, usage)
   if (!same(before, fresh(before?.compactions ?? 0))) await update($, usage, prev => fresh(prev?.compactions ?? 0))
   if ((await read($, contextLimit))?.window !== m.context.window) {
@@ -134,6 +202,7 @@ export async function recordUsage($: EngineInterface, m: Measured): Promise<void
   if (detailShown && breakdown) await refreshContextDetail($, false, breakdown)
   if (pct === null) return
   const parts = wantsParts && breakdown ? partsOf(breakdown) : undefined
+  if (unchanged((await read($, contextLog)).at(-1))) return
   await update($, contextLog, prev => {
     const last = prev[prev.length - 1]
     if (unchanged(last)) return prev
@@ -172,7 +241,8 @@ export async function refreshCompactThreshold($: EngineInterface): Promise<void>
     const measured = await $.session.usage({ breakdown: 'summary' })
     const breakdown = measured.context.breakdown
     const threshold = breakdown?.isAutoCompactEnabled ? (breakdown.autoCompactThreshold ?? null) : null
-    await update($, contextLimit, () => ({ window: measured.context.window, threshold }))
+    const limit = { window: measured.context.window, threshold }
+    if (!same(await read($, contextLimit), limit)) await update($, contextLimit, () => limit)
   } catch {
     // Without a bound session the breakdown rejects; the chart then draws no threshold line.
   }
@@ -294,7 +364,7 @@ async function syncLedgerOnce($: EngineInterface): Promise<void> {
   const mineRecent = recent.flatMap(m => (mine[m] ? [mine[m]] : []))
   const summary = summarize(ledgerOf([...others, ...mineRecent]), dayKey(now), USAGE_DAYS, [...closedMonths.values()].flat())
   if (!same(await read($, usageSummary), summary)) await update($, usageSummary, () => summary)
-  // Only the open Details pane reads the logs, so a closed pane keeps none in state.
+  // Only the open Details pane reads the logs, so none are built for a closed one.
   const logs = (await read($, detailOpen)) ? usageLogOf([...others, ...Object.values(mine)], Object.fromEntries(closedMonths)) : []
   if (!same(await read($, usageLogs), logs)) await update($, usageLogs, () => logs)
   turnsOthers = others.flatMap(f => f.turns).filter(t => now - t.at <= HISTORY_MS)
@@ -309,12 +379,24 @@ function resumedEntry(saved: LedgerEntry, live: LedgerEntry | undefined): Ledger
     for (const [key, tokens] of Object.entries(b ?? {})) out[key] = (out[key] ?? 0) + tokens
     return out
   }
+  const parts: Record<string, LedgerPart> = { ...saved.parts }
+  for (const [key, part] of Object.entries(live.parts ?? {})) {
+    const held = parts[key]
+    parts[key] = held
+      ? {
+          tokens: held.tokens + part.tokens,
+          costUsd: held.costUsd === null || part.costUsd === null ? null : held.costUsd + part.costUsd,
+          ...(held.turns === undefined || part.turns === undefined ? {} : { turns: held.turns + part.turns }),
+        }
+      : part
+  }
   return {
     tokens: saved.tokens + live.tokens,
     costStart: saved.costStart,
     costEnd: live.costEnd ?? saved.costEnd,
     agents: added(saved.agents, live.agents),
     models: added(saved.models, live.models),
+    ...(Object.keys(parts).length ? { parts } : {}),
   }
 }
 

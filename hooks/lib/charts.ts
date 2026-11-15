@@ -1,6 +1,6 @@
 import type { RowItem } from './panels'
 
-export type Series = { values: readonly number[]; color: string; max?: number }
+type Series = { values: readonly number[]; color: string; max?: number }
 
 const BRAILLE_BASE = 0x2800
 // Braille dot bits by [column][row from the top] of a 2×4 cell.
@@ -68,7 +68,7 @@ function cellsToItems(cells: readonly Cell[], blank: string): RowItem[] {
   return items
 }
 
-export type PointTag = { id: string; detail: string }
+type PointTag = { id: string; detail: string }
 
 function cellTags(tags: readonly (PointTag | null)[], width: number, columns?: readonly number[]): (PointTag | null)[] {
   const out: (PointTag | null)[] = Array.from({ length: width }, () => null)
@@ -196,7 +196,7 @@ export function stackedBars(bars: readonly (StackedBar | null)[], barWidth: numb
   return rows
 }
 
-export type Mark = { char: string; color: string; id: string; detail: string }
+type Mark = { char: string; color: string; id: string; detail: string }
 
 export function markColumns(marks: readonly (Mark | null)[], barWidth: number, blank: string): RowItem[] {
   const cells: Cell[] = []
@@ -211,7 +211,7 @@ export function markColumns(marks: readonly (Mark | null)[], barWidth: number, b
   return cellsToItems(cells, blank)
 }
 
-export type ColumnBar = { value: number; color: string; id: string; detail: string }
+type ColumnBar = { value: number; color: string; id: string; detail: string }
 
 export function columnBars(bars: readonly ColumnBar[], slots: number, barWidth: number, height: number, blank: string): RowItem[][] {
   const shown = bars.slice(-slots)
@@ -261,7 +261,7 @@ export function barChart(
   return lines
 }
 
-export type ReadingBucket = { column: number; indexes: number[] }
+type ReadingBucket = { column: number; indexes: number[] }
 
 // Places readings in dot columns, the newest at the last column and each earlier one `step` columns
 // left. Once that overruns the width, the spacing shrinks to fit and readings that share a column

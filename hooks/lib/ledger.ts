@@ -27,7 +27,7 @@ export function partKey(agent: string, model: string, effort: string): string {
   return [agent, model, effort].join('\t')
 }
 
-export const WEEK_DAYS = 7
+const WEEK_DAYS = 7
 export const MAIN_AGENT = 'main'
 export type Ledger = Record<string, Record<string, LedgerEntry>>
 
@@ -81,7 +81,7 @@ export function summarize(ledger: Ledger, today: string, dayCount: number, archi
   const dates = Object.keys(ledger).sort()
   const since = [...dates, ...archived.map(day => day.date)].sort()[0] ?? null
   let allTokens = archived.reduce((sum, day) => sum + day.tokens, 0)
-  let allCostUsd = archived.reduce((sum, day) => sum + (day.costUsd ?? 0), 0)
+  let allCostUsd = archived.reduce<number | null>((sum, day) => (day.costUsd === null ? sum : (sum ?? 0) + day.costUsd), null)
   // Early in a month after a short one, the chart's first days fall in a month that has passed.
   const byDate = new Map<string, IndexDayTotal>(archived.map(day => [day.date, day]))
   for (const date of dates) {
@@ -93,7 +93,7 @@ export function summarize(ledger: Ledger, today: string, dayCount: number, archi
       if (cost !== null) costUsd = (costUsd ?? 0) + cost
     }
     allTokens += tokens
-    allCostUsd += costUsd ?? 0
+    if (costUsd !== null) allCostUsd = (allCostUsd ?? 0) + costUsd
     byDate.set(date, { date, tokens, costUsd })
   }
   const days: IndexDayTotal[] = []
@@ -104,7 +104,6 @@ export function summarize(ledger: Ledger, today: string, dayCount: number, archi
   }
   return { days, allTokens, allCostUsd, since, week: weekUsage(ledger, days.slice(-WEEK_DAYS).map(day => day.date)) }
 }
-
 
 function weekUsage(ledger: Ledger, dates: readonly string[]): IndexWeekUsage {
   const models = new Map<string, number>()

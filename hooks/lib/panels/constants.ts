@@ -7,5 +7,6 @@ export const GIT_LINES_HALF = 2
 export const USAGE_DAYS = 30
 export const FOLDER_PICK = 'folder:'
 export const MESSAGES_PICK = 'messages'
+export const COPY_PICK = 'copy:'
 export const CONTEXT_PICK = 'context:'
 export const DETAIL_PICK = 'detail'

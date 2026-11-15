@@ -6,9 +6,11 @@ import {
   MIDDLE_WIDTH,
   ROW_GAP,
   TITLE_WIDTH,
+  COPY_PICK,
   FOLDER_PICK,
   MESSAGES_PICK,
   knownModels,
+  sessionCopyText,
   transcriptTitle,
   currentChoices,
   mainStep,
@@ -204,7 +206,7 @@ describe('row layout', () => {
     expect(plain.map(l => l[0]?.text)).toEqual(['Name', 'Session', 'Agent', 'Folder'])
     expect(plain[2]?.map(i => i.text.trim())).toEqual(['Agent', 'none'])
     expect(plain[1]?.at(-1)?.text).toBe('started 09:05')
-    expect(plain[1]?.find(i => i.pick === 'name')).toMatchObject({ text: expect.stringContaining(HOST.sessionName) })
+    expect(plain[1]?.find(i => i.pick === `${COPY_PICK}name`)).toMatchObject({ text: expect.stringContaining(HOST.sessionName) })
     const linked = panelLines(
       'session',
       view({ host: { ...HOST, agent: 'reviewer', bridged: true, bridgeId: 'cse_1', messages: true }, agentColor: 'blue', attached: 2, startedAt: 0 }),
@@ -222,6 +224,25 @@ describe('row layout', () => {
     const rows = panelLines('session', view({ host: { ...HOST, title: 'Fix the band', messages: true } }))
     expect(rows[0]?.map(i => i.text.trim())).toEqual(['Name', 'Fix the band', 'Open Messages'])
     expect(rows[0]?.at(-1)).toMatchObject({ pick: MESSAGES_PICK })
+  })
+
+  test('the title, session name, session id and Remote id each copy their own value', () => {
+    const host = { ...HOST, title: 'Fix the band', bridged: true, bridgeId: 'cse_1' }
+    const picks = panelLines('session', view({ host }))
+      .flat()
+      .flatMap(i => (i.pick?.startsWith(COPY_PICK) ? [[i.pick, i.text]] : []))
+    expect(picks).toEqual([
+      [`${COPY_PICK}title`, 'Fix the band'],
+      [`${COPY_PICK}name`, 'peer'],
+      [`${COPY_PICK}id`, 'abc'],
+      [`${COPY_PICK}remote`, 'cse_1'],
+    ])
+    for (const [pick, text] of picks) expect(sessionCopyText(host, pick ?? '')).toBe(text)
+    expect(sessionCopyText(host, `${COPY_PICK}cwd`)).toBe('')
+    expect(sessionCopyText(host, 'title')).toBe('')
+    expect(sessionCopyText(null, `${COPY_PICK}id`)).toBe('')
+    const bare = panelLines('session', view({ host: { ...HOST, sessionName: '', sessionId: '' } })).flat()
+    expect(bare.some(i => i.pick?.startsWith(COPY_PICK))).toBe(false)
   })
 
   test('the transcript title is the last rename, else the last generated title', () => {
