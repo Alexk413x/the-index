@@ -70,7 +70,7 @@ function engine(on: On) {
                 totalTokens: 24_000,
                 maxTokens: 200_000,
                 categories: [{ name: 'Messages', tokens: 20_000, isDeferred: false, kind: 'used' }],
-                memoryFiles: [{ path: 'C:/work/app/CLAUDE.md', type: 'Project', tokens: 700 }],
+                memoryFiles: [{ path: '/work/app/CLAUDE.md', type: 'Project', tokens: 700 }],
                 mcpTools: [],
                 agents: [],
               },
@@ -123,7 +123,7 @@ type StartOptions = {
 }
 
 async function startSession($: { session: { start: (e: never) => Promise<unknown> } }, on: On, opts: StartOptions = {}) {
-  const cwd = opts.cwd ?? 'C:/work/app'
+  const cwd = opts.cwd ?? '/work/app'
   on('session.start', () => ({ cwd }))
   on('command.register', () => ({ value: {} }) as never)
   on('session.cwd', () => ({ value: cwd }))
@@ -136,12 +136,12 @@ async function startSession($: { session: { start: (e: never) => Promise<unknown
       value: { exitCode: r.exitCode ?? 1, stdout: r.stdout ?? '', stderr: '', isStdoutTruncated: false, isStderrTruncated: false },
     }
   })
-  mock.env(on, opts.env ?? { USERPROFILE: 'C:/nobody' })
+  mock.env(on, opts.env ?? { USERPROFILE: '/nobody' })
   const entry = (name: string) => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })
   on('fs.list', ($, e) => {
-    const path = String((e as { path?: string }).path).replace(/\\/g, '/')
+    const path = String((e as { path?: string }).path).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
     if (opts.sessionFile !== undefined && /sessions$/.test(path)) return { value: [entry('1.json')] } as never
-    if (path === 'C:/nobody/.claude/agents') return { value: Object.keys(opts.files ?? {}).filter(n => n.endsWith('.md')).map(entry) } as never
+    if (path === '/nobody/.claude/agents') return { value: Object.keys(opts.files ?? {}).filter(n => n.endsWith('.md')).map(entry) } as never
     const under = Object.keys(opts.paths ?? {}).filter(p => p.startsWith(`${path}/`) && !p.slice(path.length + 1).includes('/'))
     if (under.length) return { value: under.map(p => ({ ...entry(p.slice(path.length + 1)), size: opts.paths?.[p]?.length ?? 0 })) } as never
     const dir = opts.dirs?.[path]
@@ -149,13 +149,13 @@ async function startSession($: { session: { start: (e: never) => Promise<unknown
     return { value: [] }
   })
   on('fs.stat', ($, e) => {
-    const path = String((e as { path?: string }).path).replace(/\\/g, '/')
+    const path = String((e as { path?: string }).path).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
     if (opts.paths?.[path] !== undefined) return { value: { kind: 'file', size: 0, mtimeMs: 0, isLink: false } } as never
     if (opts.dirs?.[path]) return { value: { kind: 'dir', size: 0, mtimeMs: 0, isLink: false } } as never
     throw new Error(`ENOENT ${path}`)
   })
   on('fs.read', ($, e) => {
-    const path = String((e as { path?: string }).path).replace(/\\/g, '/')
+    const path = String((e as { path?: string }).path).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
     const exact = opts.paths?.[path]
     if (exact !== undefined) return { value: exact }
     const file = Object.entries(opts.files ?? {}).find(([name]) => path.endsWith(`/${name}`))
@@ -464,7 +464,7 @@ test('clicking the folder name opens it in the file manager', async ($, on) => {
     '-Command',
     '(New-Object -ComObject Shell.Application).Open($env:THE_INDEX_OPEN)',
   ])
-  expect(envs).toContainEqual({ THE_INDEX_OPEN: 'C:\\work\\app' })
+  expect(envs).toContainEqual({ THE_INDEX_OPEN: '\\work\\app' })
 })
 
 test('rows keep their place: a new pin goes to the bottom, an unpinned row stays put until it hides', async ($, on) => {
@@ -544,7 +544,7 @@ test('the harness name lists agent-tabs harnesses and a pick opens one in a new 
   expect(items.filter(i => i.pick).map(i => i.text)).toEqual(['Claude Code', 'Codex'])
   await band.post({ pick: 'codex', target: 'main' }, { in: 'harness-row' })
   await band.unmount()
-  expect(calls).toContainEqual(expect.objectContaining({ tool: 'open_tab', args: { agent: 'codex', path: 'C:/work/app' } }))
+  expect(calls).toContainEqual(expect.objectContaining({ tool: 'open_tab', args: { agent: 'codex', path: '/work/app' } }))
 })
 
 test('default has its own column, is orange when in use, and a pick runs the default', async ($, on) => {
@@ -755,11 +755,11 @@ test('off Windows the folder opens with open, then xdg-open, and a failure says 
   })
   const band = await $.ui.mount({ plugin: 'the-index', surface: 'terminal', component: 'AbovePrompt', props: props() })
   await band.post({ press: true }, { in: 'project-chip' })
-  expect(runs).toEqual(['open C:/work/app', 'xdg-open C:/work/app'])
+  expect(runs).toEqual(['open /work/app', 'xdg-open /work/app'])
   expect(toasts.join('')).not.toContain('Could not open')
   opens = false
   await band.post({ press: true }, { in: 'project-chip' })
-  expect(toasts.join('')).toContain('Could not open C:/work/app')
+  expect(toasts.join('')).toContain('Could not open /work/app')
   await band.unmount()
 })
 
@@ -853,7 +853,7 @@ test('a finished turn joins the saved history, and the Δ and Σ sections open t
   const writes: { path: string; text: string }[] = []
   on('fs.write', ($, e) => {
     const w = e as { path: string; text: string }
-    writes.push({ path: w.path.replace(/\\/g, '/'), text: w.text })
+    writes.push({ path: w.path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, ''), text: w.text })
     return { value: undefined } as never
   })
   await startSession($, on)
@@ -862,7 +862,7 @@ test('a finished turn joins the saved history, and the Δ and Σ sections open t
   await $.turn.complete({ turnId: 't', answer: '', durationMs: 1, isAborted: false, reason: 'answer' } as never)
   await clock.advance(5100)
   const saved = writes.filter(w => w.path.endsWith('/abc.json')).at(-1)
-  expect(saved?.path).toBe(`C:/nobody/.claude/the-index/usage/${monthKey(START)}/abc.json`)
+  expect(saved?.path).toBe(`/nobody/.claude/the-index/usage/${monthKey(START)}/abc.json`)
   expect((JSON.parse(saved?.text ?? '{}') as { turns: { id: string; session: string; tokens: number }[] }).turns).toEqual([
     expect.objectContaining({ id: 't', session: 'abc', tokens: 20_400 }),
   ])
@@ -890,13 +890,13 @@ test('each step adds to the shared usage file, and hovering the rate limits char
   const writes: { path: string; text: string }[] = []
   on('fs.write', ($, e) => {
     const w = e as { path: string; text: string }
-    writes.push({ path: w.path.replace(/\\/g, '/'), text: w.text })
+    writes.push({ path: w.path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, ''), text: w.text })
     return { value: undefined } as never
   })
   const today = new Date(START + 60_000)
   const day = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`
   const other = JSON.stringify({ version: 1, session: 'other', name: 'peer', days: { [day]: { tokens: 1_000_000, costStart: 0, costEnd: 2 } }, turns: [] })
-  const shareDir = `C:/nobody/.claude/the-index/usage/${day.slice(0, 7)}`
+  const shareDir = `/nobody/.claude/the-index/usage/${day.slice(0, 7)}`
   await startSession($, on, { paths: { [`${shareDir}/other.json`]: other } })
   await step($, 'claude-opus-5-5', 'high')
   await step($, 'claude-sonnet-5-5', 'low', 'a1')
@@ -1067,7 +1067,7 @@ test('after a /clear the new session writes its own share of the files, without 
   const files = new Map<string, string>()
   on('fs.write', ($, e) => {
     const w = e as { path: string; text: string }
-    files.set(w.path.replace(/\\/g, '/').split('/').pop() ?? '', w.text)
+    files.set(w.path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '').split('/').pop() ?? '', w.text)
     return { value: undefined } as never
   })
   await startSession($, on, { store: files })
@@ -1148,22 +1148,22 @@ test('a folder of repos that is not a repo itself shows no worktree count and ru
   engine(on)
   const runs: (readonly string[])[] = []
   await startSession($, on, {
-    cwd: 'C:/work',
+    cwd: '/work',
     run: argv => {
       runs.push(argv)
       return { exitCode: 128 }
     },
     dirs: {
-      'C:/work': ['app', 'app-feat', 'notes'],
-      'C:/work/app/.git': ['worktrees'],
-      'C:/work/app/.git/worktrees': ['feat', 'fix'],
+      '/work': ['app', 'app-feat', 'notes'],
+      '/work/app/.git': ['worktrees'],
+      '/work/app/.git/worktrees': ['feat', 'fix'],
     },
     paths: {
-      'C:/work/app-feat/.git': 'gitdir: C:/work/app/.git/worktrees/feat',
-      'C:/work/app/.git/worktrees/feat/commondir': '../..',
-      'C:/work/app/.git/worktrees/feat/gitdir': 'C:/work/app-feat/.git',
-      'C:/work/app/.git/worktrees/feat/HEAD': 'ref: refs/heads/feat/x',
-      'C:/work/app/.git/worktrees/fix/gitdir': 'D:/gone/.git',
+      '/work/app-feat/.git': 'gitdir: /work/app/.git/worktrees/feat',
+      '/work/app/.git/worktrees/feat/commondir': '../..',
+      '/work/app/.git/worktrees/feat/gitdir': '/work/app-feat/.git',
+      '/work/app/.git/worktrees/feat/HEAD': 'ref: refs/heads/feat/x',
+      '/work/app/.git/worktrees/fix/gitdir': 'D:/gone/.git',
     },
   })
   await clock.advance(10)
@@ -1172,7 +1172,7 @@ test('a folder of repos that is not a repo itself shows no worktree count and ru
   await band.unmount()
   expect(text).toContain('□ work')
   expect(text).not.toContain('⑂')
-  expect(runs.filter(argv => argv[0] === 'git' && argv[2] !== 'C:/work')).toEqual([])
+  expect(runs.filter(argv => argv[0] === 'git' && argv[2] !== '/work')).toEqual([])
   for (const argv of runs.filter(a => a[0] === 'git')) {
     expect(argv).toContain('core.fsmonitor=false')
     expect(argv).toContain('--no-optional-locks')
