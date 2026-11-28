@@ -4,9 +4,9 @@ import type { On } from 'claude-code'
 import { monthKey, monthsBack } from '../hooks/lib/share'
 
 const START = 1_800_000_000_000
-const REPO = 'C:/work/app'
-const SHARE = `C:/nobody/.claude/the-index/usage/${monthKey(START)}`
-const TRANSCRIPT = 'C:/nobody/.claude/projects/C--work-app/abc.jsonl'
+const REPO = '/work/app'
+const SHARE = `/nobody/.claude/the-index/usage/${monthKey(START)}`
+const TRANSCRIPT = '/nobody/.claude/projects/-work-app/abc.jsonl'
 
 type Calls = { usage: number; breakdown: number; reads: Map<string, number>; writes: Map<string, number>; runs: { argv: readonly string[]; env?: Record<string, string> }[] }
 
@@ -18,7 +18,7 @@ function harness(on: On): Harness {
   const sizes = new Map<string, number>()
   const clock = mock.clock(on, { now: START })
   const count = (map: Map<string, number>, key: string) => map.set(key, (map.get(key) ?? 0) + 1)
-  const slash = (e: unknown) => String((e as { path?: string }).path).replace(/\\/g, '/')
+  const slash = (e: unknown) => String((e as { path?: string }).path).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
 
   on('ui.render', ($, e) => {
     const { Text } = $.ui.resolve(e)
@@ -69,7 +69,7 @@ function harness(on: On): Harness {
       usage: { model: e.model, input_tokens: 10, output_tokens: 200, cache_read_input_tokens: 9000, cache_creation_input_tokens: 990 },
     }
   })
-  mock.env(on, { USERPROFILE: 'C:/nobody' })
+  mock.env(on, { USERPROFILE: '/nobody' })
   const entry = (name: string) => ({ name, kind: 'file', size: 0, mtimeMs: 0, isLink: false })
   on('fs.list', ($, e) => {
     const dir = slash(e)
@@ -95,7 +95,7 @@ function harness(on: On): Harness {
   })
   on('fs.write', ($, e) => {
     const w = e as { path: string; text: string }
-    const path = w.path.replace(/\\/g, '/')
+    const path = w.path.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
     count(calls.writes, path)
     files.set(path, w.text)
     return { value: undefined } as never
@@ -147,7 +147,7 @@ test('a new context reading asks for the usage once, with the breakdown its cate
 
 test('a transcript over 4 MiB keeps the title the last prompt carried', async ($, on) => {
   const h = harness(on)
-  h.files.set('C:/nobody/.claude/sessions/1.json', JSON.stringify({ sessionId: 'abc', name: 'peer' }))
+  h.files.set('/nobody/.claude/sessions/1.json', JSON.stringify({ sessionId: 'abc', name: 'peer' }))
   h.files.set(TRANSCRIPT, '{"type":"ai-title","aiTitle":"Old"}\n')
   h.sizes.set(TRANSCRIPT, 5 * 1024 * 1024)
   await start($)
@@ -158,7 +158,7 @@ test('a transcript over 4 MiB keeps the title the last prompt carried', async ($
 
 test('the transcript is read again only when it changed', async ($, on) => {
   const h = harness(on)
-  h.files.set('C:/nobody/.claude/sessions/1.json', JSON.stringify({ sessionId: 'abc', name: 'peer' }))
+  h.files.set('/nobody/.claude/sessions/1.json', JSON.stringify({ sessionId: 'abc', name: 'peer' }))
   h.files.set(TRANSCRIPT, '{"type":"ai-title","aiTitle":"Small"}\n')
   await start($)
   await sessionRow($)
@@ -168,14 +168,14 @@ test('the transcript is read again only when it changed', async ($, on) => {
 
 test("once found, the session's own file is the only session file read", async ($, on) => {
   const h = harness(on)
-  h.files.set('C:/nobody/.claude/sessions/1.json', JSON.stringify({ sessionId: 'other', name: 'x' }))
-  h.files.set('C:/nobody/.claude/sessions/2.json', JSON.stringify({ sessionId: 'abc', name: 'peer' }))
-  h.files.set('C:/nobody/.claude/sessions/3.json', JSON.stringify({ sessionId: 'third', name: 'y' }))
+  h.files.set('/nobody/.claude/sessions/1.json', JSON.stringify({ sessionId: 'other', name: 'x' }))
+  h.files.set('/nobody/.claude/sessions/2.json', JSON.stringify({ sessionId: 'abc', name: 'peer' }))
+  h.files.set('/nobody/.claude/sessions/3.json', JSON.stringify({ sessionId: 'third', name: 'y' }))
   await start($)
   await h.clock.advance(3 * 61_000)
-  expect(h.calls.reads.get('C:/nobody/.claude/sessions/1.json')).toBe(1)
-  expect(h.calls.reads.get('C:/nobody/.claude/sessions/3.json') ?? 0).toBeLessThanOrEqual(1)
-  expect(h.calls.reads.get('C:/nobody/.claude/sessions/2.json')).toBeGreaterThan(1)
+  expect(h.calls.reads.get('/nobody/.claude/sessions/1.json')).toBe(1)
+  expect(h.calls.reads.get('/nobody/.claude/sessions/3.json') ?? 0).toBeLessThanOrEqual(1)
+  expect(h.calls.reads.get('/nobody/.claude/sessions/2.json')).toBeGreaterThan(1)
 })
 
 test('the shared usage file is written when a step adds to it, not on a sync with nothing new', async ($, on) => {
@@ -231,7 +231,7 @@ test('a resumed session adds to the file it left', async ($, on) => {
 
 test('a passed month keeps its day totals, and its folder goes after three more months', async ($, on) => {
   const h = harness(on)
-  const root = 'C:/nobody/.claude/the-index/usage'
+  const root = '/nobody/.claude/the-index/usage'
   const file = (date: string) => JSON.stringify({ version: 1, session: 'old', name: 'old', days: { [date]: { tokens: 700, costStart: 0, costEnd: 1 } }, turns: [] })
   const kept = monthsBack(monthKey(START), 2)
   const gone = monthsBack(monthKey(START), 4)
@@ -241,9 +241,9 @@ test('a passed month keeps its day totals, and its folder goes after three more 
   await h.clock.advance(1)
   expect(JSON.parse(h.files.get(`${root}/totals/${kept}.json`) ?? '{}')).toEqual({ version: 1, days: [{ date: `${kept}-10`, tokens: 700, costUsd: 1 }] })
   expect(JSON.parse(h.files.get(`${root}/totals/${gone}.json`) ?? '{}')).toEqual({ version: 1, days: [{ date: `${gone}-10`, tokens: 700, costUsd: 1 }] })
-  const removals = h.calls.runs.filter(r => [...r.argv, ...Object.values(r.env ?? {})].some(text => text.replace(/\\/g, '/').endsWith(`/the-index/usage/${gone}`)))
+  const removals = h.calls.runs.filter(r => [...r.argv, ...Object.values(r.env ?? {})].some(text => text.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '').endsWith(`/the-index/usage/${gone}`)))
   expect(removals).toHaveLength(1)
-  expect(h.calls.runs.some(r => [...r.argv, ...Object.values(r.env ?? {})].some(text => text.replace(/\\/g, '/').endsWith(`/the-index/usage/${kept}`)))).toBe(false)
+  expect(h.calls.runs.some(r => [...r.argv, ...Object.values(r.env ?? {})].some(text => text.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '').endsWith(`/the-index/usage/${kept}`)))).toBe(false)
   await h.clock.advance(300_000)
-  expect(h.calls.runs.filter(r => r === removals[0] || [...r.argv, ...Object.values(r.env ?? {})].some(text => text.replace(/\\/g, '/').endsWith(`/the-index/usage/${gone}`)))).toHaveLength(1)
+  expect(h.calls.runs.filter(r => r === removals[0] || [...r.argv, ...Object.values(r.env ?? {})].some(text => text.replace(/\\/g, '/').replace(/^[A-Za-z]:/, '').endsWith(`/the-index/usage/${gone}`)))).toHaveLength(1)
 })

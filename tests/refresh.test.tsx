@@ -2,7 +2,7 @@ import { expect, mock, test, type MockClock, type TestBody } from 'claude-code/t
 import type { On } from 'claude-code'
 
 const START = 1_800_000_000_000
-const REPO = 'C:/work/app'
+const REPO = '/work/app'
 
 type Repo = {
   branch: string
@@ -47,13 +47,13 @@ function harness(on: On): Harness {
   on('session.id', () => ({ value: 'abc' }))
   on('session.version', () => ({ value: { version: '2.1.288' } }) as never)
   on('tool.call', () => ({ result: {} }) as never)
-  mock.env(on, { USERPROFILE: 'C:/nobody' })
+  mock.env(on, { USERPROFILE: '/nobody' })
   on('fs.list', () => ({ value: [] }))
   on('fs.read', ($, e) => {
     throw new Error(`ENOENT ${String((e as { path?: string }).path)}`)
   })
   on('fs.stat', ($, e) => {
-    const path = String((e as { path?: string }).path).replace(/\\/g, '/')
+    const path = String((e as { path?: string }).path).replace(/\\/g, '/').replace(/^[A-Za-z]:/, '')
     const mtimeMs = mtimes.get(path)
     if (mtimeMs === undefined) throw new Error(`ENOENT ${path}`)
     return { value: { kind: 'file', size: 0, mtimeMs, isLink: false } } as never
@@ -229,11 +229,11 @@ test('an edit made outside the session, which touches nothing in .git, shows wit
 test('after the session moves to another worktree, the poll watches that worktree', async ($, on) => {
   const h = harness(on)
   await start($)
-  h.cwd.value = 'C:/work/app-y'
+  h.cwd.value = '/work/app-y'
   await h.clock.advance(11_000)
   expect(await band($)).toContain('other/y')
   const before = statusRuns(h)
-  h.touch('C:/work/app-y/.git/HEAD')
+  h.touch('/work/app-y/.git/HEAD')
   await h.clock.advance(11_000)
   expect(statusRuns(h)).toBeGreaterThan(before)
 })
